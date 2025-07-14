@@ -96,7 +96,7 @@ UIS.InputEnded:Connect(function(input)
 	if animTrack2 then animTrack2:Stop() end
 
 	-- Begin drift-run mode
-	humanoid.WalkSpeed = 75
+	humanoid.WalkSpeed = 100
 	humanoid.AutoRotate = false
 	running = true
 
@@ -117,16 +117,16 @@ UIS.InputEnded:Connect(function(input)
 			return
 		end
 
-		-- Drift logic: mostly forward, limited sideways
+		-- Drift logic: mostly forward, slightly easier left/right
 		local forward = hrp.CFrame.LookVector
 		local right = hrp.CFrame.RightVector
 		local moveVec = forward
 
 		if UIS:IsKeyDown(Enum.KeyCode.A) then
-			moveVec -= right * 0.2
+			moveVec -= right * 0.35
 		end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then
-			moveVec += right * 0.2
+			moveVec += right * 0.35
 		end
 
 		humanoid:Move(moveVec.Unit, false)
