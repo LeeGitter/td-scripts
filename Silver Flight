@@ -12,10 +12,10 @@ local cooldownTime = 35
 local cooldownRemaining = 0
 
 local totalFlyTime = 6
-local maxSpeed = -100 -- downward
-local acceleration = -20 -- studs/sec²
+local baseWalkSpeed = 16
+local maxWalkSpeed = 75
+local speedIncreaseRate = 20 -- studs/sec
 
-local bv
 local staminaGui
 local staminaBar
 local cooldownGui
@@ -129,17 +129,10 @@ end
 local function stopFly()
 	if flying then
 		flying = false
-		if bv then
-			bv:Destroy()
-			bv = nil
-		end
-		if conn then
-			conn:Disconnect()
-			conn = nil
-		end
-
+		humanoid.WalkSpeed = baseWalkSpeed
+		if conn then conn:Disconnect() end
+		conn = nil
 		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-
 		clearStaminaGui()
 		startCooldown()
 	end
@@ -156,15 +149,8 @@ local function startFly()
 
 	humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 
-	bv = Instance.new("BodyVelocity")
-	bv.Name = "FloatVelocity"
-	bv.MaxForce = Vector3.new(0, 1e5, 0)
-	bv.P = 5000
-	bv.Velocity = Vector3.new(0, 0, 0)
-	bv.Parent = hrp
-
 	local remainingTime = totalFlyTime
-	local currentSpeed = 0
+	local currentSpeed = baseWalkSpeed
 
 	if not staminaGui then
 		staminaGui = Instance.new("ScreenGui")
@@ -176,14 +162,9 @@ local function startFly()
 	end
 
 	conn = RunService.RenderStepped:Connect(function(dt)
-		if not flying then
-			conn:Disconnect()
-			return
-		end
+		if not flying then return end
 
 		if humanoid.FloorMaterial ~= Enum.Material.Air then
-			remainingTime = 0
-			staminaBar.Size = UDim2.new(1, 0, 0, 0)
 			stopFly()
 			return
 		end
@@ -193,23 +174,20 @@ local function startFly()
 			drainRate = math.max(drainRate - 0.5 * dt, 0)
 		end
 		remainingTime -= drainRate
-
 		staminaBar.Size = UDim2.new(1, 0, math.clamp(remainingTime / totalFlyTime, 0, 1), 0)
 
 		if remainingTime <= 0 then
-			remainingTime = 0
-			staminaBar.Size = UDim2.new(1, 0, 0, 0)
 			stopFly()
 			return
 		end
 
 		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			currentSpeed = math.max(currentSpeed + (acceleration * dt), maxSpeed)
-			bv.Velocity = Vector3.new(0, currentSpeed, 0)
+			currentSpeed = math.min(currentSpeed + speedIncreaseRate * dt, maxWalkSpeed)
 		else
-			currentSpeed = 0
-			bv.Velocity = Vector3.new(0, 0, 0)
+			currentSpeed = baseWalkSpeed
 		end
+
+		humanoid.WalkSpeed = currentSpeed
 	end)
 end
 
