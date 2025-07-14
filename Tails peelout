@@ -68,13 +68,11 @@ UIS.InputBegan:Connect(function(input, gpe)
 		RunService.RenderStepped:Wait()
 		timeHeld = tick() - startTime
 
-		-- Ramp 1x → 2x on anim1
 		if timeHeld <= 2.5 then
 			local speed = 1 + (1 * (timeHeld / 2.5))
 			if animTrack1 then animTrack1:AdjustSpeed(speed) end
 		end
 
-		-- Switch to anim2
 		if timeHeld > 2.5 and animTrack1 then
 			animTrack1:Stop()
 			animTrack1 = nil
@@ -82,13 +80,11 @@ UIS.InputBegan:Connect(function(input, gpe)
 			animTrack2:Play()
 		end
 
-		-- anim2 ramp 1x → 2x
 		if timeHeld > 2.5 and timeHeld <= 4 and animTrack2 then
 			local speed = 1 + ((timeHeld - 2.5) / 1.5)
 			animTrack2:AdjustSpeed(speed)
 		end
 
-		-- Begin 4x period after 3.5s
 		if timeHeld > 3.5 and animTrack2 then
 			animTrack2:AdjustSpeed(4)
 			if not fourXStartTime then
@@ -118,8 +114,7 @@ UIS.InputEnded:Connect(function(input)
 
 	startCooldown(25)
 
-	-- Start spoofed dash
-	local spoofSpeed = 100
+	-- Start spoofed dash using BodyVelocity
 	local runTime = 5
 	local decayStart = 3.5
 	local decayDuration = runTime - decayStart
@@ -132,6 +127,12 @@ UIS.InputEnded:Connect(function(input)
 	runAnimTrack:Play()
 	runAnimTrack:AdjustSpeed(4)
 
+	local bodyVel = Instance.new("BodyVelocity")
+	bodyVel.MaxForce = Vector3.new(1e5, 0, 1e5)
+	bodyVel.P = 1500
+	bodyVel.Velocity = Vector3.zero
+	bodyVel.Parent = hrp
+
 	local driftConn
 	driftConn = RunService.RenderStepped:Connect(function(dt)
 		if not running then driftConn:Disconnect() return end
@@ -139,13 +140,13 @@ UIS.InputEnded:Connect(function(input)
 		local elapsed = tick() - startTime
 		if elapsed >= runTime then
 			running = false
+			bodyVel:Destroy()
 			humanoid.AutoRotate = true
 			if runAnimTrack then runAnimTrack:Stop() end
 			driftConn:Disconnect()
 			return
 		end
 
-		-- Animate anim2 decay from 4x → 1x
 		if runAnimTrack then
 			if elapsed <= decayStart then
 				runAnimTrack:AdjustSpeed(4)
@@ -156,7 +157,6 @@ UIS.InputEnded:Connect(function(input)
 			end
 		end
 
-		-- Camera-based movement input
 		local camCF = Camera.CFrame
 		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
 		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
@@ -177,12 +177,11 @@ UIS.InputEnded:Connect(function(input)
 			moveVec = moveVec.Unit
 		end
 
-		-- Smooth drift control
 		currentDir = currentDir:Lerp(moveVec, 0.05)
 
-		-- ✅ Spoofed real movement
-		humanoid:Move(currentDir, false)
-		hrp.CFrame = hrp.CFrame + currentDir * spoofSpeed * dt
+		-- 🔧 Use BodyVelocity to simulate spoofed dash
+		local targetSpeed = 70
+		bodyVel.Velocity = currentDir * targetSpeed
 
 		-- Face direction
 		local newLook = hrp.Position + currentDir
@@ -190,7 +189,7 @@ UIS.InputEnded:Connect(function(input)
 	end)
 end)
 
--- Character reset
+-- Reset on respawn
 player.CharacterAdded:Connect(function(char)
 	character = char
 	humanoid = char:WaitForChild("Humanoid")
