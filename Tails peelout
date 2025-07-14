@@ -1,6 +1,7 @@
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local Camera = workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -63,9 +64,9 @@ UIS.InputBegan:Connect(function(input, gpe)
 		RunService.RenderStepped:Wait()
 		timeHeld = tick() - startTime
 
-		-- First anim speed ramp
+		-- First anim speed ramp (1x to 2x)
 		if timeHeld <= 2.5 then
-			local speed = 1 + (2 * (timeHeld / 2.5))
+			local speed = 1 + (1 * (timeHeld / 2.5))
 			if animTrack1 then animTrack1:AdjustSpeed(speed) end
 		end
 
@@ -77,7 +78,7 @@ UIS.InputBegan:Connect(function(input, gpe)
 			animTrack2:Play()
 		end
 
-		-- Second anim speed ramp
+		-- Second anim speed ramp (1x to 2x)
 		if timeHeld > 2.5 and timeHeld <= 4 and animTrack2 then
 			local speed = 1 + ((timeHeld - 2.5) / 1.5)
 			animTrack2:AdjustSpeed(speed)
@@ -100,7 +101,6 @@ UIS.InputEnded:Connect(function(input)
 	humanoid.AutoRotate = false
 	running = true
 
-	-- Play run animation at 4x speed
 	runAnimTrack = humanoid:LoadAnimation(anim2)
 	runAnimTrack:Play()
 	runAnimTrack:AdjustSpeed(4)
@@ -110,6 +110,7 @@ UIS.InputEnded:Connect(function(input)
 	local decayStart = 3.5
 	local decayDuration = runTime - decayStart
 	local startTime = tick()
+	local currentDir = hrp.CFrame.LookVector
 
 	driftConn = RunService.RenderStepped:Connect(function()
 		if not running then driftConn:Disconnect() return end
@@ -124,7 +125,7 @@ UIS.InputEnded:Connect(function(input)
 			return
 		end
 
-		-- Adjust animation speed: hold at 4x, then decay to 1x
+		-- Animate decay from 4x to 1x
 		if runAnimTrack then
 			if elapsed <= decayStart then
 				runAnimTrack:AdjustSpeed(4)
@@ -135,24 +136,41 @@ UIS.InputEnded:Connect(function(input)
 			end
 		end
 
-		-- Drift logic with easier control and rotation
-		local forward = hrp.CFrame.LookVector
-		local right = hrp.CFrame.RightVector
-		local moveVec = forward
+		-- Get camera basis vectors flattened on XZ plane
+		local camCF = Camera.CFrame
+		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
+		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
 
+		-- Normalize to avoid zero length
+		forward = forward.Magnitude > 0 and forward.Unit or Vector3.new(0, 0, -1)
+		right = right.Magnitude > 0 and right.Unit or Vector3.new(1, 0, 0)
+
+		-- Movement input vector from keys
+		local moveVec = Vector3.new(0, 0, 0)
+		if UIS:IsKeyDown(Enum.KeyCode.W) then
+			moveVec += forward
+		end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then
-			moveVec -= right * 0.55
+			moveVec -= right
 		end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then
-			moveVec += right * 0.55
+			moveVec += right
 		end
 
-		moveVec = moveVec.Unit
-		humanoid:Move(moveVec, false)
+		-- If no input, default forward
+		if moveVec.Magnitude == 0 then
+			moveVec = forward
+		else
+			moveVec = moveVec.Unit
+		end
 
-		-- Rotate body toward movement direction
-		local lookCFrame = CFrame.new(hrp.Position, hrp.Position + moveVec)
-		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(lookCFrame.LookVector.X, 0, lookCFrame.LookVector.Z) + hrp.Position)
+		-- Smoothly lerp drift direction to input direction
+		currentDir = currentDir:Lerp(moveVec, 0.1)
+
+		-- Move humanoid and rotate character to face drift direction
+		humanoid:Move(currentDir, false)
+		local lookAt = CFrame.new(hrp.Position, hrp.Position + currentDir)
+		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(lookAt.LookVector.X, 0, lookAt.LookVector.Z) + hrp.Position)
 	end)
 end)
 
