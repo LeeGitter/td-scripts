@@ -180,12 +180,13 @@ UIS.InputEnded:Connect(function(input)
 		-- Smooth drift control
 		currentDir = currentDir:Lerp(moveVec, 0.05)
 
-		-- Spoofed dash movement
-		humanoid:Move(currentDir * spoofSpeed * dt, false)
+		-- ✅ Spoofed real movement
+		humanoid:Move(currentDir, false)
+		hrp.CFrame = hrp.CFrame + currentDir * spoofSpeed * dt
 
 		-- Face direction
-		local lookAt = CFrame.new(hrp.Position, hrp.Position + currentDir)
-		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(lookAt.LookVector.X, 0, lookAt.LookVector.Z) + hrp.Position)
+		local newLook = hrp.Position + currentDir
+		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(newLook.X, hrp.Position.Y, newLook.Z))
 	end)
 end)
 
