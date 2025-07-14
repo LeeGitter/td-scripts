@@ -46,19 +46,18 @@ local function startCooldown(seconds)
 	end)()
 end
 
-local fourXStartTime = nil -- tracks when 4x speed starts
+local fourXStartTime = nil
 local fourXTimeAccumulated = 0
 
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
 
-	-- Begin charge
 	holding = true
 	timeHeld = 0
 	fourXStartTime = nil
 	fourXTimeAccumulated = 0
-	humanoid.WalkSpeed = 0
 	humanoid.AutoRotate = false
+	humanoid.WalkSpeed = 0
 
 	animTrack1 = humanoid:LoadAnimation(anim1)
 	animTrack1:Play()
@@ -69,13 +68,13 @@ UIS.InputBegan:Connect(function(input, gpe)
 		RunService.RenderStepped:Wait()
 		timeHeld = tick() - startTime
 
-		-- First anim speed ramp (1x to 2x)
+		-- Ramp 1x → 2x on anim1
 		if timeHeld <= 2.5 then
 			local speed = 1 + (1 * (timeHeld / 2.5))
 			if animTrack1 then animTrack1:AdjustSpeed(speed) end
 		end
 
-		-- Switch to second animation
+		-- Switch to anim2
 		if timeHeld > 2.5 and animTrack1 then
 			animTrack1:Stop()
 			animTrack1 = nil
@@ -83,13 +82,13 @@ UIS.InputBegan:Connect(function(input, gpe)
 			animTrack2:Play()
 		end
 
-		-- Second anim speed ramp (1x to 2x)
+		-- anim2 ramp 1x → 2x
 		if timeHeld > 2.5 and timeHeld <= 4 and animTrack2 then
 			local speed = 1 + ((timeHeld - 2.5) / 1.5)
 			animTrack2:AdjustSpeed(speed)
 		end
 
-		-- 4x speed starts at 3.5s in
+		-- Begin 4x period after 3.5s
 		if timeHeld > 3.5 and animTrack2 then
 			animTrack2:AdjustSpeed(4)
 			if not fourXStartTime then
@@ -103,7 +102,6 @@ end)
 UIS.InputEnded:Connect(function(input)
 	if input.KeyCode ~= Enum.KeyCode.T or not holding then return end
 
-	-- End charge
 	holding = false
 
 	if animTrack1 then animTrack1:Stop() end
@@ -120,8 +118,13 @@ UIS.InputEnded:Connect(function(input)
 
 	startCooldown(25)
 
-	-- Begin drift-run mode
-	humanoid.WalkSpeed = 100
+	-- Start spoofed dash
+	local spoofSpeed = 100
+	local runTime = 5
+	local decayStart = 3.5
+	local decayDuration = runTime - decayStart
+	local startTime = tick()
+	local currentDir = hrp.CFrame.LookVector
 	humanoid.AutoRotate = false
 	running = true
 
@@ -130,26 +133,19 @@ UIS.InputEnded:Connect(function(input)
 	runAnimTrack:AdjustSpeed(4)
 
 	local driftConn
-	local runTime = 5
-	local decayStart = 3.5
-	local decayDuration = runTime - decayStart
-	local startTime = tick()
-	local currentDir = hrp.CFrame.LookVector
-
-	driftConn = RunService.RenderStepped:Connect(function()
+	driftConn = RunService.RenderStepped:Connect(function(dt)
 		if not running then driftConn:Disconnect() return end
 
 		local elapsed = tick() - startTime
 		if elapsed >= runTime then
 			running = false
-			humanoid.WalkSpeed = 16
 			humanoid.AutoRotate = true
 			if runAnimTrack then runAnimTrack:Stop() end
 			driftConn:Disconnect()
 			return
 		end
 
-		-- Animate decay from 4x to 1x
+		-- Animate anim2 decay from 4x → 1x
 		if runAnimTrack then
 			if elapsed <= decayStart then
 				runAnimTrack:AdjustSpeed(4)
@@ -160,17 +156,12 @@ UIS.InputEnded:Connect(function(input)
 			end
 		end
 
-		-- Get camera basis vectors flattened on XZ plane
+		-- Camera-based movement input
 		local camCF = Camera.CFrame
-		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
-		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
+		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 
-		-- Normalize to avoid zero length
-		forward = forward.Magnitude > 0 and forward.Unit or Vector3.new(0, 0, -1)
-		right = right.Magnitude > 0 and right.Unit or Vector3.new(1, 0, 0)
-
-		-- Movement input vector from keys
-		local moveVec = Vector3.new(0, 0, 0)
+		local moveVec = Vector3.zero
 		if UIS:IsKeyDown(Enum.KeyCode.W) then
 			moveVec += forward
 		end
@@ -180,25 +171,25 @@ UIS.InputEnded:Connect(function(input)
 		if UIS:IsKeyDown(Enum.KeyCode.D) then
 			moveVec += right
 		end
-
-		-- If no input, default forward
 		if moveVec.Magnitude == 0 then
 			moveVec = forward
 		else
 			moveVec = moveVec.Unit
 		end
 
-		-- Smoothly lerp drift direction to input direction (half-easy drift)
+		-- Smooth drift control
 		currentDir = currentDir:Lerp(moveVec, 0.05)
 
-		-- Move humanoid and rotate character to face drift direction
-		humanoid:Move(currentDir, false)
+		-- Spoofed dash movement
+		humanoid:Move(currentDir * spoofSpeed * dt, false)
+
+		-- Face direction
 		local lookAt = CFrame.new(hrp.Position, hrp.Position + currentDir)
 		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(lookAt.LookVector.X, 0, lookAt.LookVector.Z) + hrp.Position)
 	end)
 end)
 
--- Reset on death
+-- Character reset
 player.CharacterAdded:Connect(function(char)
 	character = char
 	humanoid = char:WaitForChild("Humanoid")
