@@ -12,7 +12,7 @@ anim1.AnimationId = "rbxassetid://105660804989893"
 local anim2 = Instance.new("Animation")
 anim2.AnimationId = "rbxassetid://123691762461584"
 
-local animTrack1, animTrack2
+local animTrack1, animTrack2, runAnimTrack
 local holding = false
 local running = false
 local timeHeld = 0
@@ -100,8 +100,15 @@ UIS.InputEnded:Connect(function(input)
 	humanoid.AutoRotate = false
 	running = true
 
+	-- Play run animation at 4x speed
+	runAnimTrack = humanoid:LoadAnimation(anim2)
+	runAnimTrack:Play()
+	runAnimTrack:AdjustSpeed(4)
+
 	local driftConn
-	local runTime = 3
+	local runTime = 5
+	local decayStart = 3.5
+	local decayDuration = runTime - decayStart
 	local startTime = tick()
 
 	driftConn = RunService.RenderStepped:Connect(function()
@@ -109,27 +116,43 @@ UIS.InputEnded:Connect(function(input)
 
 		local elapsed = tick() - startTime
 		if elapsed >= runTime then
-			-- End run after 3 seconds
 			running = false
 			humanoid.WalkSpeed = 16
 			humanoid.AutoRotate = true
+			if runAnimTrack then runAnimTrack:Stop() end
 			driftConn:Disconnect()
 			return
 		end
 
-		-- Drift logic: mostly forward, slightly easier left/right
+		-- Adjust animation speed: hold at 4x, then decay to 1x
+		if runAnimTrack then
+			if elapsed <= decayStart then
+				runAnimTrack:AdjustSpeed(4)
+			else
+				local progress = (elapsed - decayStart) / decayDuration
+				local speed = 4 - (3 * progress)
+				runAnimTrack:AdjustSpeed(math.clamp(speed, 1, 4))
+			end
+		end
+
+		-- Drift logic with easier control and rotation
 		local forward = hrp.CFrame.LookVector
 		local right = hrp.CFrame.RightVector
 		local moveVec = forward
 
 		if UIS:IsKeyDown(Enum.KeyCode.A) then
-			moveVec -= right * 0.35
+			moveVec -= right * 0.55
 		end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then
-			moveVec += right * 0.35
+			moveVec += right * 0.55
 		end
 
-		humanoid:Move(moveVec.Unit, false)
+		moveVec = moveVec.Unit
+		humanoid:Move(moveVec, false)
+
+		-- Rotate body toward movement direction
+		local lookCFrame = CFrame.new(hrp.Position, hrp.Position + moveVec)
+		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(lookCFrame.LookVector.X, 0, lookCFrame.LookVector.Z) + hrp.Position)
 	end)
 end)
 
