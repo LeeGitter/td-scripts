@@ -1,0 +1,145 @@
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+local anim1 = Instance.new("Animation")
+anim1.AnimationId = "rbxassetid://105660804989893"
+local anim2 = Instance.new("Animation")
+anim2.AnimationId = "rbxassetid://123691762461584"
+
+local animTrack1, animTrack2
+local holding = false
+local running = false
+local timeHeld = 0
+local cooldown = false
+local cooldownTime = 25
+
+-- GUI Setup
+local cooldownGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+cooldownGui.Name = "DriftCooldownGui"
+local cooldownLabel = Instance.new("TextLabel", cooldownGui)
+cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
+cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
+cooldownLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+cooldownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+cooldownLabel.Font = Enum.Font.Code
+cooldownLabel.TextSize = 14
+cooldownLabel.Text = "Ready"
+
+local function startCooldown()
+	cooldown = true
+	local t = cooldownTime
+	coroutine.wrap(function()
+		while t > 0 do
+			cooldownLabel.Text = string.format("%.1f", t)
+			RunService.Heartbeat:Wait()
+			t -= RunService.Heartbeat:Wait()
+		end
+		cooldown = false
+		cooldownLabel.Text = "Ready"
+	end)()
+end
+
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
+
+	-- Begin charge
+	holding = true
+	timeHeld = 0
+	humanoid.WalkSpeed = 0
+	humanoid.AutoRotate = false
+
+	animTrack1 = humanoid:LoadAnimation(anim1)
+	animTrack1:Play()
+	animTrack1:AdjustSpeed(1)
+
+	local startTime = tick()
+	while holding do
+		RunService.RenderStepped:Wait()
+		timeHeld = tick() - startTime
+
+		-- First anim speed ramp
+		if timeHeld <= 2.5 then
+			local speed = 1 + (2 * (timeHeld / 2.5))
+			if animTrack1 then animTrack1:AdjustSpeed(speed) end
+		end
+
+		-- Switch to second animation
+		if timeHeld > 2.5 and animTrack1 then
+			animTrack1:Stop()
+			animTrack1 = nil
+			animTrack2 = humanoid:LoadAnimation(anim2)
+			animTrack2:Play()
+		end
+
+		-- Second anim speed ramp
+		if timeHeld > 2.5 and timeHeld <= 4 and animTrack2 then
+			local speed = 1 + ((timeHeld - 2.5) / 1.5)
+			animTrack2:AdjustSpeed(speed)
+		end
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.KeyCode ~= Enum.KeyCode.T or not holding then return end
+
+	-- End charge
+	holding = false
+	startCooldown()
+
+	if animTrack1 then animTrack1:Stop() end
+	if animTrack2 then animTrack2:Stop() end
+
+	-- Begin drift-run mode
+	humanoid.WalkSpeed = 75
+	humanoid.AutoRotate = false
+	running = true
+
+	local driftConn
+	local runTime = 3
+	local startTime = tick()
+
+	driftConn = RunService.RenderStepped:Connect(function()
+		if not running then driftConn:Disconnect() return end
+
+		local elapsed = tick() - startTime
+		if elapsed >= runTime then
+			-- End run after 3 seconds
+			running = false
+			humanoid.WalkSpeed = 16
+			humanoid.AutoRotate = true
+			driftConn:Disconnect()
+			return
+		end
+
+		-- Drift logic: mostly forward, limited sideways
+		local forward = hrp.CFrame.LookVector
+		local right = hrp.CFrame.RightVector
+		local moveVec = forward
+
+		if UIS:IsKeyDown(Enum.KeyCode.A) then
+			moveVec -= right * 0.2
+		end
+		if UIS:IsKeyDown(Enum.KeyCode.D) then
+			moveVec += right * 0.2
+		end
+
+		humanoid:Move(moveVec.Unit, false)
+	end)
+end)
+
+-- Reset on death
+player.CharacterAdded:Connect(function(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+	hrp = char:WaitForChild("HumanoidRootPart")
+	holding = false
+	running = false
+	humanoid.WalkSpeed = 16
+	humanoid.AutoRotate = true
+end)
