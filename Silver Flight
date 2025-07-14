@@ -51,7 +51,7 @@ local function stopFly()
 	if conn then conn:Disconnect() end
 	if flyVel then flyVel:Destroy() end
 	humanoid.WalkSpeed = baseSpeed
-	staminaGui:Destroy()
+	if staminaGui then staminaGui:Destroy() end
 	cooldown = true
 	local t = cooldownTime
 	coroutine.wrap(function()
@@ -97,11 +97,11 @@ local function startFly()
 		if UIS:IsKeyDown(Enum.KeyCode.Space) then
 			stamina -= (dt * 0.5)
 			currentSpeed = math.min(currentSpeed + boostRate * dt, speedBoost)
-			flyVel.Velocity = Vector3.new(0, -10, 0)
+			flyVel.Velocity = Vector3.new(0, -3, 0) -- gentle descent
 		else
 			stamina -= dt
 			currentSpeed = baseSpeed
-			flyVel.Velocity = Vector3.new(0, 0, 0)
+			flyVel.Velocity = Vector3.new(0, 0, 0) -- hover
 		end
 
 		humanoid.WalkSpeed = currentSpeed
@@ -113,7 +113,7 @@ local function startFly()
 	end)
 end
 
--- Connect
+-- Bind
 UIS.InputBegan:Connect(function(i, gpe)
 	if gpe then return end
 	if i.KeyCode == Enum.KeyCode.T then
