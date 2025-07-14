@@ -32,19 +32,22 @@ cooldownLabel.Font = Enum.Font.Code
 cooldownLabel.TextSize = 14
 cooldownLabel.Text = "Ready"
 
-local function startCooldown()
+local function startCooldown(seconds)
 	cooldown = true
-	local t = cooldownTime
+	local start = tick()
 	coroutine.wrap(function()
-		while t > 0 do
-			cooldownLabel.Text = string.format("%.1f", t)
+		while tick() - start < seconds do
+			local remaining = seconds - (tick() - start)
+			cooldownLabel.Text = string.format("%.1f", remaining)
 			RunService.Heartbeat:Wait()
-			t -= RunService.Heartbeat:Wait()
 		end
 		cooldown = false
 		cooldownLabel.Text = "Ready"
 	end)()
 end
+
+local fourXStartTime = nil -- tracks when 4x speed starts
+local fourXTimeAccumulated = 0
 
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
@@ -52,6 +55,8 @@ UIS.InputBegan:Connect(function(input, gpe)
 	-- Begin charge
 	holding = true
 	timeHeld = 0
+	fourXStartTime = nil
+	fourXTimeAccumulated = 0
 	humanoid.WalkSpeed = 0
 	humanoid.AutoRotate = false
 
@@ -83,6 +88,15 @@ UIS.InputBegan:Connect(function(input, gpe)
 			local speed = 1 + ((timeHeld - 2.5) / 1.5)
 			animTrack2:AdjustSpeed(speed)
 		end
+
+		-- 4x speed starts at 3.5s in
+		if timeHeld > 3.5 and animTrack2 then
+			animTrack2:AdjustSpeed(4)
+			if not fourXStartTime then
+				fourXStartTime = tick()
+			end
+			fourXTimeAccumulated = tick() - fourXStartTime
+		end
 	end
 end)
 
@@ -91,10 +105,20 @@ UIS.InputEnded:Connect(function(input)
 
 	-- End charge
 	holding = false
-	startCooldown()
 
 	if animTrack1 then animTrack1:Stop() end
 	if animTrack2 then animTrack2:Stop() end
+
+	local allowDash = fourXTimeAccumulated >= 1
+
+	if not allowDash then
+		startCooldown(10)
+		humanoid.WalkSpeed = 16
+		humanoid.AutoRotate = true
+		return
+	end
+
+	startCooldown(25)
 
 	-- Begin drift-run mode
 	humanoid.WalkSpeed = 100
@@ -164,7 +188,7 @@ UIS.InputEnded:Connect(function(input)
 			moveVec = moveVec.Unit
 		end
 
-		-- Smoothly lerp drift direction to input direction (half as easy drifting)
+		-- Smoothly lerp drift direction to input direction (half-easy drift)
 		currentDir = currentDir:Lerp(moveVec, 0.05)
 
 		-- Move humanoid and rotate character to face drift direction
