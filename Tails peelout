@@ -164,8 +164,8 @@ UIS.InputEnded:Connect(function(input)
 			moveVec = moveVec.Unit
 		end
 
-		-- Smoothly lerp drift direction to input direction
-		currentDir = currentDir:Lerp(moveVec, 0.1)
+		-- Smoothly lerp drift direction to input direction (half as easy drifting)
+		currentDir = currentDir:Lerp(moveVec, 0.05)
 
 		-- Move humanoid and rotate character to face drift direction
 		humanoid:Move(currentDir, false)
