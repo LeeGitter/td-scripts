@@ -6,8 +6,8 @@ local Camera = workspace.CurrentCamera
 local player = Players.LocalPlayer
 local dashSpeed = 100
 local dashDuration = 3
-local animationId1 = "rbxassetid://136764958535157"
-local animationId2 = "rbxassetid://135934693058362"
+local animationIdCharge = "rbxassetid://136764958535157" -- Used for both hold & charge
+local animationIdDash = "rbxassetid://135934693058362"
 
 local character, humanoid, hrp
 local holding = false
@@ -88,7 +88,7 @@ local function beginDash()
 	humanoid.AutoRotate = false
 
 	local dashAnim = Instance.new("Animation")
-	dashAnim.AnimationId = animationId2
+	dashAnim.AnimationId = animationIdDash
 	local track = humanoid:LoadAnimation(dashAnim)
 	track:Play()
 	track:AdjustSpeed(3)
@@ -96,6 +96,9 @@ local function beginDash()
 	local startTime = tick()
 	local decayStart = 2.5
 	local decayEnd = dashDuration
+
+	local forwardDir = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z).Unit
+	local currentDir = forwardDir
 
 	boundDash = true
 	RunService:BindToRenderStep("ForceDash", Enum.RenderPriority.Character.Value + 1, function()
@@ -110,20 +113,22 @@ local function beginDash()
 			local pct = math.clamp((elapsed - decayStart) / (decayEnd - decayStart), 0, 1)
 			local speed = 3 - (2 * pct)
 			track:AdjustSpeed(speed)
+		else
+			track:AdjustSpeed(3)
 		end
 
-		-- Force forward movement
+		-- Forced forward motion with slight A/D steering
 		local camCF = Camera.CFrame
 		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
 		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 
-		local moveDir = forward
+		local moveDir = forwardDir -- forced base direction
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir -= right * 0.5 end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir += right * 0.5 end
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir += forward * 0.2 end
 
 		moveDir = moveDir.Unit
-		hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + moveDir)
+		currentDir = currentDir:Lerp(moveDir, 0.08)
+		hrp.CFrame = CFrame.new(hrp.Position + currentDir * (dashSpeed / 60), hrp.Position + currentDir)
 	end)
 end
 
@@ -137,24 +142,21 @@ local function connectControls()
 
 		if not cooldownGui then makeGui() end
 
-		local animHold = Instance.new("Animation")
-		animHold.AnimationId = animationId1
-		local trackHold = humanoid:LoadAnimation(animHold)
-		trackHold:Play()
-		trackHold:AdjustSpeed(1)
+		local anim = Instance.new("Animation")
+		anim.AnimationId = animationIdCharge
+		local track = humanoid:LoadAnimation(anim)
+		track:Play()
+		track:AdjustSpeed(1)
 
 		local t0 = tick()
 		local reached3x = false
-		local animSwitched = false
-		local trackCharge
 
 		local conn
 		conn = RunService.RenderStepped:Connect(function()
 			local elapsed = tick() - t0
 			if not holding then
 				conn:Disconnect()
-				if trackHold then trackHold:Stop() end
-				if trackCharge then trackCharge:Stop() end
+				if track then track:Stop() end
 
 				if reached3x then
 					startCooldown(25)
@@ -168,18 +170,11 @@ local function connectControls()
 			end
 
 			if elapsed <= 2.5 then
-				trackHold:AdjustSpeed(1 + elapsed / 2.5)
-			elseif not animSwitched then
-				trackHold:Stop()
-				animSwitched = true
-				local animCharge = Instance.new("Animation")
-				animCharge.AnimationId = animationId2
-				trackCharge = humanoid:LoadAnimation(animCharge)
-				trackCharge:Play()
+				track:AdjustSpeed(1 + elapsed / 2.5)
 			elseif elapsed <= 4 then
-				trackCharge:AdjustSpeed(1 + (elapsed - 2.5) / 1.5)
+				track:AdjustSpeed(1 + (elapsed - 2.5) / 1.5)
 			elseif elapsed >= 3.5 then
-				trackCharge:AdjustSpeed(3)
+				track:AdjustSpeed(3)
 				if elapsed - 3.5 >= 1 then
 					reached3x = true
 				end
