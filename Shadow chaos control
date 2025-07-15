@@ -26,7 +26,7 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawn R6 dummy with your appearance, but fully invisible, hide HRP
+-- Spawn R6 dummy with your appearance, fully invisible
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
@@ -35,7 +35,7 @@ local function spawnDummy(position)
 
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
-			part.Transparency = 1 -- Fully invisible
+			part.Transparency = 1
 			part.CanCollide = false
 			part.Material = Enum.Material.SmoothPlastic
 		end
@@ -62,16 +62,20 @@ local function spawnDummy(position)
 	return model
 end
 
--- Begin controlling the dummy
+-- Begin controlling dummy and keep player floating but NOT anchored
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Float and anchor player 3 studs up (visible)
-	hrp.Anchored = true
-	hrp.CFrame += Vector3.new(0, 3, 0)
+	-- Instead of anchoring, apply a BodyPosition to float player up 3 studs smoothly
+	local bodyPos = Instance.new("BodyPosition")
+	bodyPos.Name = "FloatingBodyPos"
+	bodyPos.MaxForce = Vector3.new(4000, 4000, 4000)
+	bodyPos.Position = hrp.Position + Vector3.new(0, 3, 0)
+	bodyPos.P = 1000
+	bodyPos.Parent = hrp
 
 	-- Spawn dummy and set camera
 	cloneSpawnPosition = hrp.Position - Vector3.new(0, 4, 0)
@@ -84,7 +88,7 @@ local function beginControl()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end -- flipped Z sign here
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
 		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
@@ -122,7 +126,7 @@ local function beginControl()
 	end)
 end
 
--- End control and walk the path normally with gradual acceleration to finish in <=8 seconds
+-- End control and walk path normally with smooth acceleration, and remove floating force
 local function endControl()
 	active = false
 
@@ -134,7 +138,12 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	hrp.Anchored = false
+	-- Remove BodyPosition used to float player
+	local bodyPos = hrp:FindFirstChild("FloatingBodyPos")
+	if bodyPos then
+		bodyPos:Destroy()
+	end
+
 	camera.CameraSubject = humanoid
 
 	if #path == 0 then
@@ -153,37 +162,32 @@ local function endControl()
 		return
 	end
 
-	-- Set max time and calculate necessary max speed
+	-- Max time and walk speed calculation
 	local maxTime = 8
-	local startSpeed = 8    -- starting walkspeed (slower than normal)
-	local maxSpeed = math.max(16, totalDist / maxTime) -- ensure reasonable max speed (at least 16)
+	local startSpeed = 8
+	local maxSpeed = math.max(16, totalDist / maxTime)
 	local elapsed = 0
 
 	coroutine.wrap(function()
 		for i = 1, #path do
 			local targetPos = path[i].Position + Vector3.new(0, 1, 0)
 			while (hrp.Position - targetPos).Magnitude > 1 do
-				local distToTarget = (hrp.Position - targetPos).Magnitude
-				-- Accelerate walkspeed linearly over time, capped at maxSpeed
 				local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
 				humanoid.WalkSpeed = currentSpeed
 
 				local direction = (targetPos - hrp.Position).Unit
 				humanoid:Move(direction, false)
 
-				-- Face direction of movement
-				hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + direction)
+				-- Don't manually set CFrame here to avoid physics issues
 
 				wait(0.03)
 				elapsed = math.min(elapsed + 0.03, maxTime)
 			end
-			-- Stop moving briefly before next point
 			humanoid:Move(Vector3.new(0, 0, 0), false)
 			wait(0.05)
 		end
 
-		-- Reset walkspeed and cleanup path
-		humanoid.WalkSpeed = 16 -- default walkspeed (adjust as needed)
+		humanoid.WalkSpeed = 16
 		humanoid:Move(Vector3.new(0, 0, 0), false)
 
 		for _, p in path do p:Destroy() end
