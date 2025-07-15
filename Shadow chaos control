@@ -70,10 +70,7 @@ local function beginControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Disable platform stand so character won't ragdoll
-	humanoid.PlatformStand = true
-
-	-- Apply upward BodyVelocity to float at ~3 studs above current pos
+	-- Float player gently by BodyVelocity upwards (no anchoring or platform stand)
 	local bodyVel = Instance.new("BodyVelocity")
 	bodyVel.Name = "FloatBodyVelocity"
 	bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
@@ -129,7 +126,7 @@ local function beginControl()
 	end)
 end
 
--- End control
+-- End control and walk path
 local function endControl()
 	active = false
 
@@ -141,12 +138,11 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Remove float BodyVelocity and restore PlatformStand
+	-- Remove BodyVelocity and restore normal physics
 	local bodyVel = hrp:FindFirstChild("FloatBodyVelocity")
 	if bodyVel then
 		bodyVel:Destroy()
 	end
-	humanoid.PlatformStand = false
 
 	camera.CameraSubject = humanoid
 
@@ -172,29 +168,34 @@ local function endControl()
 	local maxSpeed = math.max(16, totalDist / maxTime)
 	local elapsed = 0
 
-	coroutine.wrap(function()
-		for i = 1, #path do
-			local targetPos = path[i].Position + Vector3.new(0, 1, 0)
-			while (hrp.Position - targetPos).Magnitude > 1 do
-				local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
-				humanoid.WalkSpeed = currentSpeed
+	-- Stop current humanoid movement
+	humanoid:Move(Vector3.new(0,0,0), false)
+	humanoid.WalkSpeed = startSpeed
 
-				local direction = (targetPos - hrp.Position).Unit
-				humanoid:Move(direction, false)
+	for i = 1, #path do
+		local targetPos = path[i].Position + Vector3.new(0, 1, 0)
 
-				wait(0.03)
-				elapsed = math.min(elapsed + 0.03, maxTime)
-			end
-			humanoid:Move(Vector3.new(0, 0, 0), false)
-			wait(0.05)
+		-- Move towards each point
+		while (hrp.Position - targetPos).Magnitude > 1 do
+			local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
+			humanoid.WalkSpeed = currentSpeed
+
+			local direction = (targetPos - hrp.Position).Unit
+			humanoid:Move(direction, false)
+
+			wait(0.03)
+			elapsed = math.min(elapsed + 0.03, maxTime)
 		end
 
-		humanoid.WalkSpeed = 16
 		humanoid:Move(Vector3.new(0, 0, 0), false)
+		wait(0.05)
+	end
 
-		for _, p in path do p:Destroy() end
-		table.clear(path)
-	end)()
+	humanoid.WalkSpeed = 16
+	humanoid:Move(Vector3.new(0, 0, 0), false)
+
+	for _, p in path do p:Destroy() end
+	table.clear(path)
 end
 
 UIS.InputBegan:Connect(function(input, gameProcessed)
