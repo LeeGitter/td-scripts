@@ -1,137 +1,163 @@
-local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Camera = workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local root = character:WaitForChild("HumanoidRootPart")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Constants
-local DASH_ANIMATION_ID = "rbxassetid://135934693058362"
-local NORMAL_SPEED = 28
-local DASH_SPEED = 75
-local ACCEL_DURATION = 2
-local DASH_DURATION = 3
+local anim1 = Instance.new("Animation")
+anim1.AnimationId = "rbxassetid://136764958535157" -- hold anim start
+local anim2 = Instance.new("Animation")
+anim2.AnimationId = "rbxassetid://135934693058362" -- hold anim accel + dash anim
 
--- State
-local isCharging = false
-local isReadyToRelease = false
-local isDashing = false
-local animationTrack
+local animTrack1, animTrack2, runAnimTrack
+local holding = false
+local cooldown = false
+local cooldownGui, cooldownLabel
+local currentDir = Vector3.new(0, 0, -1)
+local fourXTimeAccumulated = 0
+local dashSpeed = 50
+local runTime = 4
+local decayStart = 3.5
+local decayDuration = runTime - decayStart
 
--- Load animation
-local dashAnim = Instance.new("Animation")
-dashAnim.AnimationId = DASH_ANIMATION_ID
+-- Creates cooldown UI
+local function makeGui()
+    if cooldownGui then return end
+    cooldownGui = Instance.new("ScreenGui")
+    cooldownGui.Name = "DashCooldownGui"
+    cooldownGui.ResetOnSpawn = false
+    cooldownGui.Parent = player:WaitForChild("PlayerGui")
 
-local function freezeCharacter()
-	humanoid.AutoRotate = false
-	humanoid.WalkSpeed = 0
-	root.AssemblyLinearVelocity = Vector3.zero
+    cooldownLabel = Instance.new("TextLabel", cooldownGui)
+    cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
+    cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
+    cooldownLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    cooldownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cooldownLabel.Font = Enum.Font.Code
+    cooldownLabel.TextSize = 14
+    cooldownLabel.Text = "Ready"
 end
 
-local function unfreezeCharacter()
-	humanoid.AutoRotate = true
-	humanoid.WalkSpeed = NORMAL_SPEED
+-- Starts cooldown timer on GUI
+local function startCooldown(duration)
+    cooldown = true
+    local start = tick()
+    coroutine.wrap(function()
+        while tick() - start < duration do
+            cooldownLabel.Text = string.format("%.1f", duration - (tick() - start))
+            RunService.Heartbeat:Wait()
+        end
+        cooldown = false
+        cooldownLabel.Text = "Ready"
+    end)()
 end
 
--- Handle Dash Start
-local function startDashMode()
-	isCharging = false
-	isReadyToRelease = false
-	isDashing = true
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
+    holding = true
+    humanoid.AutoRotate = false
+    humanoid.WalkSpeed = 0
+    fourXTimeAccumulated = 0
 
-	if animationTrack then
-		animationTrack:Stop()
-	end
+    if not cooldownGui then
+        makeGui()
+    end
 
-	-- Accelerate forward
-	local t0 = tick()
-	local accelConnection
-	accelConnection = RunService.RenderStepped:Connect(function()
-		local t = tick() - t0
-		if t <= ACCEL_DURATION then
-			local progress = math.clamp(t / ACCEL_DURATION, 0, 1)
-			local speed = DASH_SPEED * progress
-			local dir = workspace.CurrentCamera.CFrame.LookVector
-			root.AssemblyLinearVelocity = dir * speed
-		else
-			accelConnection:Disconnect()
-		end
-	end)
+    -- Start first hold animation at speed 1x
+    animTrack1 = humanoid:LoadAnimation(anim1)
+    animTrack1:Play()
+    animTrack1:AdjustSpeed(1)
 
-	task.wait(ACCEL_DURATION)
+    local holdStart = tick()
+    local tickConnection
+    tickConnection = RunService.RenderStepped:Connect(function()
+        if not holding then tickConnection:Disconnect() return end
+        local t = tick() - holdStart
 
-	humanoid.WalkSpeed = DASH_SPEED
-	humanoid.AutoRotate = false
-
-	local moveConnection
-	moveConnection = RunService.RenderStepped:Connect(function()
-		if not isDashing then
-			moveConnection:Disconnect()
-			return
-		end
-
-		local inputVector = Vector3.zero
-		if UserInputService:IsKeyDown(Enum.KeyCode.W) then inputVector += Vector3.new(0, 0, -1) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.S) then inputVector += Vector3.new(0, 0, 1) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.A) then inputVector += Vector3.new(-1, 0, 0) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.D) then inputVector += Vector3.new(1, 0, 0) end
-
-		if inputVector.Magnitude > 0 then
-			local cam = workspace.CurrentCamera.CFrame
-			local flatLook = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z).Unit
-			local flatRight = Vector3.new(cam.RightVector.X, 0, cam.RightVector.Z).Unit
-			local moveDir = (flatRight * inputVector.X + flatLook * inputVector.Z).Unit
-
-			local currentVel = root.AssemblyLinearVelocity
-			local forward = currentVel.Magnitude > 0 and currentVel.Unit or moveDir
-			local blended = forward:Lerp(moveDir, 0.05) * DASH_SPEED
-
-			root.AssemblyLinearVelocity = blended
-			root.CFrame = CFrame.new(root.Position, root.Position + blended)
-		end
-	end)
-
-	task.wait(DASH_DURATION)
-	isDashing = false
-	unfreezeCharacter()
-end
-
--- Handle T Press (start charge & animation)
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.T and not isCharging and not isDashing then
-		isCharging = true
-		isReadyToRelease = false
-		freezeCharacter()
-
-		-- Play animation
-		if animationTrack then animationTrack:Stop() end
-		animationTrack = humanoid:LoadAnimation(dashAnim)
-		animationTrack:Play()
-		animationTrack:AdjustSpeed(1)
-
-		-- Ramp up animation speed over 2 seconds
-		local t0 = tick()
-		RunService.RenderStepped:Connect(function()
-			if not isCharging then return end
-			local elapsed = tick() - t0
-			if elapsed >= ACCEL_DURATION then
-				animationTrack:AdjustSpeed(3)
-				isReadyToRelease = true
-				return
-			end
-			local speed = 1 + 2 * (elapsed / ACCEL_DURATION)
-			animationTrack:AdjustSpeed(speed)
-		end)
-	end
+        if t <= 2.5 then
+            -- Ramp up speed from 1 to 2.0 in animTrack1 over 2.5s
+            animTrack1:AdjustSpeed(1 + t / 2.5)
+        elseif not animTrack2 then
+            -- Switch to second animation after 2.5s
+            animTrack1:Stop()
+            animTrack1 = nil
+            animTrack2 = humanoid:LoadAnimation(anim2)
+            animTrack2:Play()
+        elseif t > 2.5 and t <= 4 then
+            -- Ramp up speed in animTrack2 from 1 to 2.666 over 1.5s
+            animTrack2:AdjustSpeed(1 + (t - 2.5) / 1.5)
+        elseif t > 3.5 then
+            -- Cap speed at 4x and count how long at max speed
+            animTrack2:AdjustSpeed(4)
+            fourXTimeAccumulated = t - 3.5
+        end
+    end)
 end)
 
--- Handle T Release (only after speed is 3x)
-UserInputService.InputEnded:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.T and isCharging and isReadyToRelease then
-		startDashMode()
-	end
+UIS.InputEnded:Connect(function(input)
+    if input.KeyCode ~= Enum.KeyCode.T or not holding then return end
+    holding = false
+
+    if animTrack1 then animTrack1:Stop() animTrack1 = nil end
+    if animTrack2 then animTrack2:Stop() animTrack2 = nil end
+
+    local allowDash = fourXTimeAccumulated >= 1 -- must hold at 4x speed for 1 second
+    if not allowDash then
+        startCooldown(10)
+        humanoid.WalkSpeed = 16
+        humanoid.AutoRotate = true
+        return
+    end
+
+    startCooldown(25)
+    humanoid.AutoRotate = false
+    humanoid.WalkSpeed = dashSpeed
+
+    -- Play dash animation, speed 4x initially
+    runAnimTrack = humanoid:LoadAnimation(anim2)
+    runAnimTrack:Play()
+    runAnimTrack:AdjustSpeed(4)
+
+    local dashStart = tick()
+    RunService:BindToRenderStep("ActualDash", Enum.RenderPriority.Character.Value + 1, function()
+        local elapsed = tick() - dashStart
+        if elapsed > runTime then
+            RunService:UnbindFromRenderStep("ActualDash")
+            humanoid.AutoRotate = true
+            humanoid.WalkSpeed = 25
+            if runAnimTrack then runAnimTrack:Stop() runAnimTrack = nil end
+            return
+        end
+
+        -- animation speed decay after decayStart
+        if elapsed > decayStart then
+            local pct = (elapsed - decayStart) / decayDuration
+            runAnimTrack:AdjustSpeed(math.clamp(4 - (3 * pct), 1, 4))
+        end
+
+        -- Movement drift with camera input
+        local camCF = Camera.CFrame
+        local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+        local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
+
+        local moveVec = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += forward end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec -= right end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += right end
+        moveVec = moveVec.Magnitude > 0 and moveVec.Unit or forward
+
+        currentDir = currentDir:Lerp(moveVec, 0.05)
+        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
+    end)
+end)
+
+player.CharacterAdded:Connect(function(char)
+    character = char
+    humanoid = char:WaitForChild("Humanoid")
+    hrp = char:WaitForChild("HumanoidRootPart")
+    holding = false
 end)
