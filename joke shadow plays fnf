@@ -3,16 +3,62 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local screenGui = script.Parent
-local songListFrame = screenGui:WaitForChild("SongList")
-local chartDisplayFrame = screenGui:WaitForChild("ChartDisplay")
 
--- Judgment line position from bottom of chartDisplayFrame (pixels)
+-- === Create GUI elements ===
+
+-- SongList Frame (left panel)
+local songListFrame = Instance.new("Frame")
+songListFrame.Name = "SongList"
+songListFrame.Size = UDim2.new(0, 150, 1, 0)
+songListFrame.Position = UDim2.new(0, 0, 0, 0)
+songListFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+songListFrame.Parent = screenGui
+
+-- ChartDisplay Frame (right panel)
+local chartDisplayFrame = Instance.new("Frame")
+chartDisplayFrame.Name = "ChartDisplay"
+chartDisplayFrame.Size = UDim2.new(1, -150, 1, 0)
+chartDisplayFrame.Position = UDim2.new(0, 150, 0, 0)
+chartDisplayFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+chartDisplayFrame.Parent = screenGui
+
+-- Judgment line (thin white line near bottom)
+local judgmentLine = Instance.new("Frame")
+judgmentLine.Name = "JudgmentLine"
+judgmentLine.BackgroundColor3 = Color3.new(1, 1, 1)
+judgmentLine.Size = UDim2.new(1, 0, 0, 4)
+judgmentLine.Position = UDim2.new(0, 0, 1, -100)
+judgmentLine.BorderSizePixel = 0
+judgmentLine.Parent = chartDisplayFrame
+
+-- JSON Input TextBox
+local jsonInput = Instance.new("TextBox")
+jsonInput.Name = "JSONInput"
+jsonInput.Size = UDim2.new(0, 300, 0, 150)
+jsonInput.Position = UDim2.new(0, 160, 0, 10)
+jsonInput.TextWrapped = true
+jsonInput.MultiLine = true
+jsonInput.ClearTextOnFocus = false
+jsonInput.PlaceholderText = "Paste full FNF JSON here"
+jsonInput.BackgroundColor3 = Color3.fromRGB(40,40,40)
+jsonInput.TextColor3 = Color3.new(1,1,1)
+jsonInput.Parent = screenGui
+
+-- Load Chart Button
+local loadButton = Instance.new("TextButton")
+loadButton.Name = "LoadChartButton"
+loadButton.Size = UDim2.new(0, 100, 0, 40)
+loadButton.Position = UDim2.new(0, 470, 0, 60)
+loadButton.Text = "Load Chart"
+loadButton.BackgroundColor3 = Color3.fromRGB(70,70,70)
+loadButton.TextColor3 = Color3.new(1,1,1)
+loadButton.Parent = screenGui
+
+-- === Constants ===
+
 local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
+local arrowSpeed = 200 -- pixels per second
 
--- Arrow speed in pixels per second (how fast arrows move up)
-local arrowSpeed = 200
-
--- Key to direction mapping
 local keyToDir = {
     Z = "left",
     X = "up",
@@ -20,7 +66,6 @@ local keyToDir = {
     ["period"] = "right"
 }
 
--- Arrow symbols for display
 local arrowSymbols = {
     left = "←",
     up = "↑",
@@ -28,7 +73,20 @@ local arrowSymbols = {
     right = "→"
 }
 
--- Sample songs (simple format)
+local laneXPositions = {
+    left = 50,
+    down = 120,
+    up = 190,
+    right = 260,
+}
+
+-- === Variables ===
+local activeArrows = {}
+local songStartTime = 0
+local currentSong = nil
+local connection
+
+-- === Sample songs ===
 local songs = {
     {
         name = "Test Song 1",
@@ -51,30 +109,9 @@ local songs = {
     }
 }
 
--- Create judgment line UI
-local judgmentLine = Instance.new("Frame")
-judgmentLine.Name = "JudgmentLine"
-judgmentLine.BackgroundColor3 = Color3.new(1, 1, 1)
-judgmentLine.Size = UDim2.new(1, 0, 0, 4)
-judgmentLine.Position = UDim2.new(0, 0, 1, -100)
-judgmentLine.BorderSizePixel = 0
-judgmentLine.Parent = chartDisplayFrame
+-- === Functions ===
 
--- Arrow lane X positions
-local laneXPositions = {
-    left = 50,
-    down = 120,
-    up = 190,
-    right = 260,
-}
-
--- Track active arrows
-local activeArrows = {}
-local songStartTime = 0
-local currentSong = nil
-local connection
-
--- Parse FNF style JSON chart into {time,dir} list
+-- Parse FNF chart JSON to chart format
 local function parseFNFChart(fnfJson)
     local songData = fnfJson.song
     if not songData then
@@ -123,9 +160,8 @@ local function parseFNFChart(fnfJson)
     return chart
 end
 
--- Start playing a song/chart
 local function startSong(song)
-    -- Clear previous arrows
+    -- Clear existing arrows
     for _, arrow in pairs(activeArrows) do
         if arrow.UI then arrow.UI:Destroy() end
     end
@@ -136,18 +172,17 @@ local function startSong(song)
 
     if connection then connection:Disconnect() end
 
-    -- Reset spawned flag for notes
+    -- Reset spawned flags
     for _, note in ipairs(song.chart) do
         note.spawned = false
     end
 
-    -- Update loop
     connection = RunService.Heartbeat:Connect(function()
         local elapsed = tick() - songStartTime
 
         -- Spawn new arrows
         for _, note in ipairs(song.chart) do
-            local spawnTime = note.time - ((chartDisplayFrame.AbsoluteSize.Y - judgmentLineY) / arrowSpeed)
+            local spawnTime = note.time - ((chartDisplayFrame.AbsoluteSize.Y - judgmentLine.Position.Y.Offset) / arrowSpeed)
             if spawnTime <= elapsed and not note.spawned then
                 note.spawned = true
 
@@ -169,7 +204,7 @@ local function startSong(song)
             end
         end
 
-        -- Move arrows
+        -- Move arrows up
         for i = #activeArrows, 1, -1 do
             local arrow = activeArrows[i]
             if arrow.hit then
@@ -177,10 +212,10 @@ local function startSong(song)
                 table.remove(activeArrows, i)
             else
                 local timeToJudgment = arrow.time - elapsed
-                local yPos = judgmentLineY + timeToJudgment * arrowSpeed
+                local yPos = judgmentLine.Position.Y.Offset + timeToJudgment * arrowSpeed
 
                 if yPos < -40 then
-                    -- Missed
+                    -- Missed arrow
                     arrow.UI:Destroy()
                     table.remove(activeArrows, i)
                 else
@@ -191,7 +226,7 @@ local function startSong(song)
     end)
 end
 
--- Create buttons for sample songs
+-- Create sample song buttons
 for i, song in ipairs(songs) do
     local button = Instance.new("TextButton")
     button.Name = "SongButton"..i
@@ -207,8 +242,8 @@ for i, song in ipairs(songs) do
     end)
 end
 
--- Key press input to hit arrows
-local hitWindow = 0.15 -- seconds
+-- Input to hit arrows
+local hitWindow = 0.15
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -229,33 +264,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if hitArrowIndex then
             local arrow = activeArrows[hitArrowIndex]
             arrow.hit = true
-            arrow.UI.TextColor3 = Color3.new(0,1,0) -- green on hit
-            -- Add sound/score here if you want
-        else
-            -- Miss feedback if desired
+            arrow.UI.TextColor3 = Color3.new(0,1,0)
         end
     end
 end)
 
--- --- JSON Input UI for full FNF JSON chart ---
-
-local jsonInput = Instance.new("TextBox")
-jsonInput.Name = "JSONInput"
-jsonInput.Size = UDim2.new(0, 300, 0, 150)
-jsonInput.Position = UDim2.new(0, 400, 0, 10)
-jsonInput.TextWrapped = true
-jsonInput.MultiLine = true
-jsonInput.ClearTextOnFocus = false
-jsonInput.PlaceholderText = "Paste full FNF JSON here"
-jsonInput.Parent = screenGui
-
-local loadButton = Instance.new("TextButton")
-loadButton.Name = "LoadChartButton"
-loadButton.Size = UDim2.new(0, 100, 0, 40)
-loadButton.Position = UDim2.new(0, 400, 0, 170)
-loadButton.Text = "Load Chart"
-loadButton.Parent = screenGui
-
+-- Load chart from JSON input button
 loadButton.MouseButton1Click:Connect(function()
     local success, result = pcall(function()
         return HttpService:JSONDecode(jsonInput.Text)
