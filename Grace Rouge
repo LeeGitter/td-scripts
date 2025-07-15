@@ -16,40 +16,39 @@ local holdingE = false
 
 local defaultWalkSpeed = 28
 local maxSpeed = 55
-local slideMomentum = Vector3.new(0,0,0)
+local slideMomentum = Vector3.new(0, 0, 0)
 
 local jumpCooldownBypass = false
 local jumpCooldownTime = 0.5
 local lastJumpTime = 0
 
--- Speed buff after walljump (duration in seconds)
 local walljumpSpeedBuffTime = 0.3
 local walljumpSpeedBuffAmount = 12
 
--- Helper to check if touching wall (for walljump)
-local function isTouchingWall()
-    local rayLength = 2
-    local directions = {
-        hrp.CFrame.RightVector,
-        -hrp.CFrame.RightVector,
-        hrp.CFrame.LookVector,
-        -hrp.CFrame.LookVector,
-    }
-    for _, dir in ipairs(directions) do
-        local ray = Ray.new(hrp.Position, dir * rayLength)
-        local part = workspace:FindPartOnRayWithIgnoreList(ray, {character})
-        if part and part.CanCollide then
-            return true, dir
-        end
+-- Helper: Check wall strictly LEFT or RIGHT (within 1.5 studs)
+local function isWallLeftOrRight()
+    local rayLength = 1.5
+    local leftRay = Ray.new(hrp.Position, -hrp.CFrame.RightVector * rayLength)
+    local rightRay = Ray.new(hrp.Position, hrp.CFrame.RightVector * rayLength)
+
+    local ignoreList = {character}
+
+    local leftHit = workspace:FindPartOnRayWithIgnoreList(leftRay, ignoreList)
+    local rightHit = workspace:FindPartOnRayWithIgnoreList(rightRay, ignoreList)
+
+    if leftHit and leftHit.CanCollide then
+        return true, -hrp.CFrame.RightVector
+    elseif rightHit and rightHit.CanCollide then
+        return true, hrp.CFrame.RightVector
+    else
+        return false, nil
     end
-    return false, nil
 end
 
--- Play slide animation
 local function playSlideAnim()
     if slideAnimTrack and slideAnimTrack.IsPlaying then return end
     local anim = Instance.new("Animation")
-    anim.AnimationId = "rbxassetid://"..slideAnimationId
+    anim.AnimationId = "rbxassetid://" .. slideAnimationId
     slideAnimTrack = animator:LoadAnimation(anim)
     slideAnimTrack.Looped = true
     slideAnimTrack:Play()
@@ -62,106 +61,96 @@ local function stopSlideAnim()
     end
 end
 
--- Drift movement controls: overrides normal control, applies momentum + camera drift
 local function applySlideMovement(dt)
-    -- Read directional input
-    local moveVector = Vector3.new(0,0,0)
+    -- Read WASD input normalized
+    local inputVec = Vector3.new(0, 0, 0)
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-        moveVector = moveVector + Vector3.new(0,0,-1)
+        inputVec = inputVec + Vector3.new(0, 0, -1)
     end
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-        moveVector = moveVector + Vector3.new(0,0,1)
+        inputVec = inputVec + Vector3.new(0, 0, 1)
     end
     if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-        moveVector = moveVector + Vector3.new(-1,0,0)
+        inputVec = inputVec + Vector3.new(-1, 0, 0)
     end
     if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-        moveVector = moveVector + Vector3.new(1,0,0)
+        inputVec = inputVec + Vector3.new(1, 0, 0)
+    end
+    if inputVec.Magnitude > 1 then
+        inputVec = inputVec.Unit
     end
 
-    if moveVector.Magnitude > 1 then
-        moveVector = moveVector.Unit
-    end
+    -- Convert inputVec relative to camera
+    local cam = workspace.CurrentCamera
+    local camCFrame = cam.CFrame
+    local camLook = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z).Unit
+    local camRight = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z).Unit
 
-    -- Transform moveVector by camera
-    local camera = workspace.CurrentCamera
-    local camCFrame = camera.CFrame
-    local camLook = camCFrame.LookVector
-    local camRight = camCFrame.RightVector
+    local desiredDir = (camRight * inputVec.X + camLook * inputVec.Z)
+    if desiredDir.Magnitude > 1 then desiredDir = desiredDir.Unit end
 
-    -- Project moveVector relative to camera
-    local desiredDir = (camRight * moveVector.X + Vector3.new(0,0,0) + camLook * moveVector.Z)
-    desiredDir = Vector3.new(desiredDir.X,0,desiredDir.Z)
-    if desiredDir.Magnitude > 1 then
-        desiredDir = desiredDir.Unit
-    end
+    -- Steering params
+    local steerStrength = 20
 
-    -- Apply some steering force towards desiredDir
-    local steerStrength = 20 -- tweak for more responsive steering
-
-    local currentVel = slideMomentum
+    -- Calculate acceleration towards desired direction * max speed
     local desiredVel = desiredDir * maxSpeed
-
-    local acceleration = (desiredVel - currentVel) * steerStrength * dt
+    local acceleration = (desiredVel - slideMomentum) * steerStrength * dt
 
     slideMomentum = slideMomentum + acceleration
 
-    -- Gravity projection / slope speed-up:
-    -- Cast ray down a bit forward to detect slope steepness and increase speed when going downhill
+    -- Slope speed boost (detect slope downward in front)
+    local forwardPos = hrp.Position + slideMomentum.Unit * 2
+    local downRay = Ray.new(forwardPos, Vector3.new(0, -5, 0))
+    local hitPart, hitPos, hitNormal = workspace:FindPartOnRayWithIgnoreList(downRay, {character})
 
-    local downRayOrigin = hrp.Position + slideMomentum.Unit * 2
-    local downRay = Ray.new(downRayOrigin, Vector3.new(0,-5,0))
-    local hit, pos, normal = workspace:FindPartOnRayWithIgnoreList(downRay, {character})
-    if hit and normal then
-        local slopeDot = normal:Dot(Vector3.new(0,1,0))
-        -- slopeDot close to 1 = flat, closer to 0 = steep
-        -- We want speed boost proportional to slope steepness
-        local slopeBoost = (1 - slopeDot) * 50 -- max speed boost when slope is vertical
+    if hitPart and hitNormal then
+        local slopeDot = hitNormal:Dot(Vector3.new(0, 1, 0))
+        local slopeBoost = (1 - slopeDot) * 50
         if slopeBoost > 0 then
-            slideMomentum = slideMomentum + Vector3.new(0,-slopeBoost * dt,0)
+            slideMomentum = slideMomentum + Vector3.new(0, -slopeBoost * dt, 0)
         end
     end
 
-    -- Slowly lose momentum (very slow friction)
-    local friction = 1 -- increase friction to lose momentum faster
+    -- Very slow friction (momentum loss)
+    local friction = 1
     slideMomentum = slideMomentum * (1 - friction * dt)
 
     -- Clamp speed to maxSpeed
-    local speed = slideMomentum.Magnitude
-    if speed > maxSpeed then
+    if slideMomentum.Magnitude > maxSpeed then
         slideMomentum = slideMomentum.Unit * maxSpeed
-    elseif speed < 0.1 then
-        slideMomentum = Vector3.new(0,0,0)
+    elseif slideMomentum.Magnitude < 0.1 then
+        slideMomentum = Vector3.new(0, 0, 0)
     end
 
-    -- Move character manually
-    local newPos = hrp.Position + slideMomentum * dt
-    local _, hitPos = workspace:FindPartOnRayWithIgnoreList(Ray.new(hrp.Position, (newPos - hrp.Position).Unit * 3), {character})
-    -- Basic collision check - if hit something close, stop slide momentum
-    if hitPos and (hitPos - hrp.Position).Magnitude < 3 then
-        slideMomentum = Vector3.new(0,0,0)
-    end
+    -- Apply movement by setting HumanoidRootPart velocity (preserving Y velocity for jumping/falling)
+    local currentYVel = hrp.Velocity.Y
+    hrp.Velocity = Vector3.new(slideMomentum.X, currentYVel, slideMomentum.Z)
 
-    -- Apply movement - use Humanoid:Move(Vector3, false) to move without jumping
-    humanoid:Move(slideMomentum, false)
+    -- Lock WalkSpeed and jump power so default controls don't interfere
+    humanoid.WalkSpeed = 0
+    humanoid.JumpPower = 0
 end
 
--- Walljump logic
 local function tryWallJump()
-    local touchingWall, wallDir = isTouchingWall()
+    local touchingWall, wallDir = isWallLeftOrRight()
     if not touchingWall then return false end
     if tick() - lastJumpTime < jumpCooldownTime then return false end
 
-    -- Apply upward velocity + directional push away from wall
+    -- Push forward (player look direction) plus upward, ignoring wallDir direction for push.
     local jumpPower = 50
-    local pushPower = 30
-    local velocity = wallDir.Unit * -pushPower + Vector3.new(0,jumpPower,0)
+    local forwardPushPower = 40
+    local lookDir = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z).Unit
+    if lookDir.Magnitude == 0 then
+        lookDir = Vector3.new(0, 0, -1)
+    end
+
+    local velocity = lookDir * forwardPushPower + Vector3.new(0, jumpPower, 0)
     hrp.Velocity = velocity
 
     lastJumpTime = tick()
     jumpCooldownBypass = true
 
-    -- Give small speed buff
+    -- Small speed buff
     maxSpeed = math.min(maxSpeed + walljumpSpeedBuffAmount, 55)
     delay(walljumpSpeedBuffTime, function()
         maxSpeed = 55
@@ -170,18 +159,15 @@ local function tryWallJump()
     return true
 end
 
--- Hook input
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.E then
         holdingE = true
         sliding = true
         playSlideAnim()
-        humanoid.WalkSpeed = 0 -- disable normal walk speed
     elseif input.KeyCode == Enum.KeyCode.Space then
-        -- Try walljump
         if tryWallJump() then
-            -- walljump performed
+            -- walljump triggered
         end
     end
 end)
@@ -192,18 +178,23 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
         holdingE = false
         sliding = false
         stopSlideAnim()
+        slideMomentum = Vector3.new(0, 0, 0)
+        -- Restore default walk speed and jump power
         humanoid.WalkSpeed = defaultWalkSpeed
-        slideMomentum = Vector3.new(0,0,0)
+        humanoid.JumpPower = 50 -- or your game's default jump power
     end
 end)
 
--- Main update loop
+-- Update loop
 local conn
 conn = RunService.RenderStepped:Connect(function(dt)
     if sliding then
         applySlideMovement(dt)
     else
-        slideMomentum = Vector3.new(0,0,0)
+        -- Reset momentum and controls outside sliding
+        slideMomentum = Vector3.new(0, 0, 0)
+        humanoid.WalkSpeed = defaultWalkSpeed
+        humanoid.JumpPower = 50 -- default jump power
     end
 end)
 
@@ -215,8 +206,9 @@ player.CharacterAdded:Connect(function(char)
     animator = humanoid:WaitForChild("Animator")
     holdingE = false
     sliding = false
-    slideMomentum = Vector3.new(0,0,0)
+    slideMomentum = Vector3.new(0, 0, 0)
     maxSpeed = 55
     humanoid.WalkSpeed = defaultWalkSpeed
+    humanoid.JumpPower = 50
     stopSlideAnim()
 end)
