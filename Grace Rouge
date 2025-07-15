@@ -7,50 +7,53 @@ local player = Players.LocalPlayer
 local function onCharacterAdded(character)
 	local humanoid = character:WaitForChild("Humanoid")
 	local hrp = character:WaitForChild("HumanoidRootPart")
+	local camera = workspace.CurrentCamera
 
 	local DEFAULT_SPEED = 28
 	local BOOSTED_SPEED = 35
 	local SPEED_BOOST_DURATION = 0.3
+	local SLIDE_DURATION = 1.5 -- seconds
 
 	humanoid.WalkSpeed = DEFAULT_SPEED
 
 	local holdingE = false
 	local wallJumpCooldown = false
+	local sliding = false
 	local dead = false
 
-	-- Load hold E animation
-	local anim = Instance.new("Animation")
-	anim.AnimationId = "rbxassetid://132439703713518"
-	local animTrack = humanoid:LoadAnimation(anim)
+	-- Animation for E hold
+	local animE = Instance.new("Animation")
+	animE.AnimationId = "rbxassetid://132439703713518"
+	local animTrackE = humanoid:LoadAnimation(animE)
 
-	-- Input handlers for E
-	local function onInputBegan(input, gpe)
+	-- Slide animation (replace with your actual slide anim id)
+	local slideAnimId = "rbxassetid://YOUR_SLIDE_ANIM_ID" -- <-- CHANGE THIS
+	local animSlide = Instance.new("Animation")
+	animSlide.AnimationId = slideAnimId
+	local animTrackSlide = humanoid:LoadAnimation(animSlide)
+
+	-- Input handling for E
+	UIS.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 		if input.KeyCode == Enum.KeyCode.E and not holdingE then
 			holdingE = true
-			animTrack:Play()
+			animTrackE:Play()
 		end
-	end
+	end)
 
-	local function onInputEnded(input)
+	UIS.InputEnded:Connect(function(input)
 		if input.KeyCode == Enum.KeyCode.E then
 			holdingE = false
-			animTrack:Stop()
+			animTrackE:Stop()
 		end
-	end
+	end)
 
-	UIS.InputBegan:Connect(onInputBegan)
-	UIS.InputEnded:Connect(onInputEnded)
-
-	-- Physics: slow drag + downhill boost while holding E
-	local physicsLoop
-	physicsLoop = RunService.RenderStepped:Connect(function()
+	-- Physics while holding E (drag + slope boost)
+	local physicsLoop = RunService.RenderStepped:Connect(function()
 		if dead or not holdingE then return end
 
-		-- Very slow drag
-		hrp.Velocity *= 0.99
+		hrp.Velocity *= 0.99 -- slow drag
 
-		-- Downhill acceleration
 		local rayParams = RaycastParams.new()
 		rayParams.FilterDescendantsInstances = {character}
 		rayParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -85,7 +88,6 @@ local function onCharacterAdded(character)
 				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 				hrp.Velocity = forward.Unit * 60 + Vector3.new(0, 50, 0)
 
-				-- Boost WalkSpeed temporarily
 				humanoid.WalkSpeed = BOOSTED_SPEED
 				task.delay(SPEED_BOOST_DURATION, function()
 					if not dead then
@@ -103,7 +105,7 @@ local function onCharacterAdded(character)
 		end
 	end
 
-	-- Detect jump key press for walljump
+	-- Wall jump input
 	UIS.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 		if input.KeyCode == Enum.KeyCode.Space then
@@ -111,24 +113,87 @@ local function onCharacterAdded(character)
 		end
 	end)
 
-	-- Cleanup on death
+	-- --- SLIDE IMPLEMENTATION ---
+	local slideStartTime = 0
+
+	-- Controls lock vars
+	local moveVector = Vector3.new(0,0,0)
+	local driftSpeed = 32 -- slide movement speed
+
+	-- Slide toggle
+	local function toggleSlide()
+		if sliding then
+			-- Stop slide
+			sliding = false
+			animTrackSlide:Stop()
+			humanoid.WalkSpeed = DEFAULT_SPEED
+		else
+			-- Start slide
+			sliding = true
+			slideStartTime = tick()
+			animTrackSlide:Play()
+			humanoid.WalkSpeed = 0 -- Lock normal walk speed while sliding
+		end
+	end
+
+	-- Listen for T key for slide toggle
+	UIS.InputBegan:Connect(function(input, gpe)
+		if gpe then return end
+		if input.KeyCode == Enum.KeyCode.T then
+			toggleSlide()
+		end
+	end)
+
+	-- Movement locking + drifting during slide
+	RunService.RenderStepped:Connect(function()
+		if dead then return end
+
+		if sliding then
+			-- Auto end slide after duration
+			if tick() - slideStartTime > SLIDE_DURATION then
+				sliding = false
+				animTrackSlide:Stop()
+				humanoid.WalkSpeed = DEFAULT_SPEED
+				return
+			end
+
+			-- Get move input direction from keys (WASD)
+			local forward = 0
+			local right = 0
+
+			if UIS:IsKeyDown(Enum.KeyCode.W) then forward += 1 end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then forward -= 1 end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then right -= 1 end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then right += 1 end
+
+			local camCF = camera.CFrame
+			local moveDir = (camCF.LookVector * forward + camCF.RightVector * right)
+			if moveDir.Magnitude > 0 then
+				moveDir = moveDir.Unit
+			end
+
+			-- Apply drifting: move the HRP by a small velocity in moveDir direction
+			local driftVelocity = moveDir * driftSpeed
+			-- Only apply horizontal velocity, keep Y velocity intact
+			hrp.Velocity = Vector3.new(driftVelocity.X, hrp.Velocity.Y, driftVelocity.Z)
+		end
+	end)
+
+	-- Cleanup
 	humanoid.Died:Connect(function()
 		dead = true
-		if physicsLoop then
-			physicsLoop:Disconnect()
-		end
+		animTrackE:Stop()
+		animTrackSlide:Stop()
 		script:Destroy()
 	end)
 end
 
--- Connect character spawn
 if player.Character then
 	onCharacterAdded(player.Character)
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
 
--- Disable script on respawn (optional; comment out if you want to keep it alive)
 player.CharacterAdded:Once(function()
 	script:Destroy()
 end)
