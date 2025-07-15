@@ -9,9 +9,9 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 local anim1 = Instance.new("Animation")
-anim1.AnimationId = "rbxassetid://136764958535157" -- hold anim start
+anim1.AnimationId = "rbxassetid://105660804989893" -- hold anim start
 local anim2 = Instance.new("Animation")
-anim2.AnimationId = "rbxassetid://135934693058362" -- hold anim accel + dash anim
+anim2.AnimationId = "rbxassetid://123691762461584" -- hold anim accel + dash anim
 
 local animTrack1, animTrack2, runAnimTrack
 local holding = false
@@ -19,12 +19,26 @@ local cooldown = false
 local cooldownGui, cooldownLabel
 local currentDir = Vector3.new(0, 0, -1)
 local fourXTimeAccumulated = 0
-local dashSpeed = 55
-local runTime = 5
-local decayStart = 3.5
+local dashSpeed = 100
+local runTime = 3
+local decayStart = 2.5
 local decayDuration = runTime - decayStart
 
--- Creates cooldown UI
+local boundToRenderStep = false
+
+local function cleanupDash()
+    if boundToRenderStep then
+        RunService:UnbindFromRenderStep("ActualDash")
+        boundToRenderStep = false
+    end
+    humanoid.AutoRotate = true
+    humanoid.WalkSpeed = 25
+    if runAnimTrack then
+        runAnimTrack:Stop()
+        runAnimTrack = nil
+    end
+end
+
 local function makeGui()
     if cooldownGui then return end
     cooldownGui = Instance.new("ScreenGui")
@@ -42,7 +56,6 @@ local function makeGui()
     cooldownLabel.Text = "Ready"
 end
 
--- Starts cooldown timer on GUI
 local function startCooldown(duration)
     cooldown = true
     local start = tick()
@@ -67,7 +80,6 @@ UIS.InputBegan:Connect(function(input, gpe)
         makeGui()
     end
 
-    -- Start first hold animation at speed 1x
     animTrack1 = humanoid:LoadAnimation(anim1)
     animTrack1:Play()
     animTrack1:AdjustSpeed(1)
@@ -79,20 +91,16 @@ UIS.InputBegan:Connect(function(input, gpe)
         local t = tick() - holdStart
 
         if t <= 2.5 then
-            -- Ramp up speed from 1 to 2.0 in animTrack1 over 2.5s
             animTrack1:AdjustSpeed(1 + t / 2.5)
         elseif not animTrack2 then
-            -- Switch to second animation after 2.5s
             animTrack1:Stop()
             animTrack1 = nil
             animTrack2 = humanoid:LoadAnimation(anim2)
             animTrack2:Play()
         elseif t > 2.5 and t <= 4 then
-            -- Ramp up speed in animTrack2 from 1 to 2.666 over 1.5s
             animTrack2:AdjustSpeed(1 + (t - 2.5) / 1.5)
         elseif t > 3.5 then
-            -- Cap speed at 4x and count how long at max speed
-            animTrack2:AdjustSpeed(4)
+            animTrack2:AdjustSpeed(3) -- changed max to 3x here too
             fourXTimeAccumulated = t - 3.5
         end
     end)
@@ -105,58 +113,52 @@ UIS.InputEnded:Connect(function(input)
     if animTrack1 then animTrack1:Stop() animTrack1 = nil end
     if animTrack2 then animTrack2:Stop() animTrack2 = nil end
 
-    local allowDash = fourXTimeAccumulated >= 1 -- must hold at 4x speed for 1 second
+    local allowDash = fourXTimeAccumulated >= 1
     if not allowDash then
         startCooldown(10)
-        humanoid.WalkSpeed = 25
+        humanoid.WalkSpeed = 16
         humanoid.AutoRotate = true
         return
     end
 
     startCooldown(25)
     humanoid.AutoRotate = false
-    humanoid.WalkSpeed = dashSpeed -- Instantly set dash speed
+    humanoid.WalkSpeed = dashSpeed
 
-    -- Play dash animation, speed 4x initially
     runAnimTrack = humanoid:LoadAnimation(anim2)
     runAnimTrack:Play()
-    runAnimTrack:AdjustSpeed(4)
+    runAnimTrack:AdjustSpeed(3) -- max 3x here
 
     local dashStart = tick()
+    boundToRenderStep = true
     RunService:BindToRenderStep("ActualDash", Enum.RenderPriority.Character.Value + 1, function()
         local elapsed = tick() - dashStart
         if elapsed > runTime then
-            RunService:UnbindFromRenderStep("ActualDash")
-            humanoid.AutoRotate = true
-            humanoid.WalkSpeed = 25
-            if runAnimTrack then runAnimTrack:Stop() runAnimTrack = nil end
+            cleanupDash()
             return
         end
 
-        -- animation speed decay after decayStart
         if elapsed > decayStart then
             local pct = (elapsed - decayStart) / decayDuration
-            runAnimTrack:AdjustSpeed(math.clamp(4 - (3 * pct), 1, 4))
+            runAnimTrack:AdjustSpeed(math.clamp(3 - (2 * pct), 1, 3)) -- decay from 3x to 1x
+        else
+            runAnimTrack:AdjustSpeed(3) -- max speed 3x until decayStart
         end
 
         local camCF = Camera.CFrame
         local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
         local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 
-        -- Forced forward movement vector
         local baseMoveVec = forward
 
-        -- Steering input vector
         local steerVec = Vector3.zero
         if UIS:IsKeyDown(Enum.KeyCode.A) then steerVec -= right end
         if UIS:IsKeyDown(Enum.KeyCode.D) then steerVec += right end
         if UIS:IsKeyDown(Enum.KeyCode.W) then steerVec += forward end
 
-        -- Combine forced forward with steering and normalize
         local targetDir
         if steerVec.Magnitude > 0 then
             steerVec = steerVec.Unit
-            -- Blend base forward with steerVec to drift
             targetDir = baseMoveVec:Lerp(steerVec, 0.1)
         else
             targetDir = baseMoveVec
@@ -164,9 +166,7 @@ UIS.InputEnded:Connect(function(input)
 
         targetDir = targetDir.Unit
 
-        currentDir = currentDir:Lerp(targetDir, 0.05) -- smooth drifting
-
-        -- Set character facing to currentDir, position unchanged
+        currentDir = currentDir:Lerp(targetDir, 0.05)
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
     end)
 end)
@@ -176,4 +176,11 @@ player.CharacterAdded:Connect(function(char)
     humanoid = char:WaitForChild("Humanoid")
     hrp = char:WaitForChild("HumanoidRootPart")
     holding = false
+    cooldown = false
+    if cooldownGui then
+        cooldownGui:Destroy()
+        cooldownGui = nil
+        cooldownLabel = nil
+    end
+    cleanupDash()
 end)
