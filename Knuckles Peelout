@@ -1,0 +1,117 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- Constants
+local DASH_ANIMATION_ID = "rbxassetid://135934693058362"
+local NORMAL_SPEED = 25
+local DASH_SPEED = 75
+local ACCEL_DURATION = 2
+local DASH_DURATION = 3
+
+-- State
+local isDashing = false
+local animationTrack
+
+-- Load animation
+local dashAnim = Instance.new("Animation")
+dashAnim.AnimationId = DASH_ANIMATION_ID
+
+-- Freeze character
+local function freezeCharacter()
+	humanoid.AutoRotate = false
+	humanoid.WalkSpeed = 0
+end
+
+-- Restore control
+local function unfreezeCharacter()
+	humanoid.AutoRotate = true
+	humanoid.WalkSpeed = NORMAL_SPEED
+end
+
+-- Start dash mode
+local function startDashMode()
+	isDashing = true
+	humanoid.WalkSpeed = 0
+
+	-- Play dash animation
+	if animationTrack then animationTrack:Stop() end
+	animationTrack = humanoid:LoadAnimation(dashAnim)
+	animationTrack:Play()
+
+	-- Freeze movement
+	freezeCharacter()
+
+	-- Accelerate over 2 seconds
+	local t0 = tick()
+	local accelConnection
+	accelConnection = RunService.RenderStepped:Connect(function()
+		local t = tick() - t0
+		if t <= ACCEL_DURATION then
+			local progress = math.clamp(t / ACCEL_DURATION, 0, 1)
+			local speed = DASH_SPEED * progress
+			local cameraCF = workspace.CurrentCamera.CFrame
+			local dir = cameraCF.LookVector
+			root.AssemblyLinearVelocity = dir * speed
+		else
+			accelConnection:Disconnect()
+		end
+	end)
+
+	-- After acceleration, start dash
+	task.wait(ACCEL_DURATION)
+	unfreezeCharacter()
+	humanoid.WalkSpeed = DASH_SPEED
+
+	-- Drift movement during dash
+	local moveConnection
+	moveConnection = RunService.RenderStepped:Connect(function()
+		if not isDashing then
+			moveConnection:Disconnect()
+			return
+		end
+
+		local inputVector = Vector3.zero
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then inputVector = inputVector + Vector3.new(0, 0, -1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then inputVector = inputVector + Vector3.new(0, 0, 1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then inputVector = inputVector + Vector3.new(-1, 0, 0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then inputVector = inputVector + Vector3.new(1, 0, 0) end
+
+		if inputVector.Magnitude > 0 then
+			local cam = workspace.CurrentCamera.CFrame
+			local flatCam = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z).Unit
+			local camRight = Vector3.new(cam.RightVector.X, 0, cam.RightVector.Z).Unit
+
+			local moveDir = (camRight * inputVector.X + flatCam * inputVector.Z).Unit
+			local currentVel = root.AssemblyLinearVelocity
+			local forward = currentVel.Magnitude > 0 and currentVel.Unit or moveDir
+			local blended = forward:Lerp(moveDir, 0.05) * DASH_SPEED
+
+			root.AssemblyLinearVelocity = blended
+			root.CFrame = CFrame.new(root.Position, root.Position + blended)
+		end
+	end)
+
+	-- Dash ends after 3 seconds
+	task.wait(DASH_DURATION)
+	isDashing = false
+	humanoid.WalkSpeed = NORMAL_SPEED
+	unfreezeCharacter()
+
+	if animationTrack then
+		animationTrack:Stop()
+	end
+end
+
+-- Input listener
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == Enum.KeyCode.T and not isDashing then
+		startDashMode()
+	end
+end)
