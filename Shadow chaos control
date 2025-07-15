@@ -1,8 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
+local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -11,8 +10,9 @@ local active = false
 local dummy = nil
 local path = {}
 local pathConnection = nil
+local moveConnection = nil
 
--- Path marker
+-- Create glowing path part
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -25,37 +25,38 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawns a fully working R6 dummy with your appearance
-local function spawnPlayableDummy(position)
-	local description = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+-- Spawn R6 dummy with your appearance, red/transparent, hide HRP
+local function spawnDummy(position)
+	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
 
-	local dummyModel = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
-	dummyModel.Name = "PlayableDummy"
+	model.Name = "ControllableClone"
 
-	-- Tint red and semi-transparent
-	for _, part in dummyModel:GetDescendants() do
+	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
-			part.Color = Color3.fromRGB(255, 0, 0)
 			part.Transparency = 0.5
-		elseif part:IsA("Decal") or part:IsA("Accessory") then
-			-- Optional: Make accessories transparent too
-			if part:IsA("BasePart") then
-				part.Transparency = 0.5
-			end
+			part.Color = Color3.fromRGB(255, 0, 0)
+			part.Material = Enum.Material.ForceField
 		end
 	end
 
-	-- Spawn below player
-	local hrp = dummyModel:FindFirstChild("HumanoidRootPart")
+	local hrp = model:FindFirstChild("HumanoidRootPart")
 	if hrp then
+		hrp.Transparency = 1
+		hrp.CanCollide = false
+		for _, child in hrp:GetChildren() do
+			if child:IsA("Decal") or child:IsA("Mesh") or child:IsA("Attachment") then
+				child:Destroy()
+			end
+		end
 		hrp.CFrame = CFrame.new(position)
 	end
 
-	dummyModel.Parent = workspace
-	return dummyModel
+	model.Parent = workspace
+	return model
 end
 
--- Start dummy control
+-- Begin controlling the dummy
 local function beginControl()
 	active = true
 
@@ -67,34 +68,50 @@ local function beginControl()
 	hrp.CFrame += Vector3.new(0, 10, 0)
 
 	-- Spawn dummy and set camera
-	dummy = spawnPlayableDummy(hrp.Position - Vector3.new(0, 4, 0))
+	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
-	if dummyHumanoid then
-		camera.CameraSubject = dummyHumanoid
-	end
+	camera.CameraSubject = dummyHumanoid
 
-	-- Track path
-	local lastPos = dummy:FindFirstChild("HumanoidRootPart").Position
+	-- Movement handling
+	moveConnection = RunService.RenderStepped:Connect(function()
+		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
+
+		local moveVec = Vector3.zero
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
+		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
+
+		local camCF = camera.CFrame
+		local forward = camCF.LookVector * Vector3.new(1, 0, 1)
+		local right = camCF.RightVector * Vector3.new(1, 0, 1)
+
+		local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
+		if dummyHumanoid and moveDir.Magnitude > 0 then
+			dummyHumanoid:Move(moveDir, false)
+		else
+			dummyHumanoid:Move(Vector3.zero, false)
+		end
+	end)
+
+	-- Path tracking
+	local lastPos = dummy.HumanoidRootPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
-		if root and (root.Position - lastPos).Magnitude > 2 then
+		if root and (root.Position - lastPos).Magnitude >= 2 then
 			createPathPoint(root.Position)
 			lastPos = root.Position
 		end
 	end)
 end
 
--- End dummy control
+-- End control and walk the path
 local function endControl()
 	active = false
 
-	if pathConnection then
-		pathConnection:Disconnect()
-	end
-
-	if dummy then
-		dummy:Destroy()
-	end
+	if pathConnection then pathConnection:Disconnect() end
+	if moveConnection then moveConnection:Disconnect() end
+	if dummy then dummy:Destroy() end
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
@@ -103,7 +120,7 @@ local function endControl()
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	-- Move along the path
+	-- Walk the path
 	coroutine.wrap(function()
 		for _, p in ipairs(path) do
 			local goal = p.Position + Vector3.new(0, 1, 0)
@@ -115,16 +132,14 @@ local function endControl()
 			tween.Completed:Wait()
 		end
 
-		for _, p in path do
-			p:Destroy()
-		end
+		for _, p in path do p:Destroy() end
 		table.clear(path)
 	end)()
 end
 
--- Toggle on T
-game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
-	if gp then return end
+-- Toggle with T
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
 		if not active then
 			beginControl()
