@@ -17,7 +17,6 @@ local acceleration = 0.15
 local deceleration = 0.4
 local descentSpeed = 40
 local currentSpeed = 0
-local velocity = Vector3.zero
 local moveDir = Vector3.zero
 
 -- Animation IDs
@@ -48,7 +47,7 @@ local function stopAllFlightAnimations()
 	end
 end
 
--- Tilt helper
+-- Smooth tilt
 local function tiltBodyTowards(dir, dt)
 	if dir.Magnitude > 0 then
 		local currentCF = hrp.CFrame
@@ -77,19 +76,20 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+-- INVERTED movement
 local function getMoveDirection()
 	local camCF = workspace.CurrentCamera.CFrame
 	local forward = camCF.LookVector
 	local right = camCF.RightVector
 	local direction = Vector3.zero
 
-	for key, vec in pairs(heldKeys) do
+	for key, _ in pairs(heldKeys) do
 		if moveKeys[key] then
-			direction += (moveKeys[key].Z * forward + moveKeys[key].X * right)
+			direction -= (moveKeys[key].Z * forward + moveKeys[key].X * right)
 		end
 	end
 
-	return direction.Unit
+	return direction.Magnitude > 0 and direction.Unit or Vector3.zero
 end
 
 -- Start flight
@@ -99,7 +99,7 @@ local function startFlight()
 	descending = false
 	currentSpeed = startSpeed
 
-	-- Boost upward quickly
+	-- Fast upward boost
 	local goalPos = hrp.Position + Vector3.new(0, 4, 0)
 	local floatTween = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Sine), {CFrame = CFrame.new(goalPos)})
 	floatTween:Play()
@@ -115,14 +115,12 @@ local function startFlight()
 			moveDir = inputDir
 			currentSpeed = math.min(maxSpeed, currentSpeed + acceleration)
 		else
-			-- Decelerate if no input
 			currentSpeed = math.max(0, currentSpeed - deceleration)
 		end
 
 		local moveVector = moveDir * currentSpeed
 		hrp.Velocity = moveVector
 
-		-- Tilt and animate
 		tiltBodyTowards(moveVector, dt)
 
 		stopAllFlightAnimations()
@@ -145,13 +143,13 @@ local function startDescent()
 	local camCF = workspace.CurrentCamera.CFrame
 	local descendDir = (camCF.LookVector - Vector3.new(0, 1, 0)).Unit
 
-	-- Descent loop
 	RunService:BindToRenderStep("DescentControl", Enum.RenderPriority.Input.Value, function(dt)
 		local fallVelocity = descendDir * descentSpeed
 		hrp.Velocity = fallVelocity
+
 		tiltBodyTowards(descendDir, dt)
 
-		-- Landing detection
+		-- Detect landing
 		local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
 		local hit = workspace:FindPartOnRay(ray, character)
 		if hit then
