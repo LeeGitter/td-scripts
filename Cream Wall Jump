@@ -89,7 +89,7 @@ local function doWallJump()
     humanoid.WalkSpeed = 38
     delay(0.4, function()
         if humanoid and humanoid.Parent then
-            humanoid.WalkSpeed = 25
+            humanoid.WalkSpeed = 28
         end
     end)
 
