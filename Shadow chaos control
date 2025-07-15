@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -26,7 +27,7 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawn invisible dummy
+-- Spawn R6 dummy with your appearance, red/transparent, hide HRP
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
@@ -35,9 +36,9 @@ local function spawnDummy(position)
 
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
-			part.Transparency = 1
-			part.CanCollide = false
-			part.Material = Enum.Material.SmoothPlastic
+			part.Transparency = 0.5
+			part.Color = Color3.fromRGB(255, 0, 0)
+			part.Material = Enum.Material.ForceField
 		end
 	end
 
@@ -62,23 +63,16 @@ local function spawnDummy(position)
 	return model
 end
 
--- Begin control phase (float + dummy control)
+-- Begin controlling the dummy
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
-	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Disable player control and physics
-	humanoid.PlatformStand = true
-
-	-- Float gently with BodyVelocity
-	local bodyVel = Instance.new("BodyVelocity")
-	bodyVel.Name = "FloatBodyVelocity"
-	bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
-	bodyVel.Velocity = Vector3.new(0, 5, 0)
-	bodyVel.Parent = hrp
+	-- Float and anchor player 3 studs up
+	hrp.Anchored = true
+	hrp.CFrame += Vector3.new(0, 3, 0)
 
 	-- Spawn dummy and set camera
 	cloneSpawnPosition = hrp.Position - Vector3.new(0, 4, 0)
@@ -86,12 +80,12 @@ local function beginControl()
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	camera.CameraSubject = dummyHumanoid
 
-	-- Movement handling for dummy
+	-- Movement handling
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end -- flipped Z sign here
 		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
@@ -102,6 +96,7 @@ local function beginControl()
 			local right = camCF.RightVector * Vector3.new(1, 0, 1)
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
 
+			-- Limit clone movement within 200 studs radius from spawn
 			local root = dummy:FindFirstChild("HumanoidRootPart")
 			if root then
 				local proposedPos = root.Position + moveDir * dummy:FindFirstChildOfClass("Humanoid").WalkSpeed * RunService.RenderStepped:Wait()
@@ -128,7 +123,7 @@ local function beginControl()
 	end)
 end
 
--- End control and begin walking path
+-- End control and walk the path with smooth accelerating walkspeed capped for 8 seconds max
 local function endControl()
 	active = false
 
@@ -140,65 +135,73 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Remove BodyVelocity and restore control
-	local bodyVel = hrp:FindFirstChild("FloatBodyVelocity")
-	if bodyVel then
-		bodyVel:Destroy()
-	end
-
-	humanoid.PlatformStand = false
+	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	if #path == 0 then
-		return
-	end
-
-	-- Calculate total distance for path
+	-- Calculate total path length
 	local totalDist = 0
 	for i = 2, #path do
 		totalDist += (path[i].Position - path[i-1].Position).Magnitude
 	end
 
+	-- Prevent division by zero if no path or single point
 	if totalDist == 0 then
 		for _, p in path do p:Destroy() end
 		table.clear(path)
 		return
 	end
 
+	-- Max total time allowed to traverse path
 	local maxTime = 8
-	local startSpeed = 8
-	local maxSpeed = math.max(16, totalDist / maxTime)
+
+	-- We'll accelerate WalkSpeed from 2 to maxSpeed over maxTime seconds
+	local startSpeed = 2
+	local maxSpeed = 300
 	local elapsed = 0
 
-	-- Ensure humanoid is not moving before start
-	humanoid:Move(Vector3.new(0, 0, 0), false)
-	humanoid.WalkSpeed = startSpeed
-
-	for i = 1, #path do
-		local targetPos = path[i].Position + Vector3.new(0, 1, 0)
-
-		while (hrp.Position - targetPos).Magnitude > 1 do
-			local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
-			humanoid.WalkSpeed = currentSpeed
-
-			local direction = (targetPos - hrp.Position).Unit
-			humanoid:Move(direction, false)
-
-			wait(0.03)
-			elapsed = math.min(elapsed + 0.03, maxTime)
-		end
-
-		humanoid:Move(Vector3.new(0, 0, 0), false)
-		wait(0.05)
+	-- Function to tween position between two points smoothly
+	local function tweenToPosition(startCFrame, endPos, duration)
+		local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+		local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(endPos)})
+		tween:Play()
+		tween.Completed:Wait()
 	end
 
-	humanoid.WalkSpeed = 16
-	humanoid:Move(Vector3.new(0, 0, 0), false)
+	-- Coroutine to move smoothly along path with accelerating speed
+	coroutine.wrap(function()
+		for i = 1, #path do
+			local targetPos = path[i].Position + Vector3.new(0, 1, 0)
+			local dist = (hrp.Position - targetPos).Magnitude
+			if dist == 0 then continue end
 
-	for _, p in path do p:Destroy() end
-	table.clear(path)
+			-- Calculate how much time to spend on this segment, scaled by current speed
+			local speed = math.min(startSpeed + (maxSpeed - startSpeed) * (elapsed / maxTime), maxSpeed)
+			local timeForSegment = dist / speed
+			-- If we exceed maxTime, clamp timeForSegment accordingly
+			if elapsed + timeForSegment > maxTime then
+				timeForSegment = maxTime - elapsed
+			end
+
+			if timeForSegment > 0 then
+				tweenToPosition(hrp.CFrame, targetPos, timeForSegment)
+			end
+
+			elapsed = elapsed + timeForSegment
+
+			-- Accelerate speed by incrementing elapsed time
+			if elapsed >= maxTime then
+				-- We reached max allowed time, snap to end
+				hrp.CFrame = CFrame.new(path[#path].Position + Vector3.new(0, 1, 0))
+				break
+			end
+		end
+
+		for _, p in path do p:Destroy() end
+		table.clear(path)
+	end)()
 end
 
+-- Toggle with T
 UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
