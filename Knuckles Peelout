@@ -9,9 +9,9 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 local anim1 = Instance.new("Animation")
-anim1.AnimationId = "rbxassetid://105660804989893" -- hold anim start
+anim1.AnimationId = "rbxassetid://136764958535157" -- hold anim start
 local anim2 = Instance.new("Animation")
-anim2.AnimationId = "rbxassetid://123691762461584" -- hold anim accel + dash anim
+anim2.AnimationId = "rbxassetid://135934693058362" -- hold anim accel + dash anim
 
 local animTrack1, animTrack2, runAnimTrack
 local holding = false
