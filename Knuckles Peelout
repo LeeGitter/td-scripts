@@ -9,7 +9,7 @@ local root = character:WaitForChild("HumanoidRootPart")
 
 -- Constants
 local DASH_ANIMATION_ID = "rbxassetid://135934693058362"
-local NORMAL_SPEED = 25
+local NORMAL_SPEED = 28
 local DASH_SPEED = 75
 local ACCEL_DURATION = 2
 local DASH_DURATION = 3
