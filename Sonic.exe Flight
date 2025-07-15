@@ -76,7 +76,7 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- INVERTED movement
+-- Standard WASD movement (camera-relative)
 local function getMoveDirection()
 	local camCF = workspace.CurrentCamera.CFrame
 	local forward = camCF.LookVector
@@ -85,7 +85,7 @@ local function getMoveDirection()
 
 	for key, _ in pairs(heldKeys) do
 		if moveKeys[key] then
-			direction -= (moveKeys[key].Z * forward + moveKeys[key].X * right)
+			direction += (moveKeys[key].Z * forward + moveKeys[key].X * right)
 		end
 	end
 
