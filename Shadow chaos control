@@ -26,7 +26,7 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawn R6 dummy with your appearance, fully invisible
+-- Spawn R6 dummy fully invisible
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
@@ -62,20 +62,23 @@ local function spawnDummy(position)
 	return model
 end
 
--- Begin controlling dummy and keep player floating but NOT anchored
+-- Begin control
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
+	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Instead of anchoring, apply a BodyPosition to float player up 3 studs smoothly
-	local bodyPos = Instance.new("BodyPosition")
-	bodyPos.Name = "FloatingBodyPos"
-	bodyPos.MaxForce = Vector3.new(4000, 4000, 4000)
-	bodyPos.Position = hrp.Position + Vector3.new(0, 3, 0)
-	bodyPos.P = 1000
-	bodyPos.Parent = hrp
+	-- Disable platform stand so character won't ragdoll
+	humanoid.PlatformStand = true
+
+	-- Apply upward BodyVelocity to float at ~3 studs above current pos
+	local bodyVel = Instance.new("BodyVelocity")
+	bodyVel.Name = "FloatBodyVelocity"
+	bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
+	bodyVel.Velocity = Vector3.new(0, 5, 0)
+	bodyVel.Parent = hrp
 
 	-- Spawn dummy and set camera
 	cloneSpawnPosition = hrp.Position - Vector3.new(0, 4, 0)
@@ -99,7 +102,7 @@ local function beginControl()
 			local right = camCF.RightVector * Vector3.new(1, 0, 1)
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
 
-			-- Limit clone movement within 200 studs radius from spawn
+			-- Limit clone movement within 200 studs radius
 			local root = dummy:FindFirstChild("HumanoidRootPart")
 			if root then
 				local proposedPos = root.Position + moveDir * dummy:FindFirstChildOfClass("Humanoid").WalkSpeed * RunService.RenderStepped:Wait()
@@ -126,7 +129,7 @@ local function beginControl()
 	end)
 end
 
--- End control and walk path normally with smooth acceleration, and remove floating force
+-- End control
 local function endControl()
 	active = false
 
@@ -138,11 +141,12 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Remove BodyPosition used to float player
-	local bodyPos = hrp:FindFirstChild("FloatingBodyPos")
-	if bodyPos then
-		bodyPos:Destroy()
+	-- Remove float BodyVelocity and restore PlatformStand
+	local bodyVel = hrp:FindFirstChild("FloatBodyVelocity")
+	if bodyVel then
+		bodyVel:Destroy()
 	end
+	humanoid.PlatformStand = false
 
 	camera.CameraSubject = humanoid
 
@@ -150,7 +154,7 @@ local function endControl()
 		return
 	end
 
-	-- Calculate total distance of path
+	-- Calculate total distance
 	local totalDist = 0
 	for i = 2, #path do
 		totalDist += (path[i].Position - path[i-1].Position).Magnitude
@@ -162,7 +166,7 @@ local function endControl()
 		return
 	end
 
-	-- Max time and walk speed calculation
+	-- Walking the path with gradual acceleration
 	local maxTime = 8
 	local startSpeed = 8
 	local maxSpeed = math.max(16, totalDist / maxTime)
@@ -177,8 +181,6 @@ local function endControl()
 
 				local direction = (targetPos - hrp.Position).Unit
 				humanoid:Move(direction, false)
-
-				-- Don't manually set CFrame here to avoid physics issues
 
 				wait(0.03)
 				elapsed = math.min(elapsed + 0.03, maxTime)
@@ -195,7 +197,6 @@ local function endControl()
 	end)()
 end
 
--- Toggle with T
 UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
