@@ -1,23 +1,31 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
-local WALL_JUMP_DISTANCE = 3 -- studs to detect wall
-local WALL_JUMP_FORCE = 100 -- force away from wall
-local WALL_JUMP_UPWARD_VELOCITY = 50
-local WALL_JUMP_COOLDOWN = 0.2 -- seconds to prevent spam
-
-local lastWallJumpTime = 0
-
--- Load wall jump animation with highest priority (Action)
+-- Wall jump animation
 local wallJumpAnim = Instance.new("Animation")
 wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
-wallJumpAnim.Priority = Enum.AnimationPriority.Action
 local wallJumpTrack = humanoid:LoadAnimation(wallJumpAnim)
+
+local WALL_JUMP_DISTANCE = 3 -- studs to detect wall
+local WALL_JUMP_FORCE = 50 -- force away from wall
+local WALL_JUMP_UPWARD_VELOCITY = 50
+local WALL_JUMP_COOLDOWN = 0.2 -- to prevent spamming
+
+local WALK_SPEED_NORMAL = 28
+local WALK_SPEED_BOOST = 38
+local BOOST_DURATION = 0.8
+
+local DESCEND_SLOW_DURATION = 0.8
+local DESCEND_SLOW_FACTOR = 0.4
+
+local lastWallJumpTime = 0
+local descendSlowEndTime = 0
 
 local function findWallDirection()
     local directions = {
@@ -40,17 +48,18 @@ local function findWallDirection()
     return nil
 end
 
-local function playWallJumpAnimation()
-    -- Stop all other animations instantly
-    for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-        track:Stop(0)
+local function setWalkSpeed(speed)
+    if humanoid and humanoid.Parent then
+        humanoid.WalkSpeed = speed
     end
+end
 
-    -- Play wall jump animation
+local function playWallJumpAnimation()
+    if wallJumpTrack.IsPlaying then
+        wallJumpTrack:Stop(0)
+    end
     wallJumpTrack:Play(0.1, 1, 1)
-
-    -- Stop wall jump animation after 0.5 seconds
-    delay(0.5, function()
+    delay(0.51, function()
         if wallJumpTrack.IsPlaying then
             wallJumpTrack:Stop(0)
         end
@@ -73,20 +82,38 @@ local function doWallJump()
         return
     end
 
-    -- Force jump ignoring cooldown
     humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 
-    -- Apply velocity away from wall + upward
     local velocity = -wallDir.Unit * WALL_JUMP_FORCE
     velocity = Vector3.new(velocity.X, WALL_JUMP_UPWARD_VELOCITY, velocity.Z)
     hrp.Velocity = velocity
 
     playWallJumpAnimation()
 
+    -- Speed boost and slow descend
+    setWalkSpeed(WALK_SPEED_BOOST)
+    delay(BOOST_DURATION, function()
+        setWalkSpeed(WALK_SPEED_NORMAL)
+    end)
+
+    descendSlowEndTime = now + DESCEND_SLOW_DURATION
+
     lastWallJumpTime = now
 end
 
-UserInputService.JumpRequest:Connect(doWallJump)
+-- Slow descent logic
+RunService.Heartbeat:Connect(function()
+    if tick() < descendSlowEndTime then
+        local vel = hrp.Velocity
+        if vel.Y < 0 then
+            hrp.Velocity = Vector3.new(vel.X, vel.Y * DESCEND_SLOW_FACTOR, vel.Z)
+        end
+    end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    doWallJump()
+end)
 
 player.CharacterAdded:Connect(function(char)
     character = char
@@ -95,6 +122,5 @@ player.CharacterAdded:Connect(function(char)
 
     wallJumpAnim = Instance.new("Animation")
     wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
-    wallJumpAnim.Priority = Enum.AnimationPriority.Action
     wallJumpTrack = humanoid:LoadAnimation(wallJumpAnim)
 end)
