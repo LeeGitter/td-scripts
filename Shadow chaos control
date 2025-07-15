@@ -10,8 +10,9 @@ local dummy = nil
 local path = {}
 local pathConnection = nil
 local moveConnection = nil
-local pathMoveConnection = nil
+local walkConnection = nil
 
+-- Create glowing path point
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -24,10 +25,10 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
+-- Spawn a clone (R6 dummy with appearance)
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
-
 	model.Name = "ControllableClone"
 
 	for _, part in model:GetDescendants() do
@@ -42,11 +43,6 @@ local function spawnDummy(position)
 	if hrp then
 		hrp.Transparency = 1
 		hrp.CanCollide = false
-		for _, child in hrp:GetChildren() do
-			if child:IsA("Decal") or child:IsA("Mesh") or child:IsA("Attachment") then
-				child:Destroy()
-			end
-		end
 		hrp.CFrame = CFrame.new(position)
 	end
 
@@ -59,31 +55,29 @@ local function spawnDummy(position)
 	return model
 end
 
+-- Control the clone
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Anchor player at current position WITHOUT moving up
+	-- Anchor real player to freeze, but no float
 	hrp.Anchored = true
 
-	-- Spawn dummy slightly below player to keep on ground
-	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
+	-- Spawn clone at current player position
+	dummy = spawnDummy(hrp.Position)
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
-
-	-- Set camera to dummy humanoid
 	camera.CameraSubject = dummyHumanoid
 	camera.CameraType = Enum.CameraType.Custom
 
+	-- Movement controls (camera-relative)
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
-
-		-- Correct camera-relative controls
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
@@ -92,9 +86,9 @@ local function beginControl()
 			local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
 			local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
-
 			dummyHumanoid:Move(moveDir, false)
 
+			-- Rotate clone to face movement
 			local root = dummy:FindFirstChild("HumanoidRootPart")
 			if root then
 				root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
@@ -104,7 +98,7 @@ local function beginControl()
 		end
 	end)
 
-	-- Track dummy path
+	-- Record path
 	local lastPos = dummy.HumanoidRootPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
@@ -115,109 +109,68 @@ local function beginControl()
 	end)
 end
 
-local function endControl()
-	active = false
-
-	if pathConnection then
-		pathConnection:Disconnect()
-		pathConnection = nil
-	end
-
-	if moveConnection then
-		moveConnection:Disconnect()
-		moveConnection = nil
-	end
-
-	if dummy then
-		dummy:Destroy()
-		dummy = nil
-	end
-
+-- Make the real player walk the recorded path using physics
+local function walkPath()
 	local char = player.Character or player.CharacterAdded:Wait()
-	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
+	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Unanchor player so they can move naturally again
+	-- Force normal physics
 	hrp.Anchored = false
-
-	-- Reset camera to player's HumanoidRootPart and set to Custom so player can control camera freely
-	camera.CameraSubject = hrp
+	camera.CameraSubject = humanoid
 	camera.CameraType = Enum.CameraType.Custom
 
 	if #path == 0 then return end
 
-	local positions = {hrp.Position}
-	for _, p in ipairs(path) do
-		table.insert(positions, p.Position)
-	end
+	local stepIndex = 1
+	local reachedPoint = true
+	local moveDir = Vector3.zero
 
-	local segments = {}
-	local totalLength = 0
-	for i = 1, #positions - 1 do
-		local dist = (positions[i+1] - positions[i]).Magnitude
-		table.insert(segments, {startPos = positions[i], endPos = positions[i+1], length = dist})
-		totalLength += dist
-	end
-
-	if totalLength == 0 then
-		for _, p in path do p:Destroy() end
-		table.clear(path)
-		return
-	end
-
-	local totalTime = 5
-	local elapsedTime = 0
-	local currentSegment = 1
-	local segmentProgress = 0
-
-	local groundY = hrp.Position.Y
-
-	-- Face path start direction immediately
-	local initialDir = (segments[1].endPos - segments[1].startPos).Unit
-	hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(initialDir.X, 0, initialDir.Z))
-
-	pathMoveConnection = RunService.RenderStepped:Connect(function(dt)
-		if currentSegment > #segments then
-			if pathMoveConnection then
-				pathMoveConnection:Disconnect()
-				pathMoveConnection = nil
-			end
-
-			-- Do NOT forcibly move player HRP here to avoid fling
-			-- Just keep player where they ended on the path
-
+	walkConnection = RunService.RenderStepped:Connect(function()
+		if not humanoid or not hrp or not path[stepIndex] then
+			walkConnection:Disconnect()
 			for _, p in path do p:Destroy() end
 			table.clear(path)
 			return
 		end
 
-		elapsedTime = math.min(elapsedTime + dt, totalTime)
-		local t = elapsedTime / totalTime
+		local target = path[stepIndex].Position + Vector3.new(0, 1, 0)
+		local toTarget = (target - hrp.Position)
+		local flatDir = Vector3.new(toTarget.X, 0, toTarget.Z)
 
-		local speedFactor = t*t
-		local maxSpeed = totalLength / totalTime
-		local currentSpeed = maxSpeed * speedFactor
-
-		local segment = segments[currentSegment]
-		local moveDist = currentSpeed * dt
-		local segmentRemain = segment.length - segmentProgress
-
-		if moveDist >= segmentRemain then
-			segmentProgress = 0
-			currentSegment += 1
-			hrp.CFrame = CFrame.new(Vector3.new(segment.endPos.X, groundY, segment.endPos.Z),
-				segment.endPos + Vector3.new(segment.endPos.X - segment.startPos.X, 0, segment.endPos.Z - segment.startPos.Z))
-		else
-			segmentProgress += moveDist
-			local segmentDir = (segment.endPos - segment.startPos).Unit
-			local newPos = segment.startPos + segmentDir * segmentProgress
-
-			hrp.CFrame = CFrame.new(Vector3.new(newPos.X, groundY, newPos.Z),
-				newPos + Vector3.new(segmentDir.X, 0, segmentDir.Z))
+		if flatDir.Magnitude < 1 then
+			stepIndex += 1
+			if stepIndex > #path then
+				walkConnection:Disconnect()
+				for _, p in path do p:Destroy() end
+				table.clear(path)
+			end
+			return
 		end
+
+		moveDir = flatDir.Unit
+		humanoid:Move(moveDir, false)
+
+		-- Face direction
+		hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + moveDir)
 	end)
 end
 
+-- End clone control and start path walk
+local function endControl()
+	active = false
+
+	if pathConnection then pathConnection:Disconnect() end
+	if moveConnection then moveConnection:Disconnect() end
+	if dummy then dummy:Destroy() end
+
+	local char = player.Character or player.CharacterAdded:Wait()
+	char:WaitForChild("HumanoidRootPart").Anchored = false
+
+	walkPath()
+end
+
+-- Keybind: T to toggle control/walk mode
 UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
