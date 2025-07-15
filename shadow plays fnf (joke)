@@ -32,8 +32,10 @@ local outroStartTime = 2
 
 local idleTrack = nil
 local idleDelayTask = nil
-local newAnimStarting = false -- Flag to prevent idle playing if animation starts immediately
+local newAnimStarting = false
+local canPlayAnimations = true -- this gets stuck false sometimes without reset
 
+-- 💥 Reset Animator completely (stops ALL animations)
 local function resetAnimator()
 	if animator then
 		animator:Destroy()
@@ -42,13 +44,13 @@ local function resetAnimator()
 	animator.Parent = humanoid
 end
 
+-- 💤 Play idle animation
 local function playIdle()
+	if not canPlayAnimations then return end
 	if idleTrack then
 		idleTrack:Stop(0)
 		idleTrack:Destroy()
-		idleTrack = nil
 	end
-
 	local idleAnim = Instance.new("Animation")
 	idleAnim.AnimationId = idleAnimationId
 	idleTrack = animator:LoadAnimation(idleAnim)
@@ -57,6 +59,7 @@ local function playIdle()
 	idleTrack:Play()
 end
 
+-- 🛑 Stop idle animation
 local function stopIdle()
 	if idleTrack then
 		idleTrack:Stop(0)
@@ -65,6 +68,7 @@ local function stopIdle()
 	end
 end
 
+-- ❌ Fully stop current animation
 local function stopCurrent()
 	if currentTrack then
 		currentTrack:Stop(0)
@@ -76,28 +80,28 @@ local function stopCurrent()
 		loopConnection = nil
 	end
 	currentKey = nil
-	resetAnimator()
 	stopIdle()
+	resetAnimator()
+	canPlayAnimations = true -- restore anim playability just in case
 end
 
+-- ⏳ Schedule idle after delay unless interrupted
 local function scheduleIdle()
-	-- Schedule idle with slight delay to allow quick new key press
 	if idleDelayTask then
 		idleDelayTask:Cancel()
-		idleDelayTask = nil
 	end
 	idleDelayTask = task.delay(0.15, function()
 		idleDelayTask = nil
-		-- Only play idle if no new animation started during the delay
-		if not newAnimStarting and not currentTrack then
+		if not newAnimStarting and not currentTrack and animationMode and canPlayAnimations then
 			playIdle()
 		end
 	end)
 end
 
+-- ▶️ Play split animation (intro → loop → outro)
 local function playSplitAnimation(animId, key)
+	if not canPlayAnimations then return end
 	newAnimStarting = true
-	stopIdle()
 	stopCurrent()
 
 	local anim = Instance.new("Animation")
@@ -111,7 +115,6 @@ local function playSplitAnimation(animId, key)
 	track:Play()
 	track.TimePosition = 0
 
-	-- After intro finishes, start looping middle
 	task.delay(introEndTime, function()
 		if currentTrack ~= track or currentKey ~= key then return end
 		track.TimePosition = loopStartTime
@@ -119,7 +122,6 @@ local function playSplitAnimation(animId, key)
 		track:Play()
 	end)
 
-	-- Monitor key release to play outro
 	loopConnection = RunService.RenderStepped:Connect(function()
 		if currentTrack == track and currentKey ~= key then
 			loopConnection:Disconnect()
@@ -128,13 +130,13 @@ local function playSplitAnimation(animId, key)
 			track.TimePosition = outroStartTime
 			track:Play()
 			currentTrack = nil
-			-- Schedule idle after animation ends
 			newAnimStarting = false
 			scheduleIdle()
 		end
 	end)
 end
 
+-- 🗺 Key mappings
 local keyMap = {
 	[Enum.KeyCode.Z] = "Z",
 	[Enum.KeyCode.X] = "X",
@@ -142,16 +144,22 @@ local keyMap = {
 	[Enum.KeyCode.Period] = "Period"
 }
 
+-- 🎮 Input Began
 inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
 	if input.KeyCode == Enum.KeyCode.T then
 		animationMode = not animationMode
-		if not animationMode then
+
+		if animationMode then
+			stopIdle()
+			canPlayAnimations = true -- Restore broken play state
+		else
 			stopCurrent()
 			newAnimStarting = false
-			scheduleIdle()
+			playIdle()
 		end
+
 		return
 	end
 
@@ -165,7 +173,7 @@ inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameP
 		return
 	end
 
-	if not animationMode then return end
+	if not animationMode or not canPlayAnimations then return end
 
 	local key = keyMap[input.KeyCode]
 	if key and animations[key] then
@@ -173,6 +181,7 @@ inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameP
 	end
 end)
 
+-- 🛑 Input Ended (to trigger outro)
 inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 	local key = keyMap[input.KeyCode]
 	if key and key == currentKey then
@@ -180,5 +189,5 @@ inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Start idle by default when script runs
-scheduleIdle()
+-- ✅ Start with idle animation
+playIdle()
