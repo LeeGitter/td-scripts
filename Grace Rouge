@@ -76,7 +76,6 @@ local function tryWallJump()
         lookDir = lookDir.Unit
     end
 
-    -- Override velocity directly to perform walljump
     hrp.Velocity = lookDir * forwardPushPower + Vector3.new(0, jumpPower, 0)
 
     lastJumpTime = tick()
@@ -111,23 +110,28 @@ local function applySlideMovement(dt)
         desiredDir = desiredDir.Unit
     end
 
-    local steerStrength = 12
+    local steerStrength = 12       -- How fast to turn momentum toward input direction
+    local accelerationForce = 25   -- How quickly to accelerate up to max speed
+    local friction = 1.5           -- Slow momentum decay (low friction for long drifts)
 
     if inputVec.Magnitude > 0 then
-        local desiredVel = desiredDir * maxSpeed
-        local acceleration = (desiredVel - slideMomentum) * steerStrength * dt
-        slideMomentum = slideMomentum + acceleration
+        local currentSpeed = slideMomentum.Magnitude
+        local currentDir = slideMomentum.Magnitude > 0 and slideMomentum.Unit or desiredDir
+
+        -- Gradually steer momentum direction toward input direction
+        local newDir = currentDir:Lerp(desiredDir, steerStrength * dt)
+        newDir = newDir.Unit
+
+        -- Gradually accelerate speed toward max speed
+        local targetSpeed = math.min(currentSpeed + accelerationForce * dt, maxSpeed)
+
+        slideMomentum = newDir * targetSpeed
     else
-        -- Drift forward with slow decay
-        local decayRate = 2
-        local speed = slideMomentum.Magnitude
-        if speed > 0 then
-            local newSpeed = math.max(speed - decayRate * dt, 0)
-            slideMomentum = slideMomentum.Unit * newSpeed
-        end
+        -- No input: slowly reduce speed (friction)
+        slideMomentum = slideMomentum * math.clamp(1 - friction * dt, 0, 1)
     end
 
-    -- Slope boost
+    -- Slope boost for speed downhill
     if slideMomentum.Magnitude > 0.1 then
         local forwardDir = slideMomentum.Unit
         local rayOrigin = hrp.Position + forwardDir * 2 + Vector3.new(0, 2, 0)
@@ -146,25 +150,23 @@ local function applySlideMovement(dt)
                 local downhillDir = Vector3.new(surfaceNormal.X, 0, surfaceNormal.Z).Unit * -1
                 local slopeFactor = (maxSlopeAngle - slopeAngle) / maxSlopeAngle
                 slideMomentum = slideMomentum + downhillDir * slopeFactor * 15 * dt
+                if slideMomentum.Magnitude > maxSpeed then
+                    slideMomentum = slideMomentum.Unit * maxSpeed
+                end
             end
         end
     end
 
-    -- Strong friction for quicker decay
-    local friction = 10
-    slideMomentum = slideMomentum * math.clamp(1 - friction * dt, 0, 1)
-
+    -- Clamp max speed for safety
     if slideMomentum.Magnitude > maxSpeed then
         slideMomentum = slideMomentum.Unit * maxSpeed
-    elseif slideMomentum.Magnitude < 0.05 then
-        slideMomentum = Vector3.new(0, 0, 0)
     end
 
-    -- Set velocity directly, preserving vertical velocity
+    -- Apply velocity to HumanoidRootPart preserving vertical velocity
     local currentYVel = hrp.Velocity.Y
     hrp.Velocity = Vector3.new(slideMomentum.X, currentYVel, slideMomentum.Z)
 
-    -- Lock humanoid controls so Roblox doesn’t fight us
+    -- Disable humanoid control while sliding
     humanoid.WalkSpeed = 0
     humanoid.JumpPower = 0
 end
@@ -182,7 +184,7 @@ local function onSlideAction(actionName, inputState, inputObj)
             slideMomentum = Vector3.new(0, 0, 0)
             humanoid.WalkSpeed = defaultWalkSpeed
             humanoid.JumpPower = defaultJumpPower
-            hrp.Velocity = Vector3.new(0, hrp.Velocity.Y, 0) -- stop horizontal movement instantly
+            hrp.Velocity = Vector3.new(0, hrp.Velocity.Y, 0) -- instantly stop horizontal velocity on slide end
         end
     end
 end
@@ -193,7 +195,6 @@ RunService.RenderStepped:Connect(function(dt)
     if holdingSlide then
         applySlideMovement(dt)
 
-        -- Smooth FOV change by speed
         local speedFraction = slideMomentum.Magnitude / maxSpeed
         speedFraction = math.clamp(speedFraction, 0, 1)
 
@@ -202,7 +203,6 @@ RunService.RenderStepped:Connect(function(dt)
     else
         slideMomentum = Vector3.new(0, 0, 0)
 
-        -- Reset FOV smoothly
         Camera.FieldOfView = Camera.FieldOfView + (baseFOV - Camera.FieldOfView) * 5 * dt
 
         if humanoid.WalkSpeed ~= defaultWalkSpeed then
