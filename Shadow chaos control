@@ -79,7 +79,7 @@ local function beginControl()
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	camera.CameraSubject = dummyHumanoid
 
-	-- Movement control WITHOUT upward floating
+	-- Movement control WITH upward floating on Space
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
@@ -107,20 +107,25 @@ local function beginControl()
 				dummyHumanoid:Move(Vector3.zero, false)
 			end
 		end
+
+		-- Handle upward floating on Space key
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then
+			-- Float upward slowly, e.g., 0.1 studs per frame
+			root.CFrame = root.CFrame + Vector3.new(0, 0.1, 0)
+		end
 	end)
 
-	-- Record movement path
+	-- Record only the last position as the destination
 	local lastPos = dummy.HumanoidRootPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
-		if root and (root.Position - lastPos).Magnitude >= 2 then
-			createPathPoint(root.Position)
+		if root then
 			lastPos = root.Position
 		end
 	end)
 end
 
--- Fly avatar smoothly to destination with acceleration and noclip
+-- Fly avatar smoothly directly to destination with acceleration and noclip
 local function flyToDestination(destination)
 	local char = player.Character or player.CharacterAdded:Wait()
 	local humanoid = char:WaitForChild("Humanoid")
@@ -145,9 +150,8 @@ local function flyToDestination(destination)
 	local maxTime = 1.5
 	local elapsed = 0
 
-	-- Use quadratic acceleration so speed ramps up smoothly
-	-- We calculate required max speed to reach destination in maxTime
-	local maxSpeed = totalDist / maxTime * 2 -- approximate max speed for quadratic accel curve
+	-- Approximate max speed for quadratic accel curve
+	local maxSpeed = totalDist / maxTime * 2
 
 	if flyConnection then
 		flyConnection:Disconnect()
@@ -179,7 +183,7 @@ local function flyToDestination(destination)
 	end)
 end
 
--- End control, cleanup, then fly avatar to path's last point
+-- End control, cleanup, then fly avatar to last recorded position
 local function endControl()
 	active = false
 
@@ -199,10 +203,21 @@ local function endControl()
 	local char = player.Character or player.CharacterAdded:Wait()
 	char:WaitForChild("HumanoidRootPart").Anchored = false
 
-	if #path == 0 then return end
-	local destination = path[#path].Position
+	-- Use the last recorded dummy position as destination
+	local destination = nil
+	if #path > 0 then
+		destination = path[#path].Position
+	else
+		-- fallback if no path parts exist
+		destination = dummy and dummy:FindFirstChild("HumanoidRootPart") and dummy.HumanoidRootPart.Position or nil
+	end
 
-	-- Clean up path parts
+	if not destination then
+		-- Nothing to fly to, bail
+		return
+	end
+
+	-- Clean up path parts if any
 	for _, p in path do
 		p:Destroy()
 	end
