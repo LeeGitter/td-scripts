@@ -5,7 +5,7 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local animator = humanoid:WaitForChild("Animator")
+local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
 local thisScript = script
 
 -- Animation IDs
@@ -16,6 +16,8 @@ local animations = {
 	Period = "rbxassetid://126889161151367"
 }
 
+local idleAnimationId = "rbxassetid://92831241851962"
+
 local animationMode = false
 local currentTrack = nil
 local currentKey = nil
@@ -23,17 +25,50 @@ local loopConnection = nil
 local inputBeganConnection
 local inputEndedConnection
 
--- Timings in seconds
 local introEndTime = 1
 local loopStartTime = 1
 local loopEndTime = 2
 local outroStartTime = 2
 
--- Forcefully stop current animation and clear state immediately
+local idleTrack = nil
+local idleDelayTask = nil
+local newAnimStarting = false -- Flag to prevent idle playing if animation starts immediately
+
+local function resetAnimator()
+	if animator then
+		animator:Destroy()
+	end
+	animator = Instance.new("Animator")
+	animator.Parent = humanoid
+end
+
+local function playIdle()
+	if idleTrack then
+		idleTrack:Stop(0)
+		idleTrack:Destroy()
+		idleTrack = nil
+	end
+
+	local idleAnim = Instance.new("Animation")
+	idleAnim.AnimationId = idleAnimationId
+	idleTrack = animator:LoadAnimation(idleAnim)
+	idleTrack.Priority = Enum.AnimationPriority.Idle
+	idleTrack.Looped = true
+	idleTrack:Play()
+end
+
+local function stopIdle()
+	if idleTrack then
+		idleTrack:Stop(0)
+		idleTrack:Destroy()
+		idleTrack = nil
+	end
+end
+
 local function stopCurrent()
 	if currentTrack then
-		currentTrack:Stop(0) -- no fade out
-		currentTrack:Destroy() -- full removal to avoid blending
+		currentTrack:Stop(0)
+		currentTrack:Destroy()
 		currentTrack = nil
 	end
 	if loopConnection then
@@ -41,11 +76,29 @@ local function stopCurrent()
 		loopConnection = nil
 	end
 	currentKey = nil
+	resetAnimator()
+	stopIdle()
 end
 
--- Play animation with intro, loop middle, outro after release
+local function scheduleIdle()
+	-- Schedule idle with slight delay to allow quick new key press
+	if idleDelayTask then
+		idleDelayTask:Cancel()
+		idleDelayTask = nil
+	end
+	idleDelayTask = task.delay(0.15, function()
+		idleDelayTask = nil
+		-- Only play idle if no new animation started during the delay
+		if not newAnimStarting and not currentTrack then
+			playIdle()
+		end
+	end)
+end
+
 local function playSplitAnimation(animId, key)
-	stopCurrent() -- force stop previous animation immediately
+	newAnimStarting = true
+	stopIdle()
+	stopCurrent()
 
 	local anim = Instance.new("Animation")
 	anim.AnimationId = animId
@@ -75,11 +128,13 @@ local function playSplitAnimation(animId, key)
 			track.TimePosition = outroStartTime
 			track:Play()
 			currentTrack = nil
+			-- Schedule idle after animation ends
+			newAnimStarting = false
+			scheduleIdle()
 		end
 	end)
 end
 
--- Map KeyCode to string keys
 local keyMap = {
 	[Enum.KeyCode.Z] = "Z",
 	[Enum.KeyCode.X] = "X",
@@ -87,7 +142,6 @@ local keyMap = {
 	[Enum.KeyCode.Period] = "Period"
 }
 
--- Input began
 inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
@@ -95,6 +149,8 @@ inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameP
 		animationMode = not animationMode
 		if not animationMode then
 			stopCurrent()
+			newAnimStarting = false
+			scheduleIdle()
 		end
 		return
 	end
@@ -117,10 +173,12 @@ inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameP
 	end
 end)
 
--- Input ended
 inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 	local key = keyMap[input.KeyCode]
 	if key and key == currentKey then
 		currentKey = nil
 	end
 end)
+
+-- Start idle by default when script runs
+scheduleIdle()
