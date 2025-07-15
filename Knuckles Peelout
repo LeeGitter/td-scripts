@@ -9,9 +9,9 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 local anim1 = Instance.new("Animation")
-anim1.AnimationId = "rbxassetid://105660804989893" -- hold anim start
+anim1.AnimationId = "rbxassetid://136764958535157" -- hold anim start
 local anim2 = Instance.new("Animation")
-anim2.AnimationId = "rbxassetid://123691762461584" -- hold anim accel + dash anim
+anim2.AnimationId = "rbxassetid://135934693058362" -- hold anim accel + dash anim
 
 local animTrack1, animTrack2, runAnimTrack
 local holding = false
@@ -19,7 +19,7 @@ local cooldown = false
 local cooldownGui, cooldownLabel
 local currentDir = Vector3.new(0, 0, -1)
 local fourXTimeAccumulated = 0
-local dashSpeed = 100
+local dashSpeed = 55
 local runTime = 5
 local decayStart = 3.5
 local decayDuration = runTime - decayStart
@@ -115,7 +115,7 @@ UIS.InputEnded:Connect(function(input)
 
     startCooldown(25)
     humanoid.AutoRotate = false
-    humanoid.WalkSpeed = dashSpeed -- Set dash speed instantly with no acceleration ramp
+    humanoid.WalkSpeed = dashSpeed -- Instantly set dash speed
 
     -- Play dash animation, speed 4x initially
     runAnimTrack = humanoid:LoadAnimation(anim2)
@@ -139,18 +139,34 @@ UIS.InputEnded:Connect(function(input)
             runAnimTrack:AdjustSpeed(math.clamp(4 - (3 * pct), 1, 4))
         end
 
-        -- Movement drift with camera input
         local camCF = Camera.CFrame
         local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
         local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 
-        local moveVec = Vector3.zero
-        if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += forward end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec -= right end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += right end
-        moveVec = moveVec.Magnitude > 0 and moveVec.Unit or forward
+        -- Forced forward movement vector
+        local baseMoveVec = forward
 
-        currentDir = currentDir:Lerp(moveVec, 0.05)
+        -- Steering input vector
+        local steerVec = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.A) then steerVec -= right end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then steerVec += right end
+        if UIS:IsKeyDown(Enum.KeyCode.W) then steerVec += forward end
+
+        -- Combine forced forward with steering and normalize
+        local targetDir
+        if steerVec.Magnitude > 0 then
+            steerVec = steerVec.Unit
+            -- Blend base forward with steerVec to drift
+            targetDir = baseMoveVec:Lerp(steerVec, 0.1)
+        else
+            targetDir = baseMoveVec
+        end
+
+        targetDir = targetDir.Unit
+
+        currentDir = currentDir:Lerp(targetDir, 0.05) -- smooth drifting
+
+        -- Set character facing to currentDir, position unchanged
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
     end)
 end)
