@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
+local StarterPlayer = game:GetService("StarterPlayer")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -12,7 +13,66 @@ local dummy = nil
 local path = {}
 local pathConnection = nil
 
--- Creates a glowing part for the path
+-- Load a real R6 dummy
+local function loadR6Dummy(position)
+	local dummy = Instance.new("Model")
+	dummy.Name = "ControlledDummy"
+
+	-- Add Humanoid
+	local humanoid = Instance.new("Humanoid")
+	humanoid.Name = "Humanoid"
+	humanoid.Parent = dummy
+
+	-- Load classic R6 rig parts
+	local function createPart(name, size, position)
+		local part = Instance.new("Part")
+		part.Name = name
+		part.Size = size
+		part.Anchored = false
+		part.CanCollide = true
+		part.Position = position
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.Parent = dummy
+		return part
+	end
+
+	local function addWeld(part0, part1, c0)
+		local weld = Instance.new("Motor6D")
+		weld.Part0 = part0
+		weld.Part1 = part1
+		weld.C0 = c0 or CFrame.new()
+		weld.Parent = part0
+	end
+
+	local root = createPart("HumanoidRootPart", Vector3.new(2, 2, 1), position)
+	local torso = createPart("Torso", Vector3.new(2, 2, 1), position)
+	local head = createPart("Head", Vector3.new(2, 1, 1), position + Vector3.new(0, 3, 0))
+
+	addWeld(root, torso)
+	addWeld(torso, head, CFrame.new(0, 1.5, 0))
+
+	-- Required attachments for humanoid
+	local face = Instance.new("Decal")
+	face.Name = "face"
+	face.Texture = "rbxasset://textures/face.png"
+	face.Face = Enum.NormalId.Front
+	face.Parent = head
+
+	local neck = Instance.new("Motor6D")
+	neck.Name = "Neck"
+	neck.Part0 = torso
+	neck.Part1 = head
+	neck.C0 = CFrame.new(0, 1.5, 0)
+	neck.Parent = torso
+
+	dummy.PrimaryPart = root
+	dummy:SetPrimaryPartCFrame(CFrame.new(position))
+	dummy.Parent = workspace
+
+	return dummy
+end
+
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -25,100 +85,54 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawns a basic R6 dummy under the player
-local function spawnDummy(position)
-	local dummy = Instance.new("Model")
-	dummy.Name = "ControllableDummy"
-
-	local function part(name, size, pos)
-		local p = Instance.new("Part")
-		p.Name = name
-		p.Size = size
-		p.Position = pos
-		p.Anchored = false
-		p.CanCollide = true
-		p.TopSurface = Enum.SurfaceType.Smooth
-		p.BottomSurface = Enum.SurfaceType.Smooth
-		p.Parent = dummy
-		return p
-	end
-
-	local root = part("HumanoidRootPart", Vector3.new(2, 2, 1), position)
-	local torso = part("Torso", Vector3.new(2, 2, 1), position + Vector3.new(0, 1, 0))
-	local head = part("Head", Vector3.new(2, 1, 1), position + Vector3.new(0, 3, 0))
-
-	local weld1 = Instance.new("WeldConstraint", torso)
-	weld1.Part0 = torso
-	weld1.Part1 = root
-
-	local weld2 = Instance.new("WeldConstraint", torso)
-	weld2.Part0 = torso
-	weld2.Part1 = head
-
-	local humanoid = Instance.new("Humanoid")
-	humanoid.Parent = dummy
-
-	dummy.PrimaryPart = root
-	dummy:SetPrimaryPartCFrame(CFrame.new(position))
-	dummy.Parent = workspace
-
-	return dummy
-end
-
--- Start control mode
 local function beginControl()
 	active = true
+
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Float player
+	-- Float and freeze real player
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 10, 0)
 
-	-- Spawn dummy under player
-	dummy = spawnDummy(hrp.Position - Vector3.new(0, 3, 0))
-	local dummyHumanoid = dummy:WaitForChild("Humanoid")
+	-- Spawn dummy underneath
+	dummy = loadR6Dummy(hrp.Position - Vector3.new(0, 4, 0))
+	local dummyHumanoid = dummy:FindFirstChild("Humanoid")
 
-	-- Camera follows dummy
+	-- Set camera to dummy
 	camera.CameraSubject = dummyHumanoid
 
-	-- Movement path tracker
+	-- Record path
 	local lastPos = dummy.PrimaryPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local pos = dummy.PrimaryPart.Position
-		if (pos - lastPos).Magnitude >= 2 then
+		if (pos - lastPos).Magnitude > 2 then
 			createPathPoint(pos)
 			lastPos = pos
 		end
 	end)
 end
 
--- End control mode
 local function endControl()
 	active = false
 
-	-- Stop tracking
-	if pathConnection then
-		pathConnection:Disconnect()
-		pathConnection = nil
-	end
+	-- Stop recording
+	if pathConnection then pathConnection:Disconnect() end
 
 	-- Delete dummy
 	if dummy then
 		dummy:Destroy()
-		dummy = nil
 	end
 
-	-- Reset camera and un-anchor player
+	-- Restore player
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
-
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	-- Follow the path
+	-- Walk the path
 	coroutine.wrap(function()
 		for _, p in ipairs(path) do
 			local goal = p.Position + Vector3.new(0, 1, 0)
@@ -130,7 +144,6 @@ local function endControl()
 			tween.Completed:Wait()
 		end
 
-		-- Cleanup path
 		for _, p in ipairs(path) do
 			p:Destroy()
 		end
@@ -138,7 +151,6 @@ local function endControl()
 	end)()
 end
 
--- Toggle with T key
 UIS.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.T then
