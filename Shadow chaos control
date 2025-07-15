@@ -2,77 +2,16 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
-local StarterPlayer = game:GetService("StarterPlayer")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local active = false
-local dummy = nil
+local clone = nil
 local path = {}
 local pathConnection = nil
 
--- Load a real R6 dummy
-local function loadR6Dummy(position)
-	local dummy = Instance.new("Model")
-	dummy.Name = "ControlledDummy"
-
-	-- Add Humanoid
-	local humanoid = Instance.new("Humanoid")
-	humanoid.Name = "Humanoid"
-	humanoid.Parent = dummy
-
-	-- Load classic R6 rig parts
-	local function createPart(name, size, position)
-		local part = Instance.new("Part")
-		part.Name = name
-		part.Size = size
-		part.Anchored = false
-		part.CanCollide = true
-		part.Position = position
-		part.TopSurface = Enum.SurfaceType.Smooth
-		part.BottomSurface = Enum.SurfaceType.Smooth
-		part.Parent = dummy
-		return part
-	end
-
-	local function addWeld(part0, part1, c0)
-		local weld = Instance.new("Motor6D")
-		weld.Part0 = part0
-		weld.Part1 = part1
-		weld.C0 = c0 or CFrame.new()
-		weld.Parent = part0
-	end
-
-	local root = createPart("HumanoidRootPart", Vector3.new(2, 2, 1), position)
-	local torso = createPart("Torso", Vector3.new(2, 2, 1), position)
-	local head = createPart("Head", Vector3.new(2, 1, 1), position + Vector3.new(0, 3, 0))
-
-	addWeld(root, torso)
-	addWeld(torso, head, CFrame.new(0, 1.5, 0))
-
-	-- Required attachments for humanoid
-	local face = Instance.new("Decal")
-	face.Name = "face"
-	face.Texture = "rbxasset://textures/face.png"
-	face.Face = Enum.NormalId.Front
-	face.Parent = head
-
-	local neck = Instance.new("Motor6D")
-	neck.Name = "Neck"
-	neck.Part0 = torso
-	neck.Part1 = head
-	neck.C0 = CFrame.new(0, 1.5, 0)
-	neck.Parent = torso
-
-	dummy.PrimaryPart = root
-	dummy:SetPrimaryPartCFrame(CFrame.new(position))
-	dummy.Parent = workspace
-
-	return dummy
-end
-
+-- Create path marker part
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -85,74 +24,112 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
+-- Clone the player's character and customize it
+local function cloneCharacter()
+	local char = player.Character
+	if not char then return end
+
+	local cloneModel = char:Clone()
+	cloneModel.Name = "ControllableClone"
+
+	for _, part in cloneModel:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Transparency = 0.5
+			part.Color = Color3.fromRGB(255, 0, 0)
+			part.Material = Enum.Material.ForceField
+			part.Anchored = false
+			part.CanCollide = true
+		elseif part:IsA("Decal") then
+			part:Destroy()
+		elseif part:IsA("Script") or part:IsA("LocalScript") then
+			part:Destroy()
+		end
+	end
+
+	local root = cloneModel:FindFirstChild("HumanoidRootPart")
+	if root then
+		local originalRoot = char:FindFirstChild("HumanoidRootPart")
+		if originalRoot then
+			root.CFrame = originalRoot.CFrame - Vector3.new(0, 3, 0)
+		end
+	end
+
+	cloneModel.Parent = workspace
+	return cloneModel
+end
+
+-- Start controlling the clone
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
-	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Float and freeze real player
+	-- Anchor the player and float up
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 10, 0)
 
-	-- Spawn dummy underneath
-	dummy = loadR6Dummy(hrp.Position - Vector3.new(0, 4, 0))
-	local dummyHumanoid = dummy:FindFirstChild("Humanoid")
+	-- Clone character and follow it
+	clone = cloneCharacter()
+	if not clone then return end
 
-	-- Set camera to dummy
-	camera.CameraSubject = dummyHumanoid
+	local cloneHumanoid = clone:FindFirstChildOfClass("Humanoid")
+	if cloneHumanoid then
+		camera.CameraSubject = cloneHumanoid
+	end
 
-	-- Record path
-	local lastPos = dummy.PrimaryPart.Position
+	-- Start path tracking
+	local lastPos = clone:FindFirstChild("HumanoidRootPart").Position
 	pathConnection = RunService.Heartbeat:Connect(function()
-		local pos = dummy.PrimaryPart.Position
-		if (pos - lastPos).Magnitude > 2 then
-			createPathPoint(pos)
-			lastPos = pos
+		local root = clone:FindFirstChild("HumanoidRootPart")
+		if root and (root.Position - lastPos).Magnitude > 2 then
+			createPathPoint(root.Position)
+			lastPos = root.Position
 		end
 	end)
 end
 
+-- End control, remove clone, walk path
 local function endControl()
 	active = false
 
-	-- Stop recording
-	if pathConnection then pathConnection:Disconnect() end
-
-	-- Delete dummy
-	if dummy then
-		dummy:Destroy()
+	if pathConnection then
+		pathConnection:Disconnect()
 	end
 
-	-- Restore player
+	if clone then
+		clone:Destroy()
+	end
+
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
+
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	-- Walk the path
+	-- Move along the path
 	coroutine.wrap(function()
-		for _, p in ipairs(path) do
-			local goal = p.Position + Vector3.new(0, 1, 0)
-			local dist = (hrp.Position - goal).Magnitude
+		for _, point in ipairs(path) do
+			local dest = point.Position + Vector3.new(0, 1, 0)
+			local dist = (hrp.Position - dest).Magnitude
 			local tween = TweenService:Create(hrp, TweenInfo.new(dist / 16, Enum.EasingStyle.Linear), {
-				CFrame = CFrame.new(goal)
+				CFrame = CFrame.new(dest)
 			})
 			tween:Play()
 			tween.Completed:Wait()
 		end
 
-		for _, p in ipairs(path) do
+		for _, p in path do
 			p:Destroy()
 		end
 		table.clear(path)
 	end)()
 end
 
-UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
+-- Toggle with T key
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
 		if not active then
 			beginControl()
