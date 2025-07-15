@@ -61,4 +61,66 @@ local function setupCharacter(character)
 		local rayDir = hrp.CFrame.LookVector * 3
 
 		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType
+		params.FilterType = Enum.RaycastFilterType.Blacklist
+		params.FilterDescendantsInstances = {character}
+
+		local result = workspace:Raycast(rayOrigin, rayDir, params)
+		if result and result.Normal.Y < 0.5 then
+			-- Wall detected
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			hrp.Velocity = result.Normal * 40 + wallJumpForce
+		end
+
+		task.delay(0.2, function()
+			debounce = false
+		end)
+	end
+
+	-- Input handlers
+	local inputConn, releaseConn, jumpConn
+
+	inputConn = UIS.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.E then
+			if not track.IsPlaying then
+				track:Play()
+			end
+			holdingE = true
+		end
+	end)
+
+	releaseConn = UIS.InputEnded:Connect(function(input)
+		if input.KeyCode == Enum.KeyCode.E then
+			holdingE = false
+			track:Stop()
+		end
+	end)
+
+	jumpConn = humanoid.StateChanged:Connect(function(_, new)
+		if new == Enum.HumanoidStateType.Jumping and holdingE then
+			attemptWallJump()
+		end
+	end)
+
+	-- Disconnect everything when character dies
+	humanoid.Died:Connect(function()
+		conn:Disconnect()
+		inputConn:Disconnect()
+		releaseConn:Disconnect()
+		jumpConn:Disconnect()
+	end)
+end
+
+-- Handle character spawn
+local function onCharacterAdded(char)
+	setupCharacter(char)
+end
+
+if player.Character then
+	onCharacterAdded(player.Character)
+end
+
+player.CharacterAdded:Once(function()
+	-- Stop script from running again on respawn
+	script:Destroy()
+end)
