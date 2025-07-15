@@ -8,11 +8,11 @@ local humanoid = character:WaitForChild("Humanoid")
 local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
 local thisScript = script
 
--- Animation IDs
+-- Animation IDs (X and Comma swapped)
 local animations = {
 	Z = "rbxassetid://78439251750221",
-	X = "rbxassetid://77221510148981",
-	Comma = "rbxassetid://92837953970970",
+	X = "rbxassetid://92837953970970",        -- swapped
+	Comma = "rbxassetid://77221510148981",    -- swapped
 	Period = "rbxassetid://126889161151367"
 }
 
@@ -33,9 +33,8 @@ local outroStartTime = 2
 local idleTrack = nil
 local idleDelayTask = nil
 local newAnimStarting = false
-local canPlayAnimations = true -- this gets stuck false sometimes without reset
+local canPlayAnimations = true
 
--- 💥 Reset Animator completely (stops ALL animations)
 local function resetAnimator()
 	if animator then
 		animator:Destroy()
@@ -44,7 +43,6 @@ local function resetAnimator()
 	animator.Parent = humanoid
 end
 
--- 💤 Play idle animation
 local function playIdle()
 	if not canPlayAnimations then return end
 	if idleTrack then
@@ -59,7 +57,6 @@ local function playIdle()
 	idleTrack:Play()
 end
 
--- 🛑 Stop idle animation
 local function stopIdle()
 	if idleTrack then
 		idleTrack:Stop(0)
@@ -68,7 +65,6 @@ local function stopIdle()
 	end
 end
 
--- ❌ Fully stop current animation
 local function stopCurrent()
 	if currentTrack then
 		currentTrack:Stop(0)
@@ -82,10 +78,9 @@ local function stopCurrent()
 	currentKey = nil
 	stopIdle()
 	resetAnimator()
-	canPlayAnimations = true -- restore anim playability just in case
+	canPlayAnimations = true
 end
 
--- ⏳ Schedule idle after delay unless interrupted
 local function scheduleIdle()
 	if idleDelayTask then
 		idleDelayTask:Cancel()
@@ -98,7 +93,6 @@ local function scheduleIdle()
 	end)
 end
 
--- ▶️ Play split animation (intro → loop → outro)
 local function playSplitAnimation(animId, key)
 	if not canPlayAnimations then return end
 	newAnimStarting = true
@@ -136,7 +130,6 @@ local function playSplitAnimation(animId, key)
 	end)
 end
 
--- 🗺 Key mappings
 local keyMap = {
 	[Enum.KeyCode.Z] = "Z",
 	[Enum.KeyCode.X] = "X",
@@ -144,22 +137,19 @@ local keyMap = {
 	[Enum.KeyCode.Period] = "Period"
 }
 
--- 🎮 Input Began
 inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
 	if input.KeyCode == Enum.KeyCode.T then
 		animationMode = not animationMode
-
 		if animationMode then
 			stopIdle()
-			canPlayAnimations = true -- Restore broken play state
+			canPlayAnimations = true
 		else
 			stopCurrent()
 			newAnimStarting = false
 			playIdle()
 		end
-
 		return
 	end
 
@@ -181,7 +171,6 @@ inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameP
 	end
 end)
 
--- 🛑 Input Ended (to trigger outro)
 inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 	local key = keyMap[input.KeyCode]
 	if key and key == currentKey then
@@ -189,5 +178,4 @@ inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- ✅ Start with idle animation
 playIdle()
