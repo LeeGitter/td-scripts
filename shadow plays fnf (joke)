@@ -1,247 +1,126 @@
-local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
+local thisScript = script
 
--- UI Setup: ScreenGui with TextBox and toggle instruction
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "FNFLoaderGui"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
-
-local inputFrame = Instance.new("Frame")
-inputFrame.Size = UDim2.new(0, 400, 0, 120)
-inputFrame.Position = UDim2.new(0.5, -200, 0, 20)
-inputFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-inputFrame.BorderSizePixel = 0
-inputFrame.Parent = screenGui
-
--- TextBox for JSON URL input
-local urlBox = Instance.new("TextBox")
-urlBox.Size = UDim2.new(1, -20, 0, 40)
-urlBox.Position = UDim2.new(0, 10, 0, 10)
-urlBox.PlaceholderText = "Paste GitHub Raw JSON URL here"
-urlBox.ClearTextOnFocus = false
-urlBox.Text = ""
-urlBox.TextColor3 = Color3.new(1,1,1)
-urlBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-urlBox.Parent = inputFrame
-
--- TextBox for Lua code input
-local luaBox = Instance.new("TextBox")
-luaBox.Size = UDim2.new(1, -20, 0, 40)
-luaBox.Position = UDim2.new(0, 10, 0, 60)
-luaBox.PlaceholderText = "Paste Lua script here (optional)"
-luaBox.ClearTextOnFocus = false
-luaBox.Text = ""
-luaBox.TextColor3 = Color3.new(1,1,1)
-luaBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-luaBox.MultiLine = true
-luaBox.Parent = inputFrame
-
-local instructionLabel = Instance.new("TextLabel")
-instructionLabel.Size = UDim2.new(1, -20, 0, 20)
-instructionLabel.Position = UDim2.new(0, 10, 0, 105)
-instructionLabel.BackgroundTransparency = 1
-instructionLabel.TextColor3 = Color3.new(1,1,1)
-instructionLabel.Font = Enum.Font.SourceSans
-instructionLabel.TextSize = 14
-instructionLabel.Text = "Press T to load JSON & toggle notes, U to run Lua script"
-instructionLabel.Parent = inputFrame
-
--- Variables for notes display
-local notesScreenGui
-local notesContainer
-
-local directionColors = {
-    [0] = Color3.fromRGB(0, 255, 255),  -- Left - Cyan
-    [1] = Color3.fromRGB(255, 0, 0),    -- Down - Red
-    [2] = Color3.fromRGB(0, 255, 0),    -- Up - Green
-    [3] = Color3.fromRGB(255, 255, 0)   -- Right - Yellow
+-- Animation IDs
+local animations = {
+	Z = "rbxassetid://78439251750221",
+	X = "rbxassetid://77221510148981",
+	Comma = "rbxassetid://92837953970970",
+	Period = "rbxassetid://126889161151367"
 }
 
-local notesObjects = {}
-local guiEnabled = false
+local animationMode = false
+local currentTrack = nil
+local currentKey = nil
+local loopConnection = nil
+local inputBeganConnection
+local inputEndedConnection
 
-local noteGuiSize = Vector2.new(30, 30)
-local spawnY = 600  -- start near bottom of screen (pixels)
-local despawnY = -40 -- remove note when above this Y
+-- Timings in seconds
+local introEndTime = 1
+local loopStartTime = 1
+local loopEndTime = 2
+local outroStartTime = 2
 
-local scrollSpeed = 100 -- default in case speed isn't found
-
-local allNotes = {}
-
-local function createNoteSquare(direction)
-    local square = Instance.new("Frame")
-    square.Size = UDim2.new(0, noteGuiSize.X, 0, noteGuiSize.Y)
-    square.BackgroundColor3 = directionColors[direction] or Color3.new(1,1,1)
-    square.BorderSizePixel = 1
-    square.BorderColor3 = Color3.new(0, 0, 0)
-    square.AnchorPoint = Vector2.new(0.5, 0.5)
-    return square
+-- Forcefully stop current animation and clear state immediately
+local function stopCurrent()
+	if currentTrack then
+		currentTrack:Stop(0) -- no fade out
+		currentTrack:Destroy() -- full removal to avoid blending
+		currentTrack = nil
+	end
+	if loopConnection then
+		loopConnection:Disconnect()
+		loopConnection = nil
+	end
+	currentKey = nil
 end
 
-local function createNotesGui()
-    notesScreenGui = Instance.new("ScreenGui")
-    notesScreenGui.Name = "FNFNotesDisplay"
-    notesScreenGui.ResetOnSpawn = false
-    notesScreenGui.Parent = playerGui
+-- Play animation with intro, loop middle, outro after release
+local function playSplitAnimation(animId, key)
+	stopCurrent() -- force stop previous animation immediately
 
-    notesContainer = Instance.new("Frame")
-    notesContainer.Name = "NotesContainer"
-    notesContainer.AnchorPoint = Vector2.new(0.5, 1)
-    notesContainer.Position = UDim2.new(0.5, 0, 1, 0) -- bottom center
-    notesContainer.Size = UDim2.new(1, 0, 1, 0)
-    notesContainer.BackgroundTransparency = 1
-    notesContainer.Parent = notesScreenGui
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animId
+	local track = animator:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action4
+	track.Looped = false
+	currentTrack = track
+	currentKey = key
 
-    notesObjects = {}
+	track:Play()
+	track.TimePosition = 0
 
-    local lanesX = {
-        [0] = 0.25,
-        [1] = 0.45,
-        [2] = 0.65,
-        [3] = 0.85,
-    }
+	-- After intro finishes, start looping middle
+	task.delay(introEndTime, function()
+		if currentTrack ~= track or currentKey ~= key then return end
+		track.TimePosition = loopStartTime
+		track.Looped = true
+		track:Play()
+	end)
 
-    for _, note in ipairs(allNotes) do
-        local time, direction = note[1], note[2]
-
-        local square = createNoteSquare(direction)
-
-        local laneX = lanesX[direction] or 0.5
-        square.Position = UDim2.new(laneX, 0, 0, spawnY)
-        square.Parent = notesContainer
-
-        table.insert(notesObjects, {
-            Gui = square,
-            Time = time,
-            Direction = direction,
-            YPos = spawnY,
-        })
-    end
+	-- Monitor key release to play outro
+	loopConnection = RunService.RenderStepped:Connect(function()
+		if currentTrack == track and currentKey ~= key then
+			loopConnection:Disconnect()
+			loopConnection = nil
+			track.Looped = false
+			track.TimePosition = outroStartTime
+			track:Play()
+			currentTrack = nil
+		end
+	end)
 end
 
-local function removeNotesGui()
-    if notesScreenGui then
-        notesScreenGui:Destroy()
-        notesScreenGui = nil
-        notesObjects = {}
-    end
-end
+-- Map KeyCode to string keys
+local keyMap = {
+	[Enum.KeyCode.Z] = "Z",
+	[Enum.KeyCode.X] = "X",
+	[Enum.KeyCode.Comma] = "Comma",
+	[Enum.KeyCode.Period] = "Period"
+}
 
-local function toggleNotesDisplay()
-    if guiEnabled then
-        removeNotesGui()
-        guiEnabled = false
-    else
-        if #allNotes == 0 then
-            warn("No notes loaded. Please enter a valid JSON URL and press T again.")
-            return
-        end
-        createNotesGui()
-        guiEnabled = true
-    end
-end
+-- Input began
+inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
 
-local function flattenNotes(sections)
-    local flatNotes = {}
-    for _, section in ipairs(sections) do
-        for _, note in ipairs(section.sectionNotes or {}) do
-            table.insert(flatNotes, note)
-        end
-    end
-    -- Sort ascending by time
-    table.sort(flatNotes, function(a,b) return a[1] < b[1] end)
-    return flatNotes
-end
+	if input.KeyCode == Enum.KeyCode.T then
+		animationMode = not animationMode
+		if not animationMode then
+			stopCurrent()
+		end
+		return
+	end
 
-local function loadChartFromUrl(url)
-    local success, response = pcall(function()
-        return HttpService:GetAsync(url)
-    end)
-    if not success then
-        warn("Failed to get JSON: ", response)
-        return false
-    end
+	if input.KeyCode == Enum.KeyCode.U then
+		stopCurrent()
+		if inputBeganConnection then inputBeganConnection:Disconnect() end
+		if inputEndedConnection then inputEndedConnection:Disconnect() end
+		if thisScript and thisScript:IsDescendantOf(game) then
+			thisScript:Destroy()
+		end
+		return
+	end
 
-    local successDecode, data = pcall(function()
-        return HttpService:JSONDecode(response)
-    end)
-    if not successDecode then
-        warn("Failed to decode JSON: ", data)
-        return false
-    end
+	if not animationMode then return end
 
-    -- Validate data format
-    if not data.song or not data.song.notes then
-        warn("Invalid chart JSON structure")
-        return false
-    end
-
-    scrollSpeed = 100 * (data.song.speed or 3)
-    allNotes = flattenNotes(data.song.notes)
-    print("Chart loaded: " .. tostring(#allNotes) .. " notes")
-    return true
-end
-
--- Scrolling logic
-local lastUpdate = tick()
-
-RunService.RenderStepped:Connect(function()
-    if not guiEnabled then return end
-
-    local now = tick()
-    local dt = now - lastUpdate
-    lastUpdate = now
-
-    for i = #notesObjects, 1, -1 do
-        local noteObj = notesObjects[i]
-        noteObj.YPos = noteObj.YPos - scrollSpeed * dt
-        if noteObj.YPos < despawnY then
-            noteObj.Gui:Destroy()
-            table.remove(notesObjects, i)
-        else
-            noteObj.Gui.Position = UDim2.new(noteObj.Gui.Position.X.Scale, noteObj.Gui.Position.X.Offset, 0, noteObj.YPos)
-        end
-    end
+	local key = keyMap[input.KeyCode]
+	if key and animations[key] then
+		playSplitAnimation(animations[key], key)
+	end
 end)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.T then
-        if not guiEnabled then
-            local url = urlBox.Text
-            if url == "" then
-                warn("Please enter a valid URL!")
-                return
-            end
-            local loaded = loadChartFromUrl(url)
-            if loaded then
-                toggleNotesDisplay()
-            end
-        else
-            toggleNotesDisplay()
-        end
-    elseif input.KeyCode == Enum.KeyCode.U then
-        local scriptText = luaBox.Text
-        if scriptText == "" then
-            warn("No Lua script to run!")
-            return
-        end
-        local func, err = loadstring(scriptText)
-        if not func then
-            warn("Lua script error: "..err)
-            return
-        end
-        local success, runErr = pcall(func)
-        if not success then
-            warn("Lua script runtime error: "..runErr)
-        else
-            print("Lua script ran successfully!")
-        end
-    end
+-- Input ended
+inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
+	local key = keyMap[input.KeyCode]
+	if key and key == currentKey then
+		currentKey = nil
+	end
 end)
