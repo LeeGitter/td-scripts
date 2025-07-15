@@ -1,0 +1,141 @@
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+-- State
+local flying = false
+local descending = false
+local velocity = Vector3.zero
+local maxSpeed = 75
+local startSpeed = 10
+local acceleration = 0.8 -- slower acceleration
+local descentSpeed = 40
+local currentSpeed = 0
+
+-- Animation IDs
+local anims = {
+	idle = "rbxassetid://101166618473023",
+	slow = "rbxassetid://81150683491044",
+	fast = "rbxassetid://131369481104313",
+	land = "rbxassetid://92837953970970"
+}
+
+-- Animator
+local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+
+-- Load animations
+local tracks = {}
+for name, id in pairs(anims) do
+	local anim = Instance.new("Animation")
+	anim.AnimationId = id
+	tracks[name] = animator:LoadAnimation(anim)
+end
+
+-- Stop all flight-related animations
+local function stopAllFlightAnimations()
+	for _, track in pairs(tracks) do
+		if track.IsPlaying then
+			track:Stop()
+		end
+	end
+end
+
+-- Smooth body tilt
+local function tiltBodyTowards(dir, dt)
+	local currentCF = hrp.CFrame
+	local goalCF = CFrame.new(hrp.Position, hrp.Position + dir)
+	hrp.CFrame = currentCF:Lerp(goalCF, dt * 2.5)
+end
+
+-- Start flight
+local function startFlight()
+	if flying then return end
+	flying = true
+	descending = false
+	currentSpeed = startSpeed
+
+	-- Fast upward boost
+	local goalPos = hrp.Position + Vector3.new(0, 4, 0)
+	local floatTween = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Sine), {CFrame = CFrame.new(goalPos)})
+	floatTween:Play()
+	floatTween.Completed:Wait()
+
+	humanoid.WalkSpeed = 0
+
+	-- Begin flight loop
+	RunService:BindToRenderStep("FlightControl", Enum.RenderPriority.Input.Value, function(dt)
+		local camCF = workspace.CurrentCamera.CFrame
+		local dir = camCF.LookVector.Unit
+
+		-- Accelerate gradually
+		currentSpeed = math.min(maxSpeed, currentSpeed + acceleration)
+		hrp.Velocity = dir * currentSpeed
+
+		-- Smooth tilt toward movement direction
+		tiltBodyTowards(dir, dt)
+
+		-- Animation selection
+		stopAllFlightAnimations()
+		if currentSpeed < 1 then
+			tracks.idle:Play()
+		elseif currentSpeed < 30 then
+			tracks.slow:Play()
+		else
+			tracks.fast:Play()
+		end
+	end)
+end
+
+-- Descent and landing
+local function startDescent()
+	if not flying or descending then return end
+	descending = true
+	RunService:UnbindFromRenderStep("FlightControl")
+
+	local camCF = workspace.CurrentCamera.CFrame
+	local descendDir = (camCF.LookVector - Vector3.new(0, 1, 0)).Unit
+
+	-- Begin descent
+	RunService:BindToRenderStep("DescentControl", Enum.RenderPriority.Input.Value, function(dt)
+		local fallVelocity = descendDir * descentSpeed
+		hrp.Velocity = fallVelocity
+
+		-- Tilt downward
+		tiltBodyTowards(descendDir, dt)
+
+		-- Detect landing
+		local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
+		local hit = workspace:FindPartOnRay(ray, character)
+		if hit then
+			stopAllFlightAnimations()
+			RunService:UnbindFromRenderStep("DescentControl")
+
+			-- Play landing animation
+			tracks.land:Play()
+			task.wait(tracks.land.Length or 1)
+
+			humanoid.WalkSpeed = 45
+			flying = false
+			descending = false
+			currentSpeed = 0
+		end
+	end)
+end
+
+-- Toggle flight with T key
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.T then
+		if not flying then
+			startFlight()
+		elseif not descending then
+			startDescent()
+		end
+	end
+end)
