@@ -11,6 +11,7 @@ local dummy = nil
 local path = {}
 local pathConnection = nil
 local moveConnection = nil
+local pathMoveConnection = nil
 
 -- Create glowing path part
 local function createPathPoint(position)
@@ -67,10 +68,11 @@ local function beginControl()
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Anchor player 3 studs up
+	-- Anchor and float player up to prevent movement (optional)
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 3, 0)
 
+	-- Spawn dummy ON GROUND level (same Y as player - 4 studs)
 	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	camera.CameraSubject = dummyHumanoid
@@ -80,7 +82,7 @@ local function beginControl()
 
 		local moveVec = Vector3.zero
 
-		-- FIXED: Correct camera-relative controls
+		-- Correct camera-relative controls: W = forward (negative Z)
 		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
@@ -94,7 +96,6 @@ local function beginControl()
 
 			dummyHumanoid:Move(moveDir, false)
 
-			-- Rotate dummy root toward movement direction
 			local root = dummy:FindFirstChild("HumanoidRootPart")
 			if root then
 				root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
@@ -104,7 +105,7 @@ local function beginControl()
 		end
 	end)
 
-	-- Path tracking
+	-- Track path points every 2 studs moved by dummy
 	local lastPos = dummy.HumanoidRootPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
@@ -118,20 +119,38 @@ end
 local function endControl()
 	active = false
 
-	if pathConnection then pathConnection:Disconnect() end
-	if moveConnection then moveConnection:Disconnect() end
-	if dummy then dummy:Destroy() end
+	if pathConnection then
+		pathConnection:Disconnect()
+		pathConnection = nil
+	end
+
+	if moveConnection then
+		moveConnection:Disconnect()
+		moveConnection = nil
+	end
+
+	if dummy then
+		dummy:Destroy()
+		dummy = nil
+	end
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
+	-- Unanchor player so they can move again
 	hrp.Anchored = false
-	camera.CameraSubject = humanoid
+
+	-- Set camera back to player character's humanoid
+	-- Delay reset by a small amount to avoid glitches
+	task.delay(0.1, function()
+		if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+			camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
+		end
+	end)
 
 	if #path == 0 then return end
 
-	-- Pre-calc distances between points (including from current pos to first point)
 	local positions = {hrp.Position}
 	for _, p in ipairs(path) do
 		table.insert(positions, p.Position)
@@ -146,39 +165,35 @@ local function endControl()
 	end
 
 	if totalLength == 0 then
-		-- No movement needed, just cleanup
 		for _, p in path do p:Destroy() end
 		table.clear(path)
 		return
 	end
 
-	local totalTime = 5 -- seconds total to complete path
-
-	-- Movement variables
+	local totalTime = 5
 	local elapsedTime = 0
 	local currentSegment = 1
 	local segmentProgress = 0
 
-	-- Face path start direction immediately
+	-- Face start direction immediately
 	local initialDir = (segments[1].endPos - segments[1].startPos).Unit
 	hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(initialDir.X, 0, initialDir.Z))
 
-	-- Keep original Y for ground level
+	-- Keep original ground Y to avoid floating
 	local groundY = hrp.Position.Y
 
-	-- Connect a RenderStepped to smoothly move along path every frame
-	local moveConnection2
-	moveConnection2 = RunService.RenderStepped:Connect(function(dt)
+	-- Smooth movement along path every frame
+	pathMoveConnection = RunService.RenderStepped:Connect(function(dt)
 		if currentSegment > #segments then
-			-- Done walking
-			moveConnection2:Disconnect()
+			if pathMoveConnection then
+				pathMoveConnection:Disconnect()
+				pathMoveConnection = nil
+			end
 
-			-- Snap to final position and face last segment direction
 			local lastSeg = segments[#segments]
 			local finalPos = lastSeg.endPos
 			hrp.CFrame = CFrame.new(Vector3.new(finalPos.X, groundY, finalPos.Z), finalPos + Vector3.new(lastSeg.endPos.X - lastSeg.startPos.X, 0, lastSeg.endPos.Z - lastSeg.startPos.Z))
 
-			-- Cleanup path parts
 			for _, p in path do p:Destroy() end
 			table.clear(path)
 			return
@@ -187,12 +202,9 @@ local function endControl()
 		elapsedTime = math.min(elapsedTime + dt, totalTime)
 		local t = elapsedTime / totalTime
 
-		-- Quadratic ease-in for smooth acceleration
+		-- Quadratic ease-in acceleration
 		local speedFactor = t*t
-
-		-- Speed needed to finish in totalTime (max speed)
 		local maxSpeed = totalLength / totalTime
-
 		local currentSpeed = maxSpeed * speedFactor
 
 		local segment = segments[currentSegment]
@@ -200,13 +212,11 @@ local function endControl()
 		local segmentRemain = segment.length - segmentProgress
 
 		if moveDist >= segmentRemain then
-			-- Move to end of segment and proceed to next
 			segmentProgress = 0
 			currentSegment += 1
 			hrp.CFrame = CFrame.new(Vector3.new(segment.endPos.X, groundY, segment.endPos.Z),
 				segment.endPos + Vector3.new(segment.endPos.X - segment.startPos.X, 0, segment.endPos.Z - segment.startPos.Z))
 		else
-			-- Move along current segment
 			segmentProgress += moveDist
 			local segmentDir = (segment.endPos - segment.startPos).Unit
 			local newPos = segment.startPos + segmentDir * segmentProgress
