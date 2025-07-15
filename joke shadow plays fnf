@@ -140,7 +140,7 @@ end
 waitForSize(chartDisplayFrame)
 local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
 
--- Parses FNF JSON chart into {time, dir} list
+-- Parses FNF JSON chart into {time, dir} list using your snippet format
 local function parseFNFChart(fnfJson)
     local songData = fnfJson.song
     if not songData then warn("Missing song data") return nil end
@@ -150,9 +150,7 @@ local function parseFNFChart(fnfJson)
     local notesSections = songData.notes
     if not notesSections then warn("Missing notes") return nil end
 
-    local secondsPerStep = (60 / bpm) / 4
     local chart = {}
-    local sectionStartTime = 0
 
     local noteDataToDir = {
         [0] = "left",
@@ -161,19 +159,21 @@ local function parseFNFChart(fnfJson)
         [3] = "right"
     }
 
+    -- We'll convert times (ms) to seconds and apply speed factor
+
     for _, section in ipairs(notesSections) do
-        local lengthInSteps = section.lengthInSteps or 16
         local sectionNotes = section.sectionNotes or {}
 
         for _, note in ipairs(sectionNotes) do
-            local dir = noteDataToDir[note.noteData]
-            if dir then
-                local time = sectionStartTime + (note.noteTime or 0) * secondsPerStep / speed
-                table.insert(chart, {time = time, dir = dir})
+            local timeMs = note[1]
+            local noteData = note[2]
+
+            local dir = noteDataToDir[noteData]
+            if dir and timeMs then
+                local timeSeconds = timeMs / 1000 / speed
+                table.insert(chart, {time = timeSeconds, dir = dir})
             end
         end
-
-        sectionStartTime = sectionStartTime + (lengthInSteps * secondsPerStep) / speed
     end
 
     table.sort(chart, function(a,b) return a.time < b.time end)
