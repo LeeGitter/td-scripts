@@ -76,11 +76,11 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Standard WASD movement (camera-relative)
+-- ✅ Character-based movement (not camera-based)
 local function getMoveDirection()
-	local camCF = workspace.CurrentCamera.CFrame
-	local forward = camCF.LookVector
-	local right = camCF.RightVector
+	local charCF = hrp.CFrame
+	local forward = charCF.LookVector
+	local right = charCF.RightVector
 	local direction = Vector3.zero
 
 	for key, _ in pairs(heldKeys) do
