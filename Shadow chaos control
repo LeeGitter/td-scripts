@@ -52,6 +52,11 @@ local function spawnDummy(position)
 		hrp.CFrame = CFrame.new(position)
 	end
 
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 50
+	end
+
 	model.Parent = workspace
 	return model
 end
@@ -63,9 +68,9 @@ local function beginControl()
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Float and anchor player
+	-- Float and anchor player 3 studs up
 	hrp.Anchored = true
-	hrp.CFrame += Vector3.new(0, 10, 0)
+	hrp.CFrame += Vector3.new(0, 3, 0)
 
 	-- Spawn dummy and set camera
 	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
@@ -82,13 +87,18 @@ local function beginControl()
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
-		local camCF = camera.CFrame
-		local forward = camCF.LookVector * Vector3.new(1, 0, 1)
-		local right = camCF.RightVector * Vector3.new(1, 0, 1)
-
-		local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
-		if dummyHumanoid and moveDir.Magnitude > 0 then
+		if moveVec.Magnitude > 0 then
+			local camCF = camera.CFrame
+			local forward = camCF.LookVector * Vector3.new(1, 0, 1)
+			local right = camCF.RightVector * Vector3.new(1, 0, 1)
+			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
 			dummyHumanoid:Move(moveDir, false)
+
+			-- Rotate dummy root toward movement direction
+			local root = dummy:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
+			end
 		else
 			dummyHumanoid:Move(Vector3.zero, false)
 		end
