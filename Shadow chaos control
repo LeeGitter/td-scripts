@@ -13,6 +13,7 @@ local moveConnection = nil
 local flyConnection = nil
 
 local marker = nil
+local floatVelocity = nil
 
 -- Create marker at position
 local function placeMarker(position)
@@ -67,7 +68,7 @@ local function spawnDummy(position)
 		hrp.Transparency = 1
 		hrp.CanCollide = false
 		hrp.CFrame = CFrame.new(position)
-		hrp.Anchored = false -- Important so humanoid can jump and float!
+		hrp.Anchored = false -- Allow physics for jump and float
 	end
 
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -92,8 +93,16 @@ local function beginControl()
 
 	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
+	local dummyHRP = dummy:FindFirstChild("HumanoidRootPart")
+
 	camera.CameraSubject = dummyHumanoid
 	print("[Control] Camera switched to dummy")
+
+	-- BodyVelocity to control float upward
+	floatVelocity = Instance.new("BodyVelocity")
+	floatVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+	floatVelocity.Velocity = Vector3.new(0, 0, 0)
+	floatVelocity.Parent = dummyHRP
 
 	-- Jump on space press
 	local spaceConnection
@@ -135,22 +144,21 @@ local function beginControl()
 			end
 		end
 
-		-- FLOAT upward slowly while holding Space
+		-- FLOAT upward slowly while holding Space using BodyVelocity
 		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			-- Add a small upward velocity to float
-			root.Velocity = Vector3.new(root.Velocity.X, 5, root.Velocity.Z)
+			floatVelocity.Velocity = Vector3.new(0, 5, 0) -- Adjust float speed here
+		else
+			floatVelocity.Velocity = Vector3.new(0, 0, 0)
 		end
 	end)
 
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
 		if root then
-			-- Just store last position, no path parts now
 			path[#path+1] = root.Position
 		end
 	end)
 
-	-- Save space jump connection for disconnect later
 	dummy:SetAttribute("SpaceJumpConnection", spaceConnection)
 end
 
@@ -171,6 +179,7 @@ local function flyToDestination(destination)
 	if totalDist == 0 then
 		setNoclip(char, false)
 		humanoid.AutoRotate = true
+		removeMarker()
 		return
 	end
 	direction = direction.Unit
@@ -200,6 +209,7 @@ local function flyToDestination(destination)
 			flyConnection = nil
 			setNoclip(char, false)
 			humanoid.AutoRotate = true
+			removeMarker()
 			print("[Fly] Arrived at destination")
 		else
 			local moveDir = toDest.Unit
@@ -231,6 +241,12 @@ local function endControl()
 
 		if lastPos then
 			placeMarker(lastPos)
+		end
+
+		-- Remove BodyVelocity so clone physics reset properly
+		if floatVelocity then
+			floatVelocity:Destroy()
+			floatVelocity = nil
 		end
 
 		dummy:Destroy()
