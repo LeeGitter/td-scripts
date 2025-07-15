@@ -3,108 +3,132 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Default WalkSpeed
-humanoid.WalkSpeed = 28
+local function onCharacterAdded(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	local hrp = character:WaitForChild("HumanoidRootPart")
 
-local holdingE = false
-local dead = false
-local wallJumpCooldown = false
+	local DEFAULT_SPEED = 28
+	local BOOSTED_SPEED = 35
+	local SPEED_BOOST_DURATION = 0.3
 
--- === Animation for E ===
-local anim = Instance.new("Animation")
-anim.AnimationId = "rbxassetid://132439703713518"
-local animTrack = humanoid:LoadAnimation(anim)
+	humanoid.WalkSpeed = DEFAULT_SPEED
 
--- === Hold E: play animation + apply physics ===
-UIS.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.E and not holdingE then
-		holdingE = true
-		animTrack:Play()
-	end
-end)
+	local holdingE = false
+	local wallJumpCooldown = false
+	local dead = false
 
-UIS.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.E then
-		holdingE = false
-		animTrack:Stop()
-	end
-end)
+	-- Load hold E animation
+	local anim = Instance.new("Animation")
+	anim.AnimationId = "rbxassetid://132439703713518"
+	local animTrack = humanoid:LoadAnimation(anim)
 
--- === Apply drag and downhill boost while holding E ===
-local physicsLoop
-physicsLoop = RunService.RenderStepped:Connect(function()
-	if dead or not holdingE then return end
-
-	-- Apply slow drag
-	hrp.Velocity *= 0.99
-
-	-- Downhill boost using slope detection
-	local rayParams = RaycastParams.new()
-	rayParams.FilterDescendantsInstances = {character}
-	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-	local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
-	if ray then
-		local normal = ray.Normal
-		local slopeFactor = normal:Dot(Vector3.new(0, 1, 0))
-		if slopeFactor < 0.95 then
-			local boost = (Vector3.new(0, -1, 0) - normal).Unit * 0.4
-			hrp.Velocity += boost
+	-- Input handlers for E
+	local function onInputBegan(input, gpe)
+		if gpe then return end
+		if input.KeyCode == Enum.KeyCode.E and not holdingE then
+			holdingE = true
+			animTrack:Play()
 		end
 	end
-end)
 
--- === Wall Jump: only when left or right wall is detected ===
-local function doWallJump()
-	if wallJumpCooldown or dead then return end
-
-	local directions = {
-		hrp.CFrame.RightVector, -- right side
-		-hrp.CFrame.RightVector -- left side
-	}
-
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {character}
-	params.FilterType = Enum.RaycastFilterType.Blacklist
-
-	for _, dir in ipairs(directions) do
-		local result = workspace:Raycast(hrp.Position, dir * 3, params)
-		if result and result.Normal.Y < 0.5 then
-			local forward = hrp.CFrame.LookVector
-			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-
-			-- Boost velocity for momentum-based movement
-			hrp.Velocity = forward.Unit * 60 + Vector3.new(0, 50, 0)
-
-			wallJumpCooldown = true
-			task.delay(0.4, function()
-				wallJumpCooldown = false
-			end)
-			break
+	local function onInputEnded(input)
+		if input.KeyCode == Enum.KeyCode.E then
+			holdingE = false
+			animTrack:Stop()
 		end
 	end
+
+	UIS.InputBegan:Connect(onInputBegan)
+	UIS.InputEnded:Connect(onInputEnded)
+
+	-- Physics: slow drag + downhill boost while holding E
+	local physicsLoop
+	physicsLoop = RunService.RenderStepped:Connect(function()
+		if dead or not holdingE then return end
+
+		-- Very slow drag
+		hrp.Velocity *= 0.99
+
+		-- Downhill acceleration
+		local rayParams = RaycastParams.new()
+		rayParams.FilterDescendantsInstances = {character}
+		rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+		local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+		if ray then
+			local normal = ray.Normal
+			if normal:Dot(Vector3.new(0, 1, 0)) < 0.95 then
+				local downhill = (Vector3.new(0, -1, 0) - normal).Unit * 0.4
+				hrp.Velocity += downhill
+			end
+		end
+	end)
+
+	-- Wall jump function
+	local function doWallJump()
+		if wallJumpCooldown or dead then return end
+
+		local sides = {
+			hrp.CFrame.RightVector,
+			-hrp.CFrame.RightVector
+		}
+
+		local params = RaycastParams.new()
+		params.FilterDescendantsInstances = {character}
+		params.FilterType = Enum.RaycastFilterType.Blacklist
+
+		for _, dir in ipairs(sides) do
+			local hit = workspace:Raycast(hrp.Position, dir * 3, params)
+			if hit and hit.Normal.Y < 0.5 then
+				local forward = hrp.CFrame.LookVector
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+				hrp.Velocity = forward.Unit * 60 + Vector3.new(0, 50, 0)
+
+				-- Boost WalkSpeed temporarily
+				humanoid.WalkSpeed = BOOSTED_SPEED
+				task.delay(SPEED_BOOST_DURATION, function()
+					if not dead then
+						humanoid.WalkSpeed = DEFAULT_SPEED
+					end
+				end)
+
+				wallJumpCooldown = true
+				task.delay(0.4, function()
+					wallJumpCooldown = false
+				end)
+
+				break
+			end
+		end
+	end
+
+	-- Detect jump key press for walljump
+	UIS.InputBegan:Connect(function(input, gpe)
+		if gpe then return end
+		if input.KeyCode == Enum.KeyCode.Space then
+			doWallJump()
+		end
+	end)
+
+	-- Cleanup on death
+	humanoid.Died:Connect(function()
+		dead = true
+		if physicsLoop then
+			physicsLoop:Disconnect()
+		end
+		script:Destroy()
+	end)
 end
 
--- === Detect jump key ===
-UIS.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.Space then
-		doWallJump()
-	end
-end)
+-- Connect character spawn
+if player.Character then
+	onCharacterAdded(player.Character)
+end
 
--- === Clean shutdown ===
-humanoid.Died:Connect(function()
-	dead = true
-	physicsLoop:Disconnect()
-	script:Destroy()
-end)
+player.CharacterAdded:Connect(onCharacterAdded)
 
+-- Disable script on respawn (optional; comment out if you want to keep it alive)
 player.CharacterAdded:Once(function()
 	script:Destroy()
 end)
