@@ -12,6 +12,7 @@ local clone, floatForce, marker = nil, nil, nil
 local pathEnd = nil
 local isControlling = false
 local moveConn, updateConn, flyConn = nil, nil, nil
+local descendTimer = 0
 
 -- Utility: Noclip
 local function setNoclip(model, value)
@@ -66,10 +67,8 @@ local function spawnClone(position)
 
 	local hrp = model:WaitForChild("HumanoidRootPart")
 	local humanoid = model:WaitForChild("Humanoid")
-	hrpset = hrp and humanoid
-	if not hrpset then return end
+	if not hrp or not humanoid then return end
 
-	hrpset = nil
 	hrpset = hrp
 	hrpset.CFrame = CFrame.new(position)
 	humanoid.WalkSpeed = 50
@@ -100,7 +99,9 @@ local function beginControl()
 	floatForce.Velocity = Vector3.zero
 	floatForce.Parent = cloneHRP
 
-	moveConn = RunService.RenderStepped:Connect(function()
+	descendTimer = 0
+
+	moveConn = RunService.RenderStepped:Connect(function(dt)
 		local moveInput = Vector3.zero
 		if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveInput += Vector3.new(0, 0, 1) end
 		if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveInput += Vector3.new(0, 0, -1) end
@@ -116,7 +117,16 @@ local function beginControl()
 			cloneHumanoid:Move(Vector3.zero, false)
 		end
 
-		floatForce.Velocity = UserInputService:IsKeyDown(Enum.KeyCode.Space) and Vector3.new(0, 60, 0) or Vector3.zero
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+			floatForce.Velocity = Vector3.new(0, 60, 0)
+		else
+			descendTimer += dt
+			if descendTimer >= 0.2 then
+				descendTimer = 0
+				cloneHRP.CFrame = cloneHRP.CFrame + Vector3.new(0, -10, 0)
+			end
+			floatForce.Velocity = Vector3.zero
+		end
 	end)
 
 	updateConn = RunService.Heartbeat:Connect(function()
