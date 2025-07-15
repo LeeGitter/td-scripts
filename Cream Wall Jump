@@ -3,44 +3,37 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-local WALL_JUMP_DISTANCE = 3
-local WALL_JUMP_FORCE = 50
+local WALL_JUMP_DISTANCE = 3 -- studs to detect wall
+local WALL_JUMP_FORCE = 50 -- force away from wall
 local WALL_JUMP_UPWARD_VELOCITY = 50
-local WALL_JUMP_COOLDOWN = 0.2
+local WALL_JUMP_COOLDOWN = 0.2 -- seconds to prevent spam
 
 local WALK_SPEED_NORMAL = 28
 local WALK_SPEED_BOOST = 38
 local BOOST_DURATION = 0.8
 
 local DESCEND_SLOW_DURATION = 0.8
-local DESCEND_SLOW_FACTOR = 0.4
-
-local character
-local humanoid
-local hrp
-
-local wallJumpAnim
-local wallJumpTrack
+local DESCEND_SLOW_FACTOR = 0.4 -- slow down fall velocity by this factor
 
 local lastWallJumpTime = 0
 local descendSlowEndTime = 0
 
-local jumpRequestConn
-local heartbeatConn
-
-local function setWalkSpeed(speed)
-    if humanoid and humanoid.Parent then
-        humanoid.WalkSpeed = speed
-    end
-end
+-- Load wall jump animation with highest priority (Action)
+local wallJumpAnim = Instance.new("Animation")
+wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
+wallJumpAnim.Priority = Enum.AnimationPriority.Action
+local wallJumpTrack = humanoid:LoadAnimation(wallJumpAnim)
 
 local function findWallDirection()
     local directions = {
-        hrp.CFrame.LookVector,
-        -hrp.CFrame.LookVector,
-        hrp.CFrame.RightVector,
-        -hrp.CFrame.RightVector
+        hrp.CFrame.LookVector,  -- front
+        -hrp.CFrame.LookVector, -- back
+        hrp.CFrame.RightVector, -- right
+        -hrp.CFrame.RightVector -- left
     }
     for _, dir in pairs(directions) do
         local origin = hrp.Position
@@ -57,14 +50,15 @@ local function findWallDirection()
 end
 
 local function playWallJumpAnimation()
-    if not humanoid or not humanoid.Parent then return end
-
+    -- Stop all other animations instantly
     for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
         track:Stop(0)
     end
 
+    -- Play wall jump animation
     wallJumpTrack:Play(0.1, 1, 1)
 
+    -- Stop wall jump animation after 0.51 seconds
     delay(0.51, function()
         if wallJumpTrack.IsPlaying then
             wallJumpTrack:Stop(0)
@@ -72,9 +66,13 @@ local function playWallJumpAnimation()
     end)
 end
 
-local function doWallJump()
-    if not humanoid or not hrp then return end
+local function setWalkSpeed(speed)
+    if humanoid and humanoid.Parent then
+        humanoid.WalkSpeed = speed
+    end
+end
 
+local function doWallJump()
     local now = tick()
     if now - lastWallJumpTime < WALL_JUMP_COOLDOWN then
         return
@@ -90,46 +88,42 @@ local function doWallJump()
         return
     end
 
+    -- Force jump ignoring cooldown
     humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 
+    -- Apply velocity away from wall + upward
     local velocity = -wallDir.Unit * WALL_JUMP_FORCE
     velocity = Vector3.new(velocity.X, WALL_JUMP_UPWARD_VELOCITY, velocity.Z)
     hrp.Velocity = velocity
 
     playWallJumpAnimation()
 
+    -- Boost walk speed temporarily
     setWalkSpeed(WALK_SPEED_BOOST)
     delay(BOOST_DURATION, function()
         setWalkSpeed(WALK_SPEED_NORMAL)
     end)
 
+    -- Enable slow descend for duration
     descendSlowEndTime = now + DESCEND_SLOW_DURATION
 
     lastWallJumpTime = now
 end
 
-local function onHeartbeat()
-    if not hrp then return end
+-- Slow descent handling: reduce downward velocity when active
+RunService.Heartbeat:Connect(function()
     if tick() < descendSlowEndTime then
         local vel = hrp.Velocity
         if vel.Y < 0 then
             hrp.Velocity = Vector3.new(vel.X, vel.Y * DESCEND_SLOW_FACTOR, vel.Z)
         end
     end
-end
+end)
 
-local function onCharacterAdded(char)
-    if jumpRequestConn then
-        jumpRequestConn:Disconnect()
-        jumpRequestConn = nil
-    end
-    if heartbeatConn then
-        heartbeatConn:Disconnect()
-        heartbeatConn = nil
-    end
+UserInputService.JumpRequest:Connect(doWallJump)
 
+player.CharacterAdded:Connect(function(char)
     character = char
-
     humanoid = character:WaitForChild("Humanoid")
     hrp = character:WaitForChild("HumanoidRootPart")
 
@@ -137,17 +131,4 @@ local function onCharacterAdded(char)
     wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
     wallJumpAnim.Priority = Enum.AnimationPriority.Action
     wallJumpTrack = humanoid:LoadAnimation(wallJumpAnim)
-
-    lastWallJumpTime = 0
-    descendSlowEndTime = 0
-
-    setWalkSpeed(WALK_SPEED_NORMAL)
-
-    jumpRequestConn = UserInputService.JumpRequest:Connect(doWallJump)
-    heartbeatConn = RunService.Heartbeat:Connect(onHeartbeat)
-end
-
-player.CharacterAdded:Connect(onCharacterAdded)
-if player.Character and player.Character.Parent then
-    onCharacterAdded(player.Character)
-end
+end)
