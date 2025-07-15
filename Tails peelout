@@ -1,4 +1,4 @@
--- Spoofed Dash Script - 100 studs/sec with realistic physics
+-- Spoofed Dash Script - Simulates WalkSpeed 100
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -48,7 +48,7 @@ local function startCooldown(duration)
 end
 
 local fourXTimeAccumulated = 0
-local spoofSpeed = 100
+local simulatedWalkSpeed = 100 -- simulate as if WalkSpeed were 100
 local runTime = 5
 local decayStart = 3.5
 local decayDuration = runTime - decayStart
@@ -142,8 +142,8 @@ UIS.InputEnded:Connect(function(input)
 
         currentDir = currentDir:Lerp(moveVec, 0.05)
 
-        -- spoofed movement
-        humanoid:Move(currentDir * spoofSpeed, false)
+        -- realistic spoofed movement at simulated speed
+        humanoid:Move(currentDir * simulatedWalkSpeed / 60, false) -- approx 60 FPS
 
         -- rotate
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
