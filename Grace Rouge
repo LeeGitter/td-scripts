@@ -1,158 +1,222 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+local animator = humanoid:WaitForChild("Animator")
 
-local function onCharacterAdded(character)
-    print("Character loaded")
-    local humanoid = character:WaitForChild("Humanoid")
-    local hrp = character:WaitForChild("HumanoidRootPart")
+local slideAnimationId = 132439703713518
+local slideAnimTrack
+
+local sliding = false
+local holdingE = false
+
+local defaultWalkSpeed = 28
+local maxSpeed = 55
+local slideMomentum = Vector3.new(0,0,0)
+
+local jumpCooldownBypass = false
+local jumpCooldownTime = 0.5
+local lastJumpTime = 0
+
+-- Speed buff after walljump (duration in seconds)
+local walljumpSpeedBuffTime = 0.3
+local walljumpSpeedBuffAmount = 12
+
+-- Helper to check if touching wall (for walljump)
+local function isTouchingWall()
+    local rayLength = 2
+    local directions = {
+        hrp.CFrame.RightVector,
+        -hrp.CFrame.RightVector,
+        hrp.CFrame.LookVector,
+        -hrp.CFrame.LookVector,
+    }
+    for _, dir in ipairs(directions) do
+        local ray = Ray.new(hrp.Position, dir * rayLength)
+        local part = workspace:FindPartOnRayWithIgnoreList(ray, {character})
+        if part and part.CanCollide then
+            return true, dir
+        end
+    end
+    return false, nil
+end
+
+-- Play slide animation
+local function playSlideAnim()
+    if slideAnimTrack and slideAnimTrack.IsPlaying then return end
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://"..slideAnimationId
+    slideAnimTrack = animator:LoadAnimation(anim)
+    slideAnimTrack.Looped = true
+    slideAnimTrack:Play()
+end
+
+local function stopSlideAnim()
+    if slideAnimTrack then
+        slideAnimTrack:Stop()
+        slideAnimTrack = nil
+    end
+end
+
+-- Drift movement controls: overrides normal control, applies momentum + camera drift
+local function applySlideMovement(dt)
+    -- Read directional input
+    local moveVector = Vector3.new(0,0,0)
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        moveVector = moveVector + Vector3.new(0,0,-1)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+        moveVector = moveVector + Vector3.new(0,0,1)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+        moveVector = moveVector + Vector3.new(-1,0,0)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+        moveVector = moveVector + Vector3.new(1,0,0)
+    end
+
+    if moveVector.Magnitude > 1 then
+        moveVector = moveVector.Unit
+    end
+
+    -- Transform moveVector by camera
     local camera = workspace.CurrentCamera
+    local camCFrame = camera.CFrame
+    local camLook = camCFrame.LookVector
+    local camRight = camCFrame.RightVector
 
-    local DEFAULT_SPEED = 28
-    local BOOSTED_SPEED = 35
-    local SPEED_BOOST_DURATION = 0.3
-    local SLIDE_SPEED = 32
+    -- Project moveVector relative to camera
+    local desiredDir = (camRight * moveVector.X + Vector3.new(0,0,0) + camLook * moveVector.Z)
+    desiredDir = Vector3.new(desiredDir.X,0,desiredDir.Z)
+    if desiredDir.Magnitude > 1 then
+        desiredDir = desiredDir.Unit
+    end
 
-    humanoid.WalkSpeed = DEFAULT_SPEED
+    -- Apply some steering force towards desiredDir
+    local steerStrength = 20 -- tweak for more responsive steering
 
-    local holdingT = false
-    local sliding = false
-    local dead = false
-    local wallJumpCooldown = false
+    local currentVel = slideMomentum
+    local desiredVel = desiredDir * maxSpeed
 
-    -- Slide animation setup
-    local slideAnimId = "rbxassetid://132439703713518"
-    local animSlide = Instance.new("Animation")
-    animSlide.AnimationId = slideAnimId
-    local animTrackSlide = humanoid:LoadAnimation(animSlide)
+    local acceleration = (desiredVel - currentVel) * steerStrength * dt
 
-    animTrackSlide.Priority = Enum.AnimationPriority.Action
+    slideMomentum = slideMomentum + acceleration
 
-    -- Wall jump function
-    local function doWallJump()
-        if wallJumpCooldown or dead then return end
+    -- Gravity projection / slope speed-up:
+    -- Cast ray down a bit forward to detect slope steepness and increase speed when going downhill
 
-        local sides = {
-            hrp.CFrame.RightVector,
-            -hrp.CFrame.RightVector
-        }
-
-        local params = RaycastParams.new()
-        params.FilterDescendantsInstances = {character}
-        params.FilterType = Enum.RaycastFilterType.Blacklist
-
-        for _, dir in ipairs(sides) do
-            local hit = workspace:Raycast(hrp.Position, dir * 3, params)
-            if hit and hit.Normal.Y < 0.5 then
-                print("Wall detected on side for walljump")
-                local forward = hrp.CFrame.LookVector
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                hrp.Velocity = forward.Unit * 60 + Vector3.new(0, 50, 0)
-
-                humanoid.WalkSpeed = BOOSTED_SPEED
-                task.delay(SPEED_BOOST_DURATION, function()
-                    if not dead then
-                        humanoid.WalkSpeed = DEFAULT_SPEED
-                    end
-                end)
-
-                wallJumpCooldown = true
-                task.delay(0.4, function()
-                    wallJumpCooldown = false
-                    print("Walljump cooldown reset")
-                end)
-
-                break
-            end
+    local downRayOrigin = hrp.Position + slideMomentum.Unit * 2
+    local downRay = Ray.new(downRayOrigin, Vector3.new(0,-5,0))
+    local hit, pos, normal = workspace:FindPartOnRayWithIgnoreList(downRay, {character})
+    if hit and normal then
+        local slopeDot = normal:Dot(Vector3.new(0,1,0))
+        -- slopeDot close to 1 = flat, closer to 0 = steep
+        -- We want speed boost proportional to slope steepness
+        local slopeBoost = (1 - slopeDot) * 50 -- max speed boost when slope is vertical
+        if slopeBoost > 0 then
+            slideMomentum = slideMomentum + Vector3.new(0,-slopeBoost * dt,0)
         end
     end
 
-    -- Input handling
-    UIS.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.KeyCode == Enum.KeyCode.T and not holdingT then
-            print("T pressed - start sliding")
-            holdingT = true
-            sliding = true
-            animTrackSlide:Play()
-            humanoid.WalkSpeed = 0
-            humanoid:ChangeState(Enum.HumanoidStateType.Swimming) -- helps animation priority
-        elseif input.KeyCode == Enum.KeyCode.Space then
-            doWallJump()
-        end
-    end)
+    -- Slowly lose momentum (very slow friction)
+    local friction = 1 -- increase friction to lose momentum faster
+    slideMomentum = slideMomentum * (1 - friction * dt)
 
-    UIS.InputEnded:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.T then
-            print("T released - stop sliding")
-            holdingT = false
-            sliding = false
-            animTrackSlide:Stop()
-            if not dead then
-                humanoid.WalkSpeed = DEFAULT_SPEED
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end
-    end)
+    -- Clamp speed to maxSpeed
+    local speed = slideMomentum.Magnitude
+    if speed > maxSpeed then
+        slideMomentum = slideMomentum.Unit * maxSpeed
+    elseif speed < 0.1 then
+        slideMomentum = Vector3.new(0,0,0)
+    end
 
-    -- Slide physics and drifting
-    RunService.RenderStepped:Connect(function()
-        if dead then return end
-        if sliding then
-            -- Slow momentum loss
-            hrp.Velocity *= 0.99
+    -- Move character manually
+    local newPos = hrp.Position + slideMomentum * dt
+    local _, hitPos = workspace:FindPartOnRayWithIgnoreList(Ray.new(hrp.Position, (newPos - hrp.Position).Unit * 3), {character})
+    -- Basic collision check - if hit something close, stop slide momentum
+    if hitPos and (hitPos - hrp.Position).Magnitude < 3 then
+        slideMomentum = Vector3.new(0,0,0)
+    end
 
-            -- Downhill speed gain
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {character}
-            rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-            local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
-            if ray then
-                local normal = ray.Normal
-                if normal:Dot(Vector3.new(0, 1, 0)) < 0.95 then
-                    local downhill = (Vector3.new(0, -1, 0) - normal).Unit * 0.4
-                    hrp.Velocity += downhill
-                end
-            end
-
-            -- Drift control
-            local forward = 0
-            local right = 0
-
-            if UIS:IsKeyDown(Enum.KeyCode.W) then forward += 1 end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then forward -= 1 end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then right -= 1 end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then right += 1 end
-
-            local camCF = camera.CFrame
-            local moveDir = (camCF.LookVector * forward + camCF.RightVector * right)
-            if moveDir.Magnitude > 0 then
-                moveDir = moveDir.Unit
-            end
-
-            local slideVel = Vector3.new(moveDir.X * SLIDE_SPEED, hrp.Velocity.Y, moveDir.Z * SLIDE_SPEED)
-            hrp.Velocity = slideVel
-        end
-    end)
-
-    -- Cleanup on death
-    humanoid.Died:Connect(function()
-        print("Humanoid died, cleaning up")
-        dead = true
-        animTrackSlide:Stop()
-        script:Destroy()
-    end)
+    -- Apply movement - use Humanoid:Move(Vector3, false) to move without jumping
+    humanoid:Move(slideMomentum, false)
 end
 
-if player.Character then
-    onCharacterAdded(player.Character)
+-- Walljump logic
+local function tryWallJump()
+    local touchingWall, wallDir = isTouchingWall()
+    if not touchingWall then return false end
+    if tick() - lastJumpTime < jumpCooldownTime then return false end
+
+    -- Apply upward velocity + directional push away from wall
+    local jumpPower = 50
+    local pushPower = 30
+    local velocity = wallDir.Unit * -pushPower + Vector3.new(0,jumpPower,0)
+    hrp.Velocity = velocity
+
+    lastJumpTime = tick()
+    jumpCooldownBypass = true
+
+    -- Give small speed buff
+    maxSpeed = math.min(maxSpeed + walljumpSpeedBuffAmount, 55)
+    delay(walljumpSpeedBuffTime, function()
+        maxSpeed = 55
+    end)
+
+    return true
 end
 
-player.CharacterAdded:Connect(onCharacterAdded)
+-- Hook input
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.E then
+        holdingE = true
+        sliding = true
+        playSlideAnim()
+        humanoid.WalkSpeed = 0 -- disable normal walk speed
+    elseif input.KeyCode == Enum.KeyCode.Space then
+        -- Try walljump
+        if tryWallJump() then
+            -- walljump performed
+        end
+    end
+end)
 
-player.CharacterAdded:Once(function()
-    script:Destroy()
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.E then
+        holdingE = false
+        sliding = false
+        stopSlideAnim()
+        humanoid.WalkSpeed = defaultWalkSpeed
+        slideMomentum = Vector3.new(0,0,0)
+    end
+end)
+
+-- Main update loop
+local conn
+conn = RunService.RenderStepped:Connect(function(dt)
+    if sliding then
+        applySlideMovement(dt)
+    else
+        slideMomentum = Vector3.new(0,0,0)
+    end
+end)
+
+-- Reset on respawn
+player.CharacterAdded:Connect(function(char)
+    character = char
+    humanoid = character:WaitForChild("Humanoid")
+    hrp = character:WaitForChild("HumanoidRootPart")
+    animator = humanoid:WaitForChild("Animator")
+    holdingE = false
+    sliding = false
+    slideMomentum = Vector3.new(0,0,0)
+    maxSpeed = 55
+    humanoid.WalkSpeed = defaultWalkSpeed
+    stopSlideAnim()
 end)
