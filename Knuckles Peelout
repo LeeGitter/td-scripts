@@ -9,9 +9,9 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 local anim1 = Instance.new("Animation")
-anim1.AnimationId = "rbxassetid://136764958535157" -- hold anim start
+anim1.AnimationId = "rbxassetid://105660804989893" -- hold anim start
 local anim2 = Instance.new("Animation")
-anim2.AnimationId = "rbxassetid://135934693058362" -- hold anim accel + dash anim
+anim2.AnimationId = "rbxassetid://123691762461584" -- hold anim accel + dash anim
 
 local animTrack1, animTrack2, runAnimTrack
 local holding = false
@@ -19,8 +19,8 @@ local cooldown = false
 local cooldownGui, cooldownLabel
 local currentDir = Vector3.new(0, 0, -1)
 local fourXTimeAccumulated = 0
-local dashSpeed = 50
-local runTime = 4
+local dashSpeed = 100
+local runTime = 5
 local decayStart = 3.5
 local decayDuration = runTime - decayStart
 
@@ -115,7 +115,7 @@ UIS.InputEnded:Connect(function(input)
 
     startCooldown(25)
     humanoid.AutoRotate = false
-    humanoid.WalkSpeed = dashSpeed
+    humanoid.WalkSpeed = dashSpeed -- Set dash speed instantly with no acceleration ramp
 
     -- Play dash animation, speed 4x initially
     runAnimTrack = humanoid:LoadAnimation(anim2)
