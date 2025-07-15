@@ -70,7 +70,7 @@ local function beginControl()
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	camera.CameraSubject = dummyHumanoid
 
-	-- Movement control
+	-- Movement control with upward float on Space
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
@@ -80,19 +80,29 @@ local function beginControl()
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
+		local root = dummy:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+
+		-- Handle horizontal movement
 		if moveVec.Magnitude > 0 then
 			local camCF = camera.CFrame
 			local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
 			local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
-			dummyHumanoid:Move(moveDir, false)
-
-			local root = dummy:FindFirstChild("HumanoidRootPart")
-			if root then
-				root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
+			if dummyHumanoid then
+				dummyHumanoid:Move(moveDir, false)
 			end
+			root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
 		else
-			dummyHumanoid:Move(Vector3.zero, false)
+			if dummyHumanoid then
+				dummyHumanoid:Move(Vector3.zero, false)
+			end
+		end
+
+		-- Handle upward floating on Space key
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then
+			-- Float upward slowly, e.g., 0.1 studs per frame
+			root.CFrame = root.CFrame + Vector3.new(0, 0.1, 0)
 		end
 	end)
 
@@ -133,7 +143,7 @@ local function walkPath()
 	local totalLength = distances[#distances]
 	if totalLength == 0 then return end
 
-	local timeLimit = 5 -- You can reduce this for faster movement (effectively unlimited speed)
+	local timeLimit = 5 -- Adjust this to control total path walk time
 	local elapsed = 0
 
 	local function accelerationCurve(t)
