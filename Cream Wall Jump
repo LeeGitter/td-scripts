@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -8,19 +7,11 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
 local WALL_JUMP_DISTANCE = 3 -- studs to detect wall
-local WALL_JUMP_FORCE = 50 -- force away from wall
+local WALL_JUMP_FORCE = 100 -- force away from wall
 local WALL_JUMP_UPWARD_VELOCITY = 50
 local WALL_JUMP_COOLDOWN = 0.2 -- seconds to prevent spam
 
-local WALK_SPEED_NORMAL = 28
-local WALK_SPEED_BOOST = 38
-local BOOST_DURATION = 0.8
-
-local DESCEND_SLOW_DURATION = 0.8
-local DESCEND_SLOW_FACTOR = 0.4 -- slow down fall velocity by this factor
-
 local lastWallJumpTime = 0
-local descendSlowEndTime = 0
 
 -- Load wall jump animation with highest priority (Action)
 local wallJumpAnim = Instance.new("Animation")
@@ -58,18 +49,12 @@ local function playWallJumpAnimation()
     -- Play wall jump animation
     wallJumpTrack:Play(0.1, 1, 1)
 
-    -- Stop wall jump animation after 0.51 seconds
-    delay(0.51, function()
+    -- Stop wall jump animation after 0.5 seconds
+    delay(0.5, function()
         if wallJumpTrack.IsPlaying then
             wallJumpTrack:Stop(0)
         end
     end)
-end
-
-local function setWalkSpeed(speed)
-    if humanoid and humanoid.Parent then
-        humanoid.WalkSpeed = speed
-    end
 end
 
 local function doWallJump()
@@ -98,27 +83,8 @@ local function doWallJump()
 
     playWallJumpAnimation()
 
-    -- Boost walk speed temporarily
-    setWalkSpeed(WALK_SPEED_BOOST)
-    delay(BOOST_DURATION, function()
-        setWalkSpeed(WALK_SPEED_NORMAL)
-    end)
-
-    -- Enable slow descend for duration
-    descendSlowEndTime = now + DESCEND_SLOW_DURATION
-
     lastWallJumpTime = now
 end
-
--- Slow descent handling: reduce downward velocity when active
-RunService.Heartbeat:Connect(function()
-    if tick() < descendSlowEndTime then
-        local vel = hrp.Velocity
-        if vel.Y < 0 then
-            hrp.Velocity = Vector3.new(vel.X, vel.Y * DESCEND_SLOW_FACTOR, vel.Z)
-        end
-    end
-end)
 
 UserInputService.JumpRequest:Connect(doWallJump)
 
