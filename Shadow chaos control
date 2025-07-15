@@ -67,7 +67,7 @@ local function spawnDummy(position)
 		hrp.Transparency = 1
 		hrp.CanCollide = false
 		hrp.CFrame = CFrame.new(position)
-		hrp.Anchored = false -- Important so humanoid can jump!
+		hrp.Anchored = false -- Important so humanoid can jump and float!
 	end
 
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -133,6 +133,12 @@ local function beginControl()
 			if dummyHumanoid then
 				dummyHumanoid:Move(Vector3.zero, false)
 			end
+		end
+
+		-- FLOAT upward slowly while holding Space
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then
+			-- Add a small upward velocity to float
+			root.Velocity = Vector3.new(root.Velocity.X, 5, root.Velocity.Z)
 		end
 	end)
 
