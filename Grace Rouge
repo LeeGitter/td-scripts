@@ -148,9 +148,14 @@ end
 local function onSlideAction(_, inputState)
 	if inputState == Enum.UserInputState.Begin then
 		if not holdingSlide then
-			holdingSlide = true
-			playSlideAnim()
-		end
+	holdingSlide = true
+	playSlideAnim()
+
+	-- Give initial momentum forward
+	local cam = workspace.CurrentCamera
+	local forward = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z).Unit
+	slideMomentum = forward * 8 -- small initial forward push
+end
 	elseif inputState == Enum.UserInputState.End then
 		if holdingSlide then
 			holdingSlide = false
