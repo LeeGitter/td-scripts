@@ -1,31 +1,27 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+local RS = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-player.CharacterAdded:Connect(function(c) character = c end)
 
 local MAX_WALL_JUMPS = 2
-local STICK_DURATION = 1
-local WALL_TOUCH_WINDOW = 0.5
+local WALL_DETECT_WINDOW = 0.5
+local STICK_TIME = 1
 local DETECTION_RADIUS = 1
 local PUSH_FORCE = 40
 local JUMP_FORCE = Vector3.new(0, 55, 0)
 
+local canDetect = false
+local detectionExpire = 0
 local isSticking = false
-local canStick = false
+local stickExpire = 0
 local wallJumpCount = 0
-local stickEndTime = 0
-local detectionTimeout = 0
 
--- Animation
 local anim = Instance.new("Animation")
 anim.AnimationId = "rbxassetid://80512938371187"
 local animTrack
 
--- Get parts
-local function getParts()
+local function getCharacterParts()
 	local char = player.Character
 	if not char then return end
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -33,98 +29,100 @@ local function getParts()
 	return char, hum, hrp
 end
 
--- Proximity wall detection (1 stud shell)
 local function wallNearby(hrp)
-	local regionSize = Vector3.new(4, 5, 2) + Vector3.new(DETECTION_RADIUS, DETECTION_RADIUS, DETECTION_RADIUS) * 2
-	local regionCFrame = hrp.CFrame
-
 	local overlapParams = OverlapParams.new()
-	overlapParams.FilterDescendantsInstances = {character}
+	overlapParams.FilterDescendantsInstances = {player.Character}
 	overlapParams.FilterType = Enum.RaycastFilterType.Blacklist
 
-	local parts = workspace:GetPartBoundsInBox(regionCFrame, regionSize, overlapParams)
+	local parts = workspace:GetPartBoundsInBox(hrp.CFrame, Vector3.new(4, 5, 2) + Vector3.new(DETECTION_RADIUS * 2, DETECTION_RADIUS * 2, DETECTION_RADIUS * 2), overlapParams)
 	for _, part in ipairs(parts) do
-		if part.CanCollide and not part:IsDescendantOf(character) then
-			return true
+		if part.CanCollide and not part:IsDescendantOf(player.Character) then
+			-- Check distance to wall surface
+			local dist = (part.Position - hrp.Position).Magnitude
+			if dist <= DETECTION_RADIUS + 1 then
+				return true
+			end
 		end
 	end
 	return false
 end
 
--- Start stick
 local function startStick()
-	local _, humanoid, hrp = getParts()
+	local _, humanoid, hrp = getCharacterParts()
 	if not humanoid or not hrp then return end
 	isSticking = true
-	stickEndTime = tick() + STICK_DURATION
-	humanoid.PlatformStand = true
-	hrp.AssemblyLinearVelocity = Vector3.zero
+	stickExpire = tick() + STICK_TIME
 
-	local freeze
-	freeze = RunService.RenderStepped:Connect(function()
-		if not isSticking then freeze:Disconnect() return end
-		hrp.AssemblyLinearVelocity = Vector3.zero
+	humanoid.PlatformStand = true
+	hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+	hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+
+	-- Freeze movement every frame
+	local freezeConnection
+	freezeConnection = RS.RenderStepped:Connect(function()
+		if not isSticking then
+			freezeConnection:Disconnect()
+			return
+		end
+		hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+		hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+		-- Keep position fixed (optional)
+		-- hrp.CFrame = hrp.CFrame
 	end)
 end
 
--- Jump off wall
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.F then
+		local _, humanoid = getCharacterParts()
+		if humanoid and humanoid.FloorMaterial == Enum.Material.Air and wallJumpCount < MAX_WALL_JUMPS then
+			canDetect = true
+			detectionExpire = tick() + WALL_DETECT_WINDOW
+		end
+	end
+end)
+
 UIS.JumpRequest:Connect(function()
 	if not isSticking then return end
-	local _, humanoid, hrp = getParts()
+	local _, humanoid, hrp = getCharacterParts()
 	if not humanoid or not hrp then return end
 
 	isSticking = false
 	humanoid.PlatformStand = false
 
-	-- Launch outward
-	local push = (hrp.CFrame.LookVector * -1 + Vector3.new(0, 1, 0)).Unit
-	hrp.AssemblyLinearVelocity = push * PUSH_FORCE + JUMP_FORCE
+	local pushDir = (hrp.CFrame.LookVector * -1 + Vector3.new(0,1,0)).Unit
+	hrp.AssemblyLinearVelocity = pushDir * PUSH_FORCE + JUMP_FORCE
 
 	if animTrack then animTrack:Stop() end
 	animTrack = humanoid:LoadAnimation(anim)
 	animTrack:Play()
 end)
 
--- Reset jump count on land
-local _, humanoid = getParts()
-if humanoid then
-	humanoid.StateChanged:Connect(function(_, state)
-		if state == Enum.HumanoidStateType.Landed then
-			wallJumpCount = 0
-			canStick = false
-		end
-	end)
-end
-
--- Main loop
 RunService.RenderStepped:Connect(function()
-	local _, humanoid, hrp = getParts()
+	local _, humanoid, hrp = getCharacterParts()
 	if not humanoid or not hrp then return end
 
-	if isSticking and tick() > stickEndTime then
+	if isSticking and tick() > stickExpire then
 		isSticking = false
 		humanoid.PlatformStand = false
 	end
 
-	if canStick and wallJumpCount < MAX_WALL_JUMPS then
-		if wallNearby(hrp) then
-			canStick = false
-			wallJumpCount += 1
-			startStick()
-		elseif tick() > detectionTimeout then
-			canStick = false
-		end
+	if canDetect and tick() <= detectionExpire and wallNearby(hrp) then
+		canDetect = false
+		wallJumpCount += 1
+		startStick()
+	elseif tick() > detectionExpire then
+		canDetect = false
 	end
 end)
 
--- F starts the 0.5s detection window
-UIS.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.F then
-		local _, humanoid = getParts()
-		if humanoid and humanoid.FloorMaterial == Enum.Material.Air and wallJumpCount < MAX_WALL_JUMPS then
-			canStick = true
-			detectionTimeout = tick() + WALL_TOUCH_WINDOW
+-- Reset wall jumps on ground touch
+local _, humanoid = getCharacterParts()
+if humanoid then
+	humanoid.StateChanged:Connect(function(_, newState)
+		if newState == Enum.HumanoidStateType.Landed then
+			wallJumpCount = 0
+			canDetect = false
 		end
-	end
-end)
+	end)
+end
