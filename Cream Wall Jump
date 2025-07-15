@@ -1,0 +1,101 @@
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+local wallJumpAnim = Instance.new("Animation")
+wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
+
+local maxSticks = 2
+local stickTime = 1
+local jumpForce = Vector3.new(0, 50, 0) -- vertical jump off wall
+local jumpAwayForce = 30 -- horizontal push
+
+local wallJumpCount = 0
+local isSticking = false
+local stickEndTime = 0
+local animationTrack
+
+-- Helper to reset on touching ground
+humanoid.StateChanged:Connect(function(_, newState)
+	if newState == Enum.HumanoidStateType.Landed then
+		wallJumpCount = 0
+	end
+end)
+
+-- Wall detection
+local function getWallNormal()
+	local rayOrigin = hrp.Position
+	local rayDirection = hrp.CFrame.LookVector * 2
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterDescendantsInstances = {character}
+	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+	local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+	if result and result.Normal then
+		return result.Normal
+	end
+	return nil
+end
+
+-- Sticking logic
+local function tryStick()
+	if humanoid.FloorMaterial ~= Enum.Material.Air then return end
+	if wallJumpCount >= maxSticks then return end
+	if isSticking then return end
+
+	local wallNormal = getWallNormal()
+	if wallNormal then
+		isSticking = true
+		stickEndTime = tick() + stickTime
+		wallJumpCount += 1
+		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		hrp.Velocity = Vector3.zero
+	end
+end
+
+-- Wall jump
+UserInputService.JumpRequest:Connect(function()
+	if isSticking then
+		isSticking = false
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+
+		local wallNormal = getWallNormal()
+		if wallNormal then
+			local pushDirection = (wallNormal + Vector3.new(0, 1, 0)).Unit
+			hrp.Velocity = pushDirection * jumpAwayForce + jumpForce
+		else
+			hrp.Velocity = Vector3.new(0, 50, 0)
+		end
+
+		if animationTrack then
+			animationTrack:Stop()
+		end
+		animationTrack = humanoid:LoadAnimation(wallJumpAnim)
+		animationTrack:Play()
+	end
+end)
+
+-- Monitor sticking state
+RunService.RenderStepped:Connect(function()
+	if isSticking then
+		hrp.Velocity = Vector3.zero
+		-- Stop sticking if time's up or touching floor
+		if tick() >= stickEndTime or humanoid.FloorMaterial ~= Enum.Material.Air then
+			isSticking = false
+			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+		end
+	end
+end)
+
+-- Keybind to stick
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.F then
+		tryStick()
+	end
+end)
