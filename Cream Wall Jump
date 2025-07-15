@@ -1,127 +1,130 @@
+local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
-local Players = game:GetService("Players")
+
 local player = Players.LocalPlayer
-
 local character = player.Character or player.CharacterAdded:Wait()
-local function onCharAdded(char)
-	character = char
-end
-player.CharacterAdded:Connect(onCharAdded)
+player.CharacterAdded:Connect(function(char) character = char end)
 
-local function getHumanoid()
-	return character:WaitForChild("Humanoid")
-end
-
-local function getHRP()
-	return character:WaitForChild("HumanoidRootPart")
-end
-
--- Wall jump animation
-local wallJumpAnim = Instance.new("Animation")
-wallJumpAnim.AnimationId = "rbxassetid://80512938371187"
-
--- CONFIG
-local MAX_WALL_JUMPS = 2
+local WALL_DETECT_DURATION = 0.5
 local STICK_DURATION = 1
+local MAX_WALL_JUMPS = 2
 local JUMP_FORCE = Vector3.new(0, 55, 0)
-local PUSH_FORCE = 30 -- horizontal
+local PUSH_FORCE = 40
+local WALL_DISTANCE = 3
 
--- STATE
 local wallJumpCount = 0
 local isSticking = false
+local wallModeActive = false
+local canStickUntil = 0
 local stickEndTime = 0
-local animationTrack = nil
 
--- Reset jumps when landing
-getHumanoid().StateChanged:Connect(function(_, newState)
-	if newState == Enum.HumanoidStateType.Landed then
-		wallJumpCount = 0
-	end
-end)
+-- Animation setup
+local anim = Instance.new("Animation")
+anim.AnimationId = "rbxassetid://80512938371187"
+local animTrack
 
--- Check if you're touching a wall
-local function detectWall()
-	local hrp = getHRP()
+-- Get character parts
+local function get()
+	local char = player.Character
+	return char, char:WaitForChild("Humanoid"), char:WaitForChild("HumanoidRootPart")
+end
+
+-- Detect wall
+local function detectWall(hrp)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterDescendantsInstances = {character}
+	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
 	local directions = {
 		hrp.CFrame.LookVector,
 		-hrp.CFrame.LookVector,
 		hrp.CFrame.RightVector,
 		-hrp.CFrame.RightVector,
 	}
-	local rayParams = RaycastParams.new()
-	rayParams.FilterDescendantsInstances = {character}
-	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 
 	for _, dir in ipairs(directions) do
-		local result = workspace:Raycast(hrp.Position, dir * 3, rayParams)
-		if result then
-			return result.Normal
-		end
+		local result = workspace:Raycast(hrp.Position, dir * WALL_DISTANCE, rayParams)
+		if result then return result.Normal end
 	end
 	return nil
 end
 
--- STICK TO WALL
+-- Stick to wall
 local function stickToWall()
-	if isSticking or wallJumpCount >= MAX_WALL_JUMPS then return end
-	local humanoid = getHumanoid()
+	local _, humanoid, hrp = get()
 	if humanoid.FloorMaterial ~= Enum.Material.Air then return end
+	if wallJumpCount >= MAX_WALL_JUMPS then return end
+	if isSticking then return end
+	if not wallModeActive then return end
 
-	local wallNormal = detectWall()
-	if wallNormal then
-		isSticking = true
-		stickEndTime = tick() + STICK_DURATION
-		wallJumpCount += 1
+	local wallNormal = detectWall(hrp)
+	if not wallNormal then return end
 
-		-- Freeze motion
-		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-		local hrp = getHRP()
-		hrp.Velocity = Vector3.zero
+	isSticking = true
+	stickEndTime = tick() + STICK_DURATION
+	wallJumpCount += 1
 
-		-- Maintain frozen position
-		local con
-		con = RS.RenderStepped:Connect(function()
-			if not isSticking then con:Disconnect() return end
-			hrp.Velocity = Vector3.zero
-			hrp.RotVelocity = Vector3.zero
-		end)
-	end
+	humanoid.PlatformStand = true
+	hrp.AssemblyLinearVelocity = Vector3.zero
+
+	local freeze
+	freeze = RS.RenderStepped:Connect(function()
+		if not isSticking then freeze:Disconnect() return end
+		hrp.AssemblyLinearVelocity = Vector3.zero
+	end)
 end
 
--- WALL JUMP
+-- Wall jump
 UIS.JumpRequest:Connect(function()
-	if isSticking then
-		local hrp = getHRP()
-		local wallNormal = detectWall()
-		isSticking = false
+	if not isSticking then return end
 
-		-- Apply jump away force
-		if wallNormal then
-			local launchDir = (wallNormal + Vector3.new(0, 1, 0)).Unit
-			hrp.Velocity = launchDir * PUSH_FORCE + JUMP_FORCE
-		else
-			hrp.Velocity = Vector3.new(0, 50, 0)
-		end
+	local _, humanoid, hrp = get()
+	isSticking = false
+	humanoid.PlatformStand = false
 
-		-- Play animation
-		local track = getHumanoid():LoadAnimation(wallJumpAnim)
-		track:Play()
+	local wallNormal = detectWall(hrp)
+	if wallNormal then
+		local launch = (wallNormal + Vector3.new(0, 1, 0)).Unit * PUSH_FORCE + JUMP_FORCE
+		hrp.AssemblyLinearVelocity = launch
+	end
+
+	-- Play animation
+	if animTrack then animTrack:Stop() end
+	animTrack = humanoid:LoadAnimation(anim)
+	animTrack:Play()
+end)
+
+-- Reset on landing
+local _, humanoid = get()
+humanoid.StateChanged:Connect(function(_, state)
+	if state == Enum.HumanoidStateType.Landed then
+		wallJumpCount = 0
+		wallModeActive = false
 	end
 end)
 
--- Stop sticking when time ends
+-- Render loop
 RS.RenderStepped:Connect(function()
+	if wallModeActive and not isSticking and tick() <= canStickUntil then
+		stickToWall()
+	end
+
 	if isSticking and tick() > stickEndTime then
+		local _, humanoid = get()
 		isSticking = false
-		getHumanoid():ChangeState(Enum.HumanoidStateType.Freefall)
+		humanoid.PlatformStand = false
 	end
 end)
 
--- Press F to stick to wall
+-- Press F once to activate wall mode
 UIS.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.F then
-		stickToWall()
+		local _, humanoid = get()
+		if humanoid.FloorMaterial == Enum.Material.Air and wallJumpCount < MAX_WALL_JUMPS then
+			wallModeActive = true
+			canStickUntil = tick() + WALL_DETECT_DURATION
+		end
 	end
 end)
