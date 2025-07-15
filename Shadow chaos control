@@ -6,22 +6,20 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local active = false
-local dummy = nil
-local marker = nil
-local path = {}
-local floatBodyVelocity = nil
-local moveConnection, pathConnection, flyConnection = nil, nil, nil
+local dummy, floatVelocity, marker = nil, nil, nil
+local moveConn, pathConn, flyConn = nil, nil, nil
+local pathEnd = nil
 
--- Enable or disable noclip for a character
-local function setNoclip(character, enabled)
-	for _, part in character:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.CanCollide = not enabled
+-- Noclip utility
+local function setNoclip(model, state)
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = not state
 		end
 	end
 end
 
--- Create a marker part
+-- Create marker
 local function placeMarker(position)
 	if marker then marker:Destroy() end
 	marker = Instance.new("Part")
@@ -35,15 +33,17 @@ local function placeMarker(position)
 end
 
 local function removeMarker()
-	if marker then
-		marker:Destroy()
-		marker = nil
-	end
+	if marker then marker:Destroy() marker = nil end
 end
 
--- Create clone
-local function spawnDummy(position)
-	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+-- Spawn clone
+local function spawnClone(position)
+	local desc
+	pcall(function()
+		desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+	end)
+	if not desc then return nil end
+
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
 	model.Name = "ControllableClone"
 
@@ -55,73 +55,76 @@ local function spawnDummy(position)
 		end
 	end
 
-	local hrp = model:FindFirstChild("HumanoidRootPart")
-	if hrp then
-		hrp.CFrame = CFrame.new(position)
-		hrp.Anchored = false
-	end
-
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.WalkSpeed = 50
-	end
+	local hrp = model:WaitForChild("HumanoidRootPart")
+	local humanoid = model:WaitForChild("Humanoid")
+	hrp.CFrame = CFrame.new(position)
+	humanoid.WalkSpeed = 50
 
 	model.Parent = workspace
 	return model
 end
 
--- Begin controlling clone
+-- Start clone control
 local function beginControl()
 	active = true
-
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
+	-- Anchor real self
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 4, 0)
 
-	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
-	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
-	local dummyHRP = dummy:FindFirstChild("HumanoidRootPart")
+	dummy = spawnClone(hrp.Position - Vector3.new(0, 4, 0))
+	if not dummy then return end
 
-	camera.CameraSubject = dummyHumanoid
+	local dHumanoid = dummy:WaitForChild("Humanoid")
+	local dHRP = dummy:WaitForChild("HumanoidRootPart")
+	camera.CameraSubject = dHumanoid
 
-	-- Add BodyVelocity for clone float
-	floatBodyVelocity = Instance.new("BodyVelocity")
-	floatBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-	floatBodyVelocity.Velocity = Vector3.zero
-	floatBodyVelocity.Parent = dummyHRP
+	-- Float logic
+	floatVelocity = Instance.new("BodyVelocity")
+	floatVelocity.MaxForce = Vector3.new(0, 1e5, 0)
+	floatVelocity.Velocity = Vector3.zero
+	floatVelocity.Parent = dHRP
 
-	moveConnection = RunService.RenderStepped:Connect(function()
-		if not dummy or not dummyHRP then return end
+	moveConn = RunService.RenderStepped:Connect(function()
+		if not dummy or not dHumanoid or not dHRP then return end
 
+		-- Movement
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
-		local camCF = camera.CFrame
-		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
-		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
-		local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
+		if moveVec.Magnitude > 0 then
+			local camCF = camera.CFrame
+			local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+			local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
+			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
+			dHumanoid:Move(moveDir, false)
+			dHRP.CFrame = CFrame.new(dHRP.Position, dHRP.Position + moveDir)
+		else
+			dHumanoid:Move(Vector3.zero, false)
+		end
 
-		dummyHumanoid:Move(moveVec.Magnitude > 0 and moveDir or Vector3.zero, false)
-
-		-- Float logic
-		local yVel = UIS:IsKeyDown(Enum.KeyCode.Space) and 50 or 0
-		floatBodyVelocity.Velocity = Vector3.new(0, yVel, 0)
+		-- Float upward
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then
+			floatVelocity.Velocity = Vector3.new(0, 50, 0)
+		else
+			floatVelocity.Velocity = Vector3.zero
+		end
 	end)
 
-	-- Record final position
-	pathConnection = RunService.Heartbeat:Connect(function()
-		if dummyHRP then
-			table.insert(path, dummyHRP.Position)
+	-- Save final position
+	pathConn = RunService.Heartbeat:Connect(function()
+		if dHRP then
+			pathEnd = dHRP.Position
 		end
 	end)
 end
 
--- Smooth flight back to destination
+-- Flight back to pathEnd
 local function flyToDestination(destination)
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
@@ -132,48 +135,46 @@ local function flyToDestination(destination)
 	setNoclip(char, true)
 	humanoid.AutoRotate = false
 
-	local startPos = hrp.Position
-	local totalDist = (destination - startPos).Magnitude
-	local direction = (destination - startPos).Unit
-	local elapsed = 0
+	local start = hrp.Position
+	local totalDist = (destination - start).Magnitude
 	local maxTime = 1.5
+	local elapsed = 0
 	local velocity = Vector3.zero
 
-	flyConnection = RunService.RenderStepped:Connect(function(dt)
+	flyConn = RunService.RenderStepped:Connect(function(dt)
 		elapsed += dt
 		local t = math.clamp(elapsed / maxTime, 0, 1)
 		local ease = t * t
 		local speed = totalDist / maxTime * (1 + 2 * ease)
-		local toTarget = (destination - hrp.Position)
-		if toTarget.Magnitude <= speed * dt then
+		local toGoal = (destination - hrp.Position)
+		if toGoal.Magnitude <= speed * dt then
 			hrp.CFrame = CFrame.new(destination)
-			flyConnection:Disconnect()
+			flyConn:Disconnect()
 			setNoclip(char, false)
 			humanoid.AutoRotate = true
 			removeMarker()
 			return
 		end
-		velocity = velocity:Lerp(toTarget.Unit * speed, 0.3)
+		velocity = velocity:Lerp(toGoal.Unit * speed, 0.3)
 		hrp.Velocity = velocity
 	end)
 end
 
--- End control and start flight
+-- End control
 local function endControl()
 	active = false
-	if moveConnection then moveConnection:Disconnect() end
-	if pathConnection then pathConnection:Disconnect() end
 
-	local lastPos = dummy and dummy:FindFirstChild("HumanoidRootPart") and dummy.HumanoidRootPart.Position
+	if moveConn then moveConn:Disconnect() end
+	if pathConn then pathConn:Disconnect() end
 	if dummy then dummy:Destroy() end
 
 	local char = player.Character or player.CharacterAdded:Wait()
-	char:WaitForChild("HumanoidRootPart").Anchored = false
-	camera.CameraSubject = char:WaitForChild("Humanoid")
+	local hrp = char:WaitForChild("HumanoidRootPart")
+	hrp.Anchored = false
 
-	if lastPos then
-		placeMarker(lastPos)
-		flyToDestination(lastPos)
+	if pathEnd then
+		placeMarker(pathEnd)
+		flyToDestination(pathEnd)
 	end
 end
 
