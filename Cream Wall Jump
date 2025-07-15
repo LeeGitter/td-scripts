@@ -17,15 +17,7 @@ local WALL_JUMP_FORCE = 50 -- force away from wall
 local WALL_JUMP_UPWARD_VELOCITY = 50
 local WALL_JUMP_COOLDOWN = 0.2 -- to prevent spamming
 
-local WALK_SPEED_NORMAL = 28
-local WALK_SPEED_BOOST = 38
-local BOOST_DURATION = 0.8
-
-local DESCEND_SLOW_DURATION = 0.8
-local DESCEND_SLOW_FACTOR = 0.4
-
 local lastWallJumpTime = 0
-local descendSlowEndTime = 0
 
 local function findWallDirection()
     local directions = {
@@ -48,30 +40,13 @@ local function findWallDirection()
     return nil
 end
 
-local function setWalkSpeed(speed)
-    if humanoid and humanoid.Parent then
-        humanoid.WalkSpeed = speed
-    end
-end
-
-local function playWallJumpAnimation()
-    if wallJumpTrack.IsPlaying then
-        wallJumpTrack:Stop(0)
-    end
-    wallJumpTrack:Play(0.1, 1, 1)
-    delay(0.51, function()
-        if wallJumpTrack.IsPlaying then
-            wallJumpTrack:Stop(0)
-        end
-    end)
-end
-
 local function doWallJump()
     local now = tick()
     if now - lastWallJumpTime < WALL_JUMP_COOLDOWN then
         return
     end
 
+    -- Only allow wall jump if in air (jumping or falling)
     local state = humanoid:GetState()
     if not (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) then
         return
@@ -82,34 +57,37 @@ local function doWallJump()
         return
     end
 
+    -- Force humanoid to jump ignoring cooldown
     humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 
+    -- Apply velocity away from wall + upward
     local velocity = -wallDir.Unit * WALL_JUMP_FORCE
     velocity = Vector3.new(velocity.X, WALL_JUMP_UPWARD_VELOCITY, velocity.Z)
     hrp.Velocity = velocity
 
-    playWallJumpAnimation()
+    -- Play animation
+    if wallJumpTrack.IsPlaying then
+        wallJumpTrack:Stop(0)
+    end
+    wallJumpTrack:Play(0.1, 1, 1)
 
-    -- Speed boost and slow descend
-    setWalkSpeed(WALK_SPEED_BOOST)
-    delay(BOOST_DURATION, function()
-        setWalkSpeed(WALK_SPEED_NORMAL)
+    -- Stop animation after 0.5 seconds
+    delay(0.5, function()
+        if wallJumpTrack.IsPlaying then
+            wallJumpTrack:Stop(0)
+        end
     end)
 
-    descendSlowEndTime = now + DESCEND_SLOW_DURATION
+    -- Speed boost for 0.4 seconds, then reset to 25
+    humanoid.WalkSpeed = 38
+    delay(0.4, function()
+        if humanoid and humanoid.Parent then
+            humanoid.WalkSpeed = 25
+        end
+    end)
 
     lastWallJumpTime = now
 end
-
--- Slow descent logic
-RunService.Heartbeat:Connect(function()
-    if tick() < descendSlowEndTime then
-        local vel = hrp.Velocity
-        if vel.Y < 0 then
-            hrp.Velocity = Vector3.new(vel.X, vel.Y * DESCEND_SLOW_FACTOR, vel.Z)
-        end
-    end
-end)
 
 UserInputService.JumpRequest:Connect(function()
     doWallJump()
