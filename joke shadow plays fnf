@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local screenGui = script.Parent
+screenGui.Enabled = true
 
 -- === Create movable GUI box ===
 local boxSize = UDim2.new(0, 400, 0, 220)
@@ -17,7 +18,6 @@ guiBox.Active = true
 guiBox.Draggable = false -- we'll do custom drag
 guiBox.Parent = screenGui
 
--- Top bar for dragging
 local dragBar = Instance.new("Frame")
 dragBar.Name = "DragBar"
 dragBar.Size = UDim2.new(1, 0, 0, 30)
@@ -34,7 +34,6 @@ dragText.BackgroundTransparency = 1
 dragText.Size = UDim2.new(1, 0, 1, 0)
 dragText.Parent = dragBar
 
--- TextBox for JSON input
 local jsonInput = Instance.new("TextBox")
 jsonInput.Name = "JSONInput"
 jsonInput.Size = UDim2.new(1, -20, 0, 140)
@@ -49,7 +48,6 @@ jsonInput.Font = Enum.Font.SourceSans
 jsonInput.TextSize = 14
 jsonInput.Parent = guiBox
 
--- Checkmark button to load/start
 local loadButton = Instance.new("TextButton")
 loadButton.Name = "LoadButton"
 loadButton.Size = UDim2.new(0, 100, 0, 30)
@@ -61,7 +59,7 @@ loadButton.Font = Enum.Font.SourceSansBold
 loadButton.TextSize = 18
 loadButton.Parent = guiBox
 
--- === Chart display (full screen behind the box) ===
+-- Chart display full screen behind box
 local chartDisplayFrame = Instance.new("Frame")
 chartDisplayFrame.Name = "ChartDisplay"
 chartDisplayFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -80,8 +78,8 @@ judgmentLine.BorderSizePixel = 0
 judgmentLine.Parent = chartDisplayFrame
 
 -- === Variables and constants ===
-local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
-local arrowSpeed = 200
+
+local arrowSpeed = 200 -- pixels per second scrolling UP
 
 local keyToDir = {
     Z = "left",
@@ -109,8 +107,25 @@ local songStartTime = 0
 local currentSong = nil
 local connection
 
--- === Functions ===
+-- Wait for chartDisplayFrame size to be ready (not zero)
+local function waitForSize(guiElement)
+    if guiElement.AbsoluteSize.Y > 0 then
+        return
+    end
+    local finished = false
+    guiElement:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        if guiElement.AbsoluteSize.Y > 0 and not finished then
+            finished = true
+        end
+    end)
+    repeat wait() until finished
+end
 
+waitForSize(chartDisplayFrame)
+
+local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
+
+-- Parsing FNF JSON chart format (same as before)
 local function parseFNFChart(fnfJson)
     local songData = fnfJson.song
     if not songData then
@@ -178,15 +193,18 @@ local function startSong(song)
         note.spawned = false
     end
 
-    -- Hide the GUI box when song starts
     guiBox.Visible = false
 
     connection = RunService.Heartbeat:Connect(function()
         local elapsed = tick() - songStartTime
 
-        -- Spawn arrows
+        -- Spawn arrows so they start at bottom of chartDisplayFrame
         for _, note in ipairs(song.chart) do
-            local spawnTime = note.time - ((chartDisplayFrame.AbsoluteSize.Y - judgmentLine.Position.Y.Offset) / arrowSpeed)
+            -- Calculate when to spawn: arrows start at bottom, need to travel up to judgmentLine
+            -- Time for arrow to travel distance = distance / arrowSpeed
+            -- So spawnTime = note.time - travelTime
+            local travelDistance = judgmentLineY
+            local spawnTime = note.time - (travelDistance / arrowSpeed)
             if spawnTime <= elapsed and not note.spawned then
                 note.spawned = true
 
@@ -196,6 +214,7 @@ local function startSong(song)
                 arrowUI.TextColor3 = Color3.new(1,1,1)
                 arrowUI.BackgroundTransparency = 1
                 arrowUI.Size = UDim2.new(0, 40, 0, 40)
+                -- Start at bottom of chartDisplayFrame
                 arrowUI.Position = UDim2.new(0, laneXPositions[note.dir], 0, chartDisplayFrame.AbsoluteSize.Y)
                 arrowUI.ZIndex = 10
                 arrowUI.Parent = chartDisplayFrame
@@ -209,7 +228,7 @@ local function startSong(song)
             end
         end
 
-        -- Move arrows up
+        -- Move arrows up smoothly towards judgment line
         for i = #activeArrows, 1, -1 do
             local arrow = activeArrows[i]
             if arrow.hit then
@@ -217,10 +236,10 @@ local function startSong(song)
                 table.remove(activeArrows, i)
             else
                 local timeToJudgment = arrow.time - elapsed
-                local yPos = judgmentLine.Position.Y.Offset + timeToJudgment * arrowSpeed
+                local yPos = judgmentLineY + timeToJudgment * arrowSpeed
 
+                -- When yPos < -40, arrow is off top => missed
                 if yPos < -40 then
-                    -- Arrow missed, remove
                     arrow.UI:Destroy()
                     table.remove(activeArrows, i)
                 else
@@ -229,7 +248,7 @@ local function startSong(song)
             end
         end
 
-        -- If no arrows left to spawn or active, song ended
+        -- Check if song ended (all spawned + no active arrows)
         local allSpawned = true
         for _, note in ipairs(song.chart) do
             if not note.spawned then
@@ -239,17 +258,15 @@ local function startSong(song)
         end
 
         if allSpawned and #activeArrows == 0 then
-            -- Song ended
             connection:Disconnect()
             connection = nil
             currentSong = nil
-            -- Show GUI box again
             guiBox.Visible = true
         end
     end)
 end
 
--- Hit arrows with keys
+-- Arrow hit input
 local hitWindow = 0.15
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
