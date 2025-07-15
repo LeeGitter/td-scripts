@@ -107,25 +107,23 @@ local function beginControl()
 	end)
 end
 
--- Walk the path with smooth acceleration and no snapping
+-- Walk the path with smooth acceleration and no jitter
 local function walkPath()
 	local char = player.Character or player.CharacterAdded:Wait()
 	local humanoid = char:WaitForChild("Humanoid")
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Restore physics and camera
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
+	humanoid.AutoRotate = false
 
 	if #path == 0 then return end
 
-	-- Collect points including current position
 	local points = {hrp.Position}
 	for _, p in ipairs(path) do
 		table.insert(points, p.Position)
 	end
 
-	-- Calculate cumulative distances
 	local distances = {0}
 	for i = 2, #points do
 		local dist = (points[i] - points[i - 1]).Magnitude
@@ -135,10 +133,9 @@ local function walkPath()
 	local totalLength = distances[#distances]
 	if totalLength == 0 then return end
 
-	local timeLimit = 5
+	local timeLimit = 5 -- You can reduce this for faster movement (effectively unlimited speed)
 	local elapsed = 0
 
-	-- Quadratic ease-in curve for acceleration
 	local function accelerationCurve(t)
 		return t * t
 	end
@@ -148,6 +145,8 @@ local function walkPath()
 		walkConnection = nil
 	end
 
+	local lastCFrame = hrp.CFrame
+
 	walkConnection = RunService.RenderStepped:Connect(function(dt)
 		elapsed += dt
 		local t = math.clamp(elapsed / timeLimit, 0, 1)
@@ -155,7 +154,6 @@ local function walkPath()
 
 		local targetDistance = speedFactor * totalLength
 
-		-- Find current segment
 		local segmentIndex = 1
 		while segmentIndex < #distances and distances[segmentIndex + 1] < targetDistance do
 			segmentIndex += 1
@@ -173,15 +171,18 @@ local function walkPath()
 		local endPos = points[segmentIndex + 1]
 		local newPos = startPos:Lerp(endPos, alpha)
 
-		-- Face direction of movement
 		local lookDir = (endPos - startPos).Unit
-		hrp.CFrame = CFrame.new(newPos, newPos + lookDir)
+		local desiredCFrame = CFrame.new(newPos, newPos + lookDir)
+		local smoothCFrame = lastCFrame:Lerp(desiredCFrame, 0.3)
+		hrp.CFrame = smoothCFrame
+		lastCFrame = smoothCFrame
 
 		if t >= 1 then
 			walkConnection:Disconnect()
 			walkConnection = nil
 			for _, p in path do p:Destroy() end
 			table.clear(path)
+			humanoid.AutoRotate = true
 		end
 	end)
 end
