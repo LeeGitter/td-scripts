@@ -1,3 +1,4 @@
+-- Spoofed Dash Script - 100 studs/sec with realistic physics
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -16,186 +17,144 @@ anim2.AnimationId = "rbxassetid://123691762461584"
 local animTrack1, animTrack2, runAnimTrack
 local holding = false
 local running = false
-local timeHeld = 0
 local cooldown = false
-local cooldownTime = 25
+local cooldownGui, cooldownLabel
+local currentDir = Vector3.new(0, 0, -1)
 
--- GUI Setup
-local cooldownGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-cooldownGui.Name = "DriftCooldownGui"
-local cooldownLabel = Instance.new("TextLabel", cooldownGui)
-cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
-cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
-cooldownLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-cooldownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-cooldownLabel.Font = Enum.Font.Code
-cooldownLabel.TextSize = 14
-cooldownLabel.Text = "Ready"
-
-local function startCooldown(seconds)
-	cooldown = true
-	local start = tick()
-	coroutine.wrap(function()
-		while tick() - start < seconds do
-			local remaining = seconds - (tick() - start)
-			cooldownLabel.Text = string.format("%.1f", remaining)
-			RunService.Heartbeat:Wait()
-		end
-		cooldown = false
-		cooldownLabel.Text = "Ready"
-	end)()
+local function makeGui()
+    cooldownGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+    cooldownGui.Name = "DashCooldownGui"
+    cooldownLabel = Instance.new("TextLabel", cooldownGui)
+    cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
+    cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
+    cooldownLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    cooldownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    cooldownLabel.Font = Enum.Font.Code
+    cooldownLabel.TextSize = 14
+    cooldownLabel.Text = "Ready"
 end
 
-local fourXStartTime = nil
+local function startCooldown(duration)
+    cooldown = true
+    local start = tick()
+    coroutine.wrap(function()
+        while tick() - start < duration do
+            cooldownLabel.Text = string.format("%.1f", duration - (tick() - start))
+            RunService.Heartbeat:Wait()
+        end
+        cooldown = false
+        cooldownLabel.Text = "Ready"
+    end)()
+end
+
 local fourXTimeAccumulated = 0
+local spoofSpeed = 100
+local runTime = 5
+local decayStart = 3.5
+local decayDuration = runTime - decayStart
 
 UIS.InputBegan:Connect(function(input, gpe)
-	if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
+    if gpe or input.KeyCode ~= Enum.KeyCode.T or holding or cooldown then return end
+    holding = true
+    humanoid.AutoRotate = false
+    humanoid.WalkSpeed = 0
+    fourXTimeAccumulated = 0
 
-	holding = true
-	timeHeld = 0
-	fourXStartTime = nil
-	fourXTimeAccumulated = 0
-	humanoid.AutoRotate = false
-	humanoid.WalkSpeed = 0
+    if not cooldownGui then
+        makeGui()
+    end
 
-	animTrack1 = humanoid:LoadAnimation(anim1)
-	animTrack1:Play()
-	animTrack1:AdjustSpeed(1)
+    animTrack1 = humanoid:LoadAnimation(anim1)
+    animTrack1:Play()
+    animTrack1:AdjustSpeed(1)
 
-	local startTime = tick()
-	while holding do
-		RunService.RenderStepped:Wait()
-		timeHeld = tick() - startTime
+    local holdStart = tick()
+    local tickConnection
+    tickConnection = RunService.RenderStepped:Connect(function()
+        local t = tick() - holdStart
+        if not holding then tickConnection:Disconnect() return end
 
-		if timeHeld <= 2.5 then
-			local speed = 1 + (1 * (timeHeld / 2.5))
-			if animTrack1 then animTrack1:AdjustSpeed(speed) end
-		end
-
-		if timeHeld > 2.5 and animTrack1 then
-			animTrack1:Stop()
-			animTrack1 = nil
-			animTrack2 = humanoid:LoadAnimation(anim2)
-			animTrack2:Play()
-		end
-
-		if timeHeld > 2.5 and timeHeld <= 4 and animTrack2 then
-			local speed = 1 + ((timeHeld - 2.5) / 1.5)
-			animTrack2:AdjustSpeed(speed)
-		end
-
-		if timeHeld > 3.5 and animTrack2 then
-			animTrack2:AdjustSpeed(4)
-			if not fourXStartTime then
-				fourXStartTime = tick()
-			end
-			fourXTimeAccumulated = tick() - fourXStartTime
-		end
-	end
+        if t <= 2.5 then
+            animTrack1:AdjustSpeed(1 + t / 2.5)
+        elseif not animTrack2 then
+            animTrack1:Stop()
+            animTrack1 = nil
+            animTrack2 = humanoid:LoadAnimation(anim2)
+            animTrack2:Play()
+        elseif t > 2.5 and t <= 4 then
+            animTrack2:AdjustSpeed(1 + (t - 2.5) / 1.5)
+        elseif t > 3.5 then
+            animTrack2:AdjustSpeed(4)
+            fourXTimeAccumulated = t - 3.5
+        end
+    end)
 end)
 
 UIS.InputEnded:Connect(function(input)
-	if input.KeyCode ~= Enum.KeyCode.T or not holding then return end
+    if input.KeyCode ~= Enum.KeyCode.T or not holding then return end
+    holding = false
 
-	holding = false
+    if animTrack1 then animTrack1:Stop() end
+    if animTrack2 then animTrack2:Stop() end
 
-	if animTrack1 then animTrack1:Stop() end
-	if animTrack2 then animTrack2:Stop() end
+    local allowDash = fourXTimeAccumulated >= 1
+    if not allowDash then
+        startCooldown(10)
+        humanoid.WalkSpeed = 16
+        humanoid.AutoRotate = true
+        return
+    end
 
-	local allowDash = fourXTimeAccumulated >= 1
+    startCooldown(25)
+    humanoid.AutoRotate = false
 
-	if not allowDash then
-		startCooldown(10)
-		humanoid.WalkSpeed = 16
-		humanoid.AutoRotate = true
-		return
-	end
+    runAnimTrack = humanoid:LoadAnimation(anim2)
+    runAnimTrack:Play()
+    runAnimTrack:AdjustSpeed(4)
 
-	startCooldown(25)
+    local dashStart = tick()
+    RunService:BindToRenderStep("SpoofDash", Enum.RenderPriority.Character.Value + 1, function()
+        local elapsed = tick() - dashStart
+        if elapsed > runTime then
+            RunService:UnbindFromRenderStep("SpoofDash")
+            humanoid.AutoRotate = true
+            if runAnimTrack then runAnimTrack:Stop() end
+            humanoid.WalkSpeed = 16
+            return
+        end
 
-	-- Start spoofed dash using BodyVelocity
-	local runTime = 5
-	local decayStart = 3.5
-	local decayDuration = runTime - decayStart
-	local startTime = tick()
-	local currentDir = hrp.CFrame.LookVector
-	humanoid.AutoRotate = false
-	running = true
+        -- animation speed decay
+        if elapsed > decayStart then
+            local pct = (elapsed - decayStart) / decayDuration
+            runAnimTrack:AdjustSpeed(math.clamp(4 - (3 * pct), 1, 4))
+        end
 
-	runAnimTrack = humanoid:LoadAnimation(anim2)
-	runAnimTrack:Play()
-	runAnimTrack:AdjustSpeed(4)
+        -- movement direction from input + camera
+        local camCF = Camera.CFrame
+        local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+        local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 
-	local bodyVel = Instance.new("BodyVelocity")
-	bodyVel.MaxForce = Vector3.new(1e5, 0, 1e5)
-	bodyVel.P = 1500
-	bodyVel.Velocity = Vector3.zero
-	bodyVel.Parent = hrp
+        local moveVec = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += forward end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec -= right end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += right end
+        moveVec = moveVec.Magnitude > 0 and moveVec.Unit or forward
 
-	local driftConn
-	driftConn = RunService.RenderStepped:Connect(function(dt)
-		if not running then driftConn:Disconnect() return end
+        currentDir = currentDir:Lerp(moveVec, 0.05)
 
-		local elapsed = tick() - startTime
-		if elapsed >= runTime then
-			running = false
-			bodyVel:Destroy()
-			humanoid.AutoRotate = true
-			if runAnimTrack then runAnimTrack:Stop() end
-			driftConn:Disconnect()
-			return
-		end
+        -- spoofed movement
+        humanoid:Move(currentDir * spoofSpeed, false)
 
-		if runAnimTrack then
-			if elapsed <= decayStart then
-				runAnimTrack:AdjustSpeed(4)
-			else
-				local progress = (elapsed - decayStart) / decayDuration
-				local speed = 4 - (3 * progress)
-				runAnimTrack:AdjustSpeed(math.clamp(speed, 1, 4))
-			end
-		end
-
-		local camCF = Camera.CFrame
-		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
-		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
-
-		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then
-			moveVec += forward
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.A) then
-			moveVec -= right
-		end
-		if UIS:IsKeyDown(Enum.KeyCode.D) then
-			moveVec += right
-		end
-		if moveVec.Magnitude == 0 then
-			moveVec = forward
-		else
-			moveVec = moveVec.Unit
-		end
-
-		currentDir = currentDir:Lerp(moveVec, 0.05)
-
-		-- 🔧 Use BodyVelocity to simulate spoofed dash
-		local targetSpeed = 2
-		bodyVel.Velocity = currentDir * targetSpeed
-
-		-- Face direction
-		local newLook = hrp.Position + currentDir
-		hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(newLook.X, hrp.Position.Y, newLook.Z))
-	end)
+        -- rotate
+        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
+    end)
 end)
 
--- Reset on respawn
+-- reset on respawn
 player.CharacterAdded:Connect(function(char)
-	character = char
-	humanoid = char:WaitForChild("Humanoid")
-	hrp = char:WaitForChild("HumanoidRootPart")
-	holding = false
-	running = false
-	humanoid.WalkSpeed = 16
-	humanoid.AutoRotate = true
+    character = char
+    humanoid = char:WaitForChild("Humanoid")
+    hrp = char:WaitForChild("HumanoidRootPart")
+    holding = false
+    running = false
 end)
