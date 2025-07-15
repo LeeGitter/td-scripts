@@ -67,6 +67,7 @@ local function beginControl()
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
+	local humanoid = char:WaitForChild("Humanoid")
 
 	-- Float and anchor player 3 studs up
 	hrp.Anchored = true
@@ -82,8 +83,8 @@ local function beginControl()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end -- Fixed inversion here
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end -- Fixed inversion here
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
@@ -130,18 +131,75 @@ local function endControl()
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	-- Walk the path
+	-- Make sure path has points
+	if #path == 0 then return end
+
+	-- Calculate total path length
+	local totalLength = 0
+	for i = 2, #path do
+		local prev = path[i-1].Position
+		local curr = path[i].Position
+		totalLength += (curr - prev).Magnitude
+	end
+	-- If only one point, use distance from player to it
+	if totalLength == 0 then
+		totalLength = (hrp.Position - path[1].Position).Magnitude
+	end
+	if totalLength == 0 then return end -- No movement needed
+
+	local totalTime = 5 -- seconds to clear path
+	local elapsedTime = 0
+
+	-- Smooth acceleration helper (quadratic ease-in)
+	local function easeIn(t)
+		return t*t
+	end
+
+	-- Walk path with smooth acceleration and facing direction, keeping on ground
 	coroutine.wrap(function()
-		for _, p in ipairs(path) do
-			local goal = p.Position + Vector3.new(0, 1, 0)
-			local dist = (hrp.Position - goal).Magnitude
-			local tween = TweenService:Create(hrp, TweenInfo.new(dist / 16, Enum.EasingStyle.Linear), {
-				CFrame = CFrame.new(goal)
-			})
-			tween:Play()
-			tween.Completed:Wait()
+		local currentIndex = 1
+		local currentPos = hrp.Position
+		local groundY = currentPos.Y -- store ground level
+
+		while currentIndex <= #path do
+			local targetPos = path[currentIndex].Position
+			-- Keep targetPos on the ground level (approximate)
+			targetPos = Vector3.new(targetPos.X, groundY, targetPos.Z)
+
+			local segmentDistance = (targetPos - currentPos).Magnitude
+			if segmentDistance == 0 then
+				currentIndex += 1
+				continue
+			end
+
+			-- Calculate desired speed to finish total path in totalTime,
+			-- but accelerate smoothly (easeIn) over totalTime
+			local dt = RunService.Heartbeat:Wait()
+			elapsedTime = math.min(elapsedTime + dt, totalTime)
+			local speedFactor = easeIn(elapsedTime / totalTime)
+			local desiredSpeed = totalLength / totalTime * speedFactor
+
+			local direction = (targetPos - currentPos).Unit
+			-- Move by min of (speed * dt, distance left)
+			local moveStep = math.min(desiredSpeed * dt, segmentDistance)
+			local newPos = currentPos + direction * moveStep
+
+			-- Face direction
+			hrp.CFrame = CFrame.new(newPos, newPos + direction)
+
+			currentPos = newPos
+
+			if (targetPos - currentPos).Magnitude < 0.1 then
+				currentIndex += 1
+			end
 		end
 
+		-- Snap to final position, maintain facing
+		local finalPos = path[#path].Position
+		finalPos = Vector3.new(finalPos.X, groundY, finalPos.Z)
+		hrp.CFrame = CFrame.new(finalPos, finalPos + hrp.CFrame.LookVector)
+
+		-- Cleanup path parts
 		for _, p in path do p:Destroy() end
 		table.clear(path)
 	end)()
