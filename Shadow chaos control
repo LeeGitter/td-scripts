@@ -27,66 +27,29 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Clone actual character with morphs, color red transparent, hide HRP, remove scripts
-local function spawnDummy(position)
-	local char = player.Character
-	if not char then
-		warn("spawnDummy: Player character not found!")
-		return nil
-	end
+-- Create invisible dummy with Humanoid and HumanoidRootPart
+local function spawnInvisibleDummy(position)
+	local model = Instance.new("Model")
+	model.Name = "ControllableDummy"
+	model.Parent = workspace
 
-	local clone = char:Clone()
-	clone.Name = "ControllableClone"
-	clone.Parent = workspace
+	local hrp = Instance.new("Part")
+	hrp.Name = "HumanoidRootPart"
+	hrp.Size = Vector3.new(2, 2, 1)
+	hrp.Anchored = false
+	hrp.CanCollide = true
+	hrp.Transparency = 1
+	hrp.CFrame = CFrame.new(position)
+	hrp.Parent = model
 
-	for _, part in clone:GetDescendants() do
-		if part:IsA("BasePart") then
-			if part.Name == "HumanoidRootPart" then
-				part.Transparency = 1
-				part.CanCollide = false
-				for _, child in part:GetChildren() do
-					if child:IsA("Decal") or child:IsA("Mesh") or child:IsA("Attachment") then
-						child:Destroy()
-					end
-				end
-			else
-				part.Transparency = 0.5
-				part.Color = Color3.fromRGB(255, 0, 0)
-				part.Material = Enum.Material.ForceField
-			end
-		end
-	end
+	local humanoid = Instance.new("Humanoid")
+	humanoid.WalkSpeed = 50
+	humanoid.Parent = model
 
-	-- Remove scripts
-	for _, scriptObj in pairs(clone:GetDescendants()) do
-		if scriptObj:IsA("Script") or scriptObj:IsA("LocalScript") or scriptObj:IsA("ModuleScript") then
-			scriptObj:Destroy()
-		end
-	end
-
-	local hrp = clone:FindFirstChild("HumanoidRootPart")
-	if hrp then
-		hrp.CFrame = CFrame.new(position)
-	else
-		warn("spawnDummy: HumanoidRootPart not found in clone!")
-		clone:Destroy()
-		return nil
-	end
-
-	local humanoid = clone:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.WalkSpeed = 50
-	else
-		warn("spawnDummy: Humanoid not found in clone!")
-		clone:Destroy()
-		return nil
-	end
-
-	print("spawnDummy: Clone spawned successfully.")
-	return clone
+	return model
 end
 
--- Begin controlling the clone
+-- Begin controlling the dummy
 local function beginControl()
 	active = true
 
@@ -108,15 +71,9 @@ local function beginControl()
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 3, 0)
 
-	-- Spawn clone below real character
+	-- Spawn invisible dummy below real character
 	cloneSpawnPosition = hrp.Position - Vector3.new(0, 4, 0)
-	dummy = spawnDummy(cloneSpawnPosition)
-	if not dummy then
-		warn("beginControl: Failed to spawn dummy!")
-		active = false
-		return
-	end
-
+	dummy = spawnInvisibleDummy(cloneSpawnPosition)
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	if not dummyHumanoid then
 		warn("beginControl: Dummy humanoid not found!")
@@ -174,7 +131,7 @@ local function beginControl()
 	end)
 end
 
--- Smoothly glide your real character through path with acceleration, capped at 8 seconds
+-- Smoothly glide your real character through path with acceleration, capped for 8 seconds
 local function glideAlongPath(hrp, humanoid, pathPoints)
 	if #pathPoints == 0 then return end
 
@@ -190,7 +147,6 @@ local function glideAlongPath(hrp, humanoid, pathPoints)
 	end
 	if totalDist == 0 then return end
 
-	-- Move along path with TweenService
 	for i = 1, #pathPoints do
 		local targetPos = pathPoints[i].Position + Vector3.new(0, 1, 0)
 		local dist = (hrp.Position - targetPos).Magnitude
@@ -239,7 +195,7 @@ local function endControl()
 	table.clear(path)
 end
 
--- Toggle clone control with T
+-- Toggle dummy control with T
 UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
