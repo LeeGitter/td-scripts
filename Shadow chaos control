@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -13,7 +12,6 @@ local pathConnection = nil
 local moveConnection = nil
 local pathMoveConnection = nil
 
--- Create glowing path part
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -26,7 +24,6 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawn R6 dummy with your appearance, red/transparent, hide HRP
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
@@ -68,21 +65,23 @@ local function beginControl()
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Anchor and float player up to prevent movement (optional)
+	-- Anchor player at current position WITHOUT moving up
 	hrp.Anchored = true
-	hrp.CFrame += Vector3.new(0, 3, 0)
 
-	-- Spawn dummy ON GROUND level (same Y as player - 4 studs)
+	-- Spawn dummy slightly below player to keep on ground
 	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
+
+	-- Set camera to dummy humanoid
 	camera.CameraSubject = dummyHumanoid
+	camera.CameraType = Enum.CameraType.Custom
 
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
 
-		-- Correct camera-relative controls: W = forward (negative Z)
+		-- Correct camera-relative controls
 		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
@@ -105,7 +104,7 @@ local function beginControl()
 		end
 	end)
 
-	-- Track path points every 2 studs moved by dummy
+	-- Track dummy path
 	local lastPos = dummy.HumanoidRootPart.Position
 	pathConnection = RunService.Heartbeat:Connect(function()
 		local root = dummy:FindFirstChild("HumanoidRootPart")
@@ -138,16 +137,12 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Unanchor player so they can move again
+	-- Unanchor player so they can move naturally again
 	hrp.Anchored = false
 
-	-- Set camera back to player character's humanoid
-	-- Delay reset by a small amount to avoid glitches
-	task.delay(0.1, function()
-		if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
-			camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid")
-		end
-	end)
+	-- Reset camera to player's HumanoidRootPart and set to Custom so player can control camera freely
+	camera.CameraSubject = hrp
+	camera.CameraType = Enum.CameraType.Custom
 
 	if #path == 0 then return end
 
@@ -175,14 +170,12 @@ local function endControl()
 	local currentSegment = 1
 	local segmentProgress = 0
 
-	-- Face start direction immediately
+	local groundY = hrp.Position.Y
+
+	-- Face path start direction immediately
 	local initialDir = (segments[1].endPos - segments[1].startPos).Unit
 	hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(initialDir.X, 0, initialDir.Z))
 
-	-- Keep original ground Y to avoid floating
-	local groundY = hrp.Position.Y
-
-	-- Smooth movement along path every frame
 	pathMoveConnection = RunService.RenderStepped:Connect(function(dt)
 		if currentSegment > #segments then
 			if pathMoveConnection then
@@ -190,9 +183,8 @@ local function endControl()
 				pathMoveConnection = nil
 			end
 
-			local lastSeg = segments[#segments]
-			local finalPos = lastSeg.endPos
-			hrp.CFrame = CFrame.new(Vector3.new(finalPos.X, groundY, finalPos.Z), finalPos + Vector3.new(lastSeg.endPos.X - lastSeg.startPos.X, 0, lastSeg.endPos.Z - lastSeg.startPos.Z))
+			-- Do NOT forcibly move player HRP here to avoid fling
+			-- Just keep player where they ended on the path
 
 			for _, p in path do p:Destroy() end
 			table.clear(path)
@@ -202,7 +194,6 @@ local function endControl()
 		elapsedTime = math.min(elapsedTime + dt, totalTime)
 		local t = elapsedTime / totalTime
 
-		-- Quadratic ease-in acceleration
 		local speedFactor = t*t
 		local maxSpeed = totalLength / totalTime
 		local currentSpeed = maxSpeed * speedFactor
