@@ -139,25 +139,34 @@ local function glideAlongPath(hrp, humanoid, pathPoints)
 	end
 	if totalDist == 0 then return end
 
-	-- Coroutine to smoothly move the humanoid along the path using Humanoid:Move
+	-- Coroutine for smooth glide
 	coroutine.wrap(function()
 		for i = 1, #pathPoints do
 			local targetPos = pathPoints[i].Position + Vector3.new(0, 1, 0)
-			while (hrp.Position - targetPos).Magnitude > 0.5 do
+			while (hrp.Position - targetPos).Magnitude > 0.1 do
 				local dist = (hrp.Position - targetPos).Magnitude
 				local speed = math.min(startSpeed + (maxSpeed - startSpeed) * (elapsed / maxTime), maxSpeed)
 				local direction = (targetPos - hrp.Position).Unit
+
+				-- Tween HRP position slightly toward target to avoid physics glitches
+				local newPos = hrp.Position + direction * speed * 0.03
+				hrp.CFrame = CFrame.new(newPos, newPos + direction)
+
+				-- Send movement direction to humanoid to trigger walk/run animations
 				humanoid:Move(direction, false)
-				-- Move character root part CFrame orientation smoothly towards movement direction
-				hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + direction)
+
+				-- Prevent humanoid from falling or ragdolling
+				humanoid.PlatformStand = false
+
 				wait(0.03)
 				elapsed = math.min(elapsed + 0.03, maxTime)
 			end
-			-- Stop movement briefly before next segment
+			-- Stop moving briefly before next segment
 			humanoid:Move(Vector3.new(0,0,0), false)
 			wait(0.05)
 		end
-		-- Stop at the end and clear path points
+
+		-- Stop movement and clear path points
 		humanoid:Move(Vector3.new(0,0,0), false)
 		for _, p in path do p:Destroy() end
 		table.clear(path)
