@@ -9,11 +9,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "FNFGui"
-screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 screenGui.Enabled = true
 
--- === Create movable GUI box ===
+-- === Movable GUI box ===
 local boxSize = UDim2.new(0, 400, 0, 220)
 
 local guiBox = Instance.new("Frame")
@@ -24,7 +23,6 @@ guiBox.Position = UDim2.new(0.5, 0, 0.5, 0)
 guiBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 guiBox.BorderSizePixel = 0
 guiBox.Active = true
-guiBox.Draggable = false -- We'll do custom dragging
 guiBox.Parent = screenGui
 
 -- Drag bar
@@ -44,7 +42,7 @@ dragText.BackgroundTransparency = 1
 dragText.Size = UDim2.new(1, 0, 1, 0)
 dragText.Parent = dragBar
 
--- TextBox for JSON input
+-- JSON input textbox
 local jsonInput = Instance.new("TextBox")
 jsonInput.Name = "JSONInput"
 jsonInput.Size = UDim2.new(1, -20, 0, 140)
@@ -89,7 +87,7 @@ judgmentLine.Position = UDim2.new(0, 0, 1, -100)
 judgmentLine.BorderSizePixel = 0
 judgmentLine.Parent = chartDisplayFrame
 
--- Constants and variables
+-- Constants and vars
 local arrowSpeed = 200
 
 local keyToDir = {
@@ -118,20 +116,30 @@ local songStartTime = 0
 local currentSong = nil
 local connection
 
+-- Wait for AbsoluteSize
+local function waitForSize(guiElement)
+    if guiElement.AbsoluteSize.Y > 0 then return end
+    local finished = false
+    guiElement:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        if guiElement.AbsoluteSize.Y > 0 and not finished then
+            finished = true
+        end
+    end)
+    repeat task.wait() until finished
+end
+
+waitForSize(chartDisplayFrame)
+local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
+
+-- Parses FNF JSON chart into {time, dir} list
 local function parseFNFChart(fnfJson)
     local songData = fnfJson.song
-    if not songData then
-        warn("Invalid FNF JSON: missing 'song'")
-        return nil
-    end
+    if not songData then warn("Missing song data") return nil end
 
     local bpm = songData.bpm or 120
     local speed = songData.speed or 1
     local notesSections = songData.notes
-    if not notesSections then
-        warn("Invalid FNF JSON: missing 'notes'")
-        return nil
-    end
+    if not notesSections then warn("Missing notes") return nil end
 
     local secondsPerStep = (60 / bpm) / 4
     local chart = {}
@@ -152,17 +160,14 @@ local function parseFNFChart(fnfJson)
             local dir = noteDataToDir[note.noteData]
             if dir then
                 local time = sectionStartTime + (note.noteTime or 0) * secondsPerStep / speed
-                table.insert(chart, {
-                    time = time,
-                    dir = dir
-                })
+                table.insert(chart, {time = time, dir = dir})
             end
         end
 
         sectionStartTime = sectionStartTime + (lengthInSteps * secondsPerStep) / speed
     end
 
-    table.sort(chart, function(a, b) return a.time < b.time end)
+    table.sort(chart, function(a,b) return a.time < b.time end)
     return chart
 end
 
@@ -172,23 +177,6 @@ local function clearArrows()
     end
     activeArrows = {}
 end
-
-local function waitForSize(guiElement)
-    if guiElement.AbsoluteSize.Y > 0 then
-        return
-    end
-    local finished = false
-    guiElement:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-        if guiElement.AbsoluteSize.Y > 0 and not finished then
-            finished = true
-        end
-    end)
-    repeat task.wait() until finished
-end
-
-waitForSize(chartDisplayFrame)
-
-local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
 
 local function startSong(song)
     clearArrows()
@@ -270,7 +258,7 @@ local function startSong(song)
     end)
 end
 
--- Handle arrow hits
+-- Arrow hit detection
 local hitWindow = 0.15
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -291,7 +279,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Dragging logic
+-- Drag logic for guiBox
 local dragging = false
 local dragStart = nil
 local startPos = nil
@@ -322,7 +310,7 @@ dragBar.InputChanged:Connect(function(input)
     end
 end)
 
--- Load button click
+-- Load button clicked
 loadButton.MouseButton1Click:Connect(function()
     local success, result = pcall(function()
         return HttpService:JSONDecode(jsonInput.Text)
@@ -331,7 +319,7 @@ loadButton.MouseButton1Click:Connect(function()
     if success and type(result) == "table" then
         local chart = parseFNFChart(result)
         if chart then
-            startSong({ name = (result.song and result.song.song) or "Custom FNF Song", chart = chart })
+            startSong({name = (result.song and result.song.song) or "Custom FNF Song", chart = chart})
         else
             warn("Failed to parse FNF chart")
         end
