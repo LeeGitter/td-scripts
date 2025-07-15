@@ -1,29 +1,29 @@
--- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
--- Player
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
--- State
 local clone, floatForce, marker = nil, nil, nil
 local pathEnd = nil
 local isControlling = false
 local moveConn, updateConn, flyConn = nil, nil, nil
+
+local descendTime = 0.2
+local descendDistance = 10
 local descendTimer = 0
 
--- Utility: Noclip
-local function setNoclip(model, value)
+-- Noclip utility
+local function setNoclip(model, state)
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
-			part.CanCollide = not value
+			part.CanCollide = not state
 		end
 	end
 end
 
--- Utility: Create marker
+-- Create marker
 local function createMarker(position)
 	if marker then marker:Destroy() end
 	marker = Instance.new("Part")
@@ -37,7 +37,10 @@ local function createMarker(position)
 end
 
 local function clearMarker()
-	if marker then marker:Destroy() marker = nil end
+	if marker then
+		marker:Destroy()
+		marker = nil
+	end
 end
 
 -- Spawn controllable clone
@@ -47,16 +50,17 @@ local function spawnClone(position)
 		local success, result = pcall(function()
 			return Players:GetHumanoidDescriptionFromUserId(player.UserId)
 		end)
-		if success then
+		if success and result then
 			desc = result
 			break
 		end
 		task.wait(0.2)
 	end
-	if not desc then return end
+	if not desc then return nil end
 
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
 	model.Name = "ControllableClone"
+
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
 			part.Transparency = 0.5
@@ -67,10 +71,9 @@ local function spawnClone(position)
 
 	local hrp = model:WaitForChild("HumanoidRootPart")
 	local humanoid = model:WaitForChild("Humanoid")
-	if not hrp or not humanoid then return end
+	if not hrp or not humanoid then return nil end
 
-	hrpset = hrp
-	hrpset.CFrame = CFrame.new(position)
+	hrp.CFrame = CFrame.new(position)
 	humanoid.WalkSpeed = 50
 	model.Parent = workspace
 	return model
@@ -82,11 +85,10 @@ local function beginControl()
 
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
-	hrpset = hrp
-	hrpset.Anchored = true
-	hrpset.CFrame += Vector3.new(0, 4, 0)
+	hrp.Anchored = true
+	hrp.CFrame += Vector3.new(0, 4, 0)
 
-	clone = spawnClone(hrpset.Position - Vector3.new(0, 4, 0))
+	clone = spawnClone(hrp.Position - Vector3.new(0, 4, 0))
 	if not clone then return end
 
 	local cloneHRP = clone:WaitForChild("HumanoidRootPart")
@@ -119,13 +121,14 @@ local function beginControl()
 
 		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
 			floatForce.Velocity = Vector3.new(0, 60, 0)
+			descendTimer = 0
 		else
 			descendTimer += dt
-			if descendTimer >= 0.2 then
+			if descendTimer >= descendTime then
 				descendTimer = 0
-				cloneHRP.CFrame = cloneHRP.CFrame + Vector3.new(0, -10, 0)
 			end
-			floatForce.Velocity = Vector3.zero
+			local downwardSpeed = descendDistance / descendTime -- 50 studs/sec downward velocity
+			floatForce.Velocity = Vector3.new(0, -downwardSpeed, 0)
 		end
 	end)
 
@@ -146,8 +149,8 @@ local function endControl()
 	local char = player.Character or player.CharacterAdded:Wait()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
-	hrpset = hrp
-	hrpset.Anchored = false
+
+	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
 	if not pathEnd then return end
@@ -169,9 +172,8 @@ local function endControl()
 		local speed = totalDistance / duration * (1 + 2 * eased)
 		local direction = (pathEnd - hrp.Position)
 		if direction.Magnitude <= speed * dt then
-			hrpset = hrp
-			hrpset.CFrame = CFrame.new(pathEnd)
-			hrpset.Velocity = Vector3.zero
+			hrp.CFrame = CFrame.new(pathEnd)
+			hrp.Velocity = Vector3.zero
 			flyConn:Disconnect()
 			setNoclip(char, false)
 			humanoid.AutoRotate = true
@@ -179,8 +181,7 @@ local function endControl()
 			return
 		end
 		velocity = velocity:Lerp(direction.Unit * speed, 0.3)
-		hrpset = hrp
-		hrpset.Velocity = velocity
+		hrp.Velocity = velocity
 	end)
 end
 
