@@ -7,286 +7,95 @@ local camera = workspace.CurrentCamera
 
 local active = false
 local dummy = nil
-local path = {}
-local pathConnection = nil
-local moveConnection = nil
-local flyConnection = nil
-
 local marker = nil
+local pathConnection, moveConnection, flyConnection = nil, nil, nil
 local floatBodyVelocity = nil
 
--- Create marker at position
-local function placeMarker(position)
-	if marker then
-		marker.CFrame = CFrame.new(position)
-		return
+-- Utility: Enable or disable noclip for a model
+local function setNoclip(model, state)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CanCollide = not state
+		end
 	end
-	marker = Instance.new("Part")
-	marker.Anchored = true
-	marker.CanCollide = false
-	marker.Size = Vector3.new(3, 0.5, 3)
-	marker.Material = Enum.Material.Neon
-	marker.Color = Color3.fromRGB(0, 255, 255)
-	marker.CFrame = CFrame.new(position)
-	marker.Name = "FlyDestinationMarker"
-	marker.Parent = workspace
-	print("[Marker] Placed at", position)
 end
 
+-- Utility: Create visual marker at a position
+local function placeMarker(pos)
+	if marker then marker:Destroy() end
+	marker = Instance.new("Part")
+	marker.Size = Vector3.new(3, 0.5, 3)
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.Material = Enum.Material.Neon
+	marker.Color = Color3.fromRGB(0, 255, 255)
+	marker.CFrame = CFrame.new(pos)
+	marker.Name = "FlyDestinationMarker"
+	marker.Parent = workspace
+end
+
+-- Utility: Remove marker
 local function removeMarker()
 	if marker then
 		marker:Destroy()
 		marker = nil
-		print("[Marker] Removed")
 	end
 end
 
--- Enable/disable noclip on character
-local function setNoclip(character, enabled)
-	for _, part in pairs(character:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CanCollide = not enabled
-		end
-	end
-end
-
-local function spawnDummy(position)
+-- Spawns your R6 clone
+local function spawnDummy(pos)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
 	model.Name = "ControllableClone"
+	model.Parent = workspace
 
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") then
 			part.Transparency = 0.5
-			part.Color = Color3.fromRGB(255, 0, 0)
 			part.Material = Enum.Material.ForceField
+			part.Color = Color3.fromRGB(255, 0, 0)
 		end
 	end
 
-	local hrp = model:FindFirstChild("HumanoidRootPart")
-	if hrp then
-		hrp.Transparency = 1
-		hrp.CanCollide = false
-		hrp.CFrame = CFrame.new(position)
-		hrp.Anchored = false -- Allow physics for jump and float
-	end
+	local hrp = model:WaitForChild("HumanoidRootPart")
+	hrp.CFrame = CFrame.new(pos)
+	hrp.CanCollide = false
 
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.WalkSpeed = 50
-	end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if hum then hum.WalkSpeed = 50 end
 
-	model.Parent = workspace
-	print("[Dummy] Spawned at", position)
 	return model
 end
 
+-- Start clone control
 local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
-	local hrp = char:WaitForChild("HumanoidRootPart")
+	local root = char:WaitForChild("HumanoidRootPart")
 
-	-- Anchor player up 4 studs
-	hrp.Anchored = true
-	hrp.CFrame = hrp.CFrame + Vector3.new(0, 4, 0)
+	-- Float real player up 4 studs
+	root.Anchored = true
+	root.CFrame += Vector3.new(0, 4, 0)
 
-	dummy = spawnDummy(hrp.Position - Vector3.new(0, 4, 0))
-	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
-	local dummyHRP = dummy:FindFirstChild("HumanoidRootPart")
+	-- Spawn dummy at your original position
+	dummy = spawnDummy(root.Position - Vector3.new(0, 4, 0))
+	camera.CameraSubject = dummy:FindFirstChildOfClass("Humanoid")
 
-	camera.CameraSubject = dummyHumanoid
-	print("[Control] Camera switched to dummy")
-
-	-- BodyVelocity to control movement and float
+	-- Setup BodyVelocity for float/fly
+	local hrp = dummy:WaitForChild("HumanoidRootPart")
 	floatBodyVelocity = Instance.new("BodyVelocity")
-	floatBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5) -- Allow movement in all directions
-	floatBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-	floatBodyVelocity.Parent = dummyHRP
+	floatBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	floatBodyVelocity.Velocity = Vector3.zero
+	floatBodyVelocity.Parent = hrp
 
-	-- Jump on space press
-	local spaceConnection
-	spaceConnection = UIS.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		if active and dummy and input.KeyCode == Enum.KeyCode.Space then
-			local humanoid = dummy:FindFirstChildOfClass("Humanoid")
-			if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-				humanoid.Jump = true
-				print("[Dummy] Jump triggered")
-			end
-		end
-	end)
-
+	-- Handle space float and movement
 	moveConnection = RunService.RenderStepped:Connect(function()
-		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
-
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
-		local root = dummy:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-
-		if moveVec.Magnitude > 0 then
-			local camCF = camera.CFrame
-			local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
-			local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
-			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
-			if dummyHumanoid then
-				dummyHumanoid:Move(moveDir, false)
-			end
-			root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
-		else
-			if dummyHumanoid then
-				dummyHumanoid:Move(Vector3.zero, false)
-			end
-		end
-
-		-- FLOAT upward velocity control
-		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			-- float upward faster when holding space
-			floatBodyVelocity.Velocity = Vector3.new(floatBodyVelocity.Velocity.X, 30, floatBodyVelocity.Velocity.Z)
-		else
-			-- reset Y velocity so clone can fall naturally
-			floatBodyVelocity.Velocity = Vector3.new(floatBodyVelocity.Velocity.X, 0, floatBodyVelocity.Velocity.Z)
-		end
-	end)
-
-	pathConnection = RunService.Heartbeat:Connect(function()
-		local root = dummy:FindFirstChild("HumanoidRootPart")
-		if root then
-			path[#path+1] = root.Position
-		end
-	end)
-
-	dummy:SetAttribute("SpaceJumpConnection", spaceConnection)
-end
-
-local function flyToDestination(destination)
-	local char = player.Character or player.CharacterAdded:Wait()
-	local humanoid = char:WaitForChild("Humanoid")
-	local hrp = char:WaitForChild("HumanoidRootPart")
-
-	camera.CameraSubject = humanoid
-	hrp.Anchored = false
-	humanoid.AutoRotate = false
-
-	setNoclip(char, true)
-
-	local startPos = hrp.Position
-	local direction = (destination - startPos)
-	local totalDist = direction.Magnitude
-	if totalDist == 0 then
-		setNoclip(char, false)
-		humanoid.AutoRotate = true
-		removeMarker()
-		return
-	end
-	direction = direction.Unit
-
-	local maxTime = 1.5
-	local elapsed = 0
-
-	if flyConnection then
-		flyConnection:Disconnect()
-		flyConnection = nil
-	end
-
-	flyConnection = RunService.RenderStepped:Connect(function(dt)
-		elapsed += dt
-		local t = math.clamp(elapsed / maxTime, 0, 1)
-
-		local currentPos = hrp.Position
-		local toDest = destination - currentPos
-		local distToDest = toDest.Magnitude
-
-		-- Accelerate velocity smoothly using ease-in curve (quadratic)
-		local easeT = t * t
-		local targetSpeed = totalDist / maxTime
-		local speed = targetSpeed + targetSpeed * easeT * 3 -- speed up over time, max ~4x speed
-
-		-- Calculate move velocity vector
-		local moveVel = Vector3.zero
-		if distToDest > 0 then
-			moveVel = toDest.Unit * speed
-		end
-
-		-- Update BodyVelocity to move clone toward target
-		floatBodyVelocity.Velocity = Vector3.new(moveVel.X, floatBodyVelocity.Velocity.Y, moveVel.Z)
-
-		if distToDest <= speed * dt or t >= 1 then
-			-- Snap to final position and stop flying
-			hrp.CFrame = CFrame.new(destination, destination + direction)
-			flyConnection:Disconnect()
-			flyConnection = nil
-			setNoclip(char, false)
-			humanoid.AutoRotate = true
-			removeMarker()
-			-- reset BodyVelocity Y so it falls naturally
-			floatBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-			print("[Fly] Arrived at destination")
-		end
-	end)
-	print("[Fly] Flying started to", destination)
-end
-
-local function endControl()
-	active = false
-
-	if pathConnection then
-		pathConnection:Disconnect()
-		pathConnection = nil
-	end
-	if moveConnection then
-		moveConnection:Disconnect()
-		moveConnection = nil
-	end
-	if dummy then
-		local spaceConn = dummy:GetAttribute("SpaceJumpConnection")
-		if spaceConn then
-			spaceConn:Disconnect()
-		end
-
-		local dummyHRP = dummy:FindFirstChild("HumanoidRootPart")
-		local lastPos = dummyHRP and dummyHRP.Position or nil
-
-		if lastPos then
-			placeMarker(lastPos)
-		end
-
-		dummy:Destroy()
-		dummy = nil
-
-		local char = player.Character or player.CharacterAdded:Wait()
-		local humanoid = char:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			camera.CameraSubject = humanoid
-			print("[Camera] Returned to player humanoid")
-		else
-			print("[Camera] Failed to find humanoid")
-		end
-
-		char:WaitForChild("HumanoidRootPart").Anchored = false
-
-		if lastPos then
-			flyToDestination(lastPos)
-		else
-			print("[Fly] No last position found to fly to")
-		end
-	end
-end
-
-UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.T then
-		if not active then
-			print("[T] Begin control")
-			beginControl()
-		else
-			print("[T] End control")
-			endControl()
-		end
-	end
-end)
+		local camCF = camera.CFrame
+		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector
