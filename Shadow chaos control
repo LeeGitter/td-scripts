@@ -13,7 +13,7 @@ local moveConnection = nil
 local flyConnection = nil
 
 local marker = nil
-local floatVelocity = nil
+local floatBodyVelocity = nil
 
 -- Create marker at position
 local function placeMarker(position)
@@ -98,11 +98,11 @@ local function beginControl()
 	camera.CameraSubject = dummyHumanoid
 	print("[Control] Camera switched to dummy")
 
-	-- BodyVelocity to control float upward
-	floatVelocity = Instance.new("BodyVelocity")
-	floatVelocity.MaxForce = Vector3.new(0, math.huge, 0)
-	floatVelocity.Velocity = Vector3.new(0, 0, 0)
-	floatVelocity.Parent = dummyHRP
+	-- BodyVelocity to control movement and float
+	floatBodyVelocity = Instance.new("BodyVelocity")
+	floatBodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5) -- Allow movement in all directions
+	floatBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	floatBodyVelocity.Parent = dummyHRP
 
 	-- Jump on space press
 	local spaceConnection
@@ -144,11 +144,13 @@ local function beginControl()
 			end
 		end
 
-		-- FLOAT upward slowly while holding Space using BodyVelocity
+		-- FLOAT upward velocity control
 		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			floatVelocity.Velocity = Vector3.new(0, 5, 0) -- Adjust float speed here
+			-- float upward faster when holding space
+			floatBodyVelocity.Velocity = Vector3.new(floatBodyVelocity.Velocity.X, 30, floatBodyVelocity.Velocity.Z)
 		else
-			floatVelocity.Velocity = Vector3.new(0, 0, 0)
+			-- reset Y velocity so clone can fall naturally
+			floatBodyVelocity.Velocity = Vector3.new(floatBodyVelocity.Velocity.X, 0, floatBodyVelocity.Velocity.Z)
 		end
 	end)
 
@@ -186,7 +188,6 @@ local function flyToDestination(destination)
 
 	local maxTime = 1.5
 	local elapsed = 0
-	local maxSpeed = totalDist / maxTime * 2
 
 	if flyConnection then
 		flyConnection:Disconnect()
@@ -196,24 +197,36 @@ local function flyToDestination(destination)
 	flyConnection = RunService.RenderStepped:Connect(function(dt)
 		elapsed += dt
 		local t = math.clamp(elapsed / maxTime, 0, 1)
-		local speed = maxSpeed * t
-		local moveDist = speed * dt
 
 		local currentPos = hrp.Position
 		local toDest = destination - currentPos
 		local distToDest = toDest.Magnitude
 
-		if distToDest <= moveDist or t >= 1 then
+		-- Accelerate velocity smoothly using ease-in curve (quadratic)
+		local easeT = t * t
+		local targetSpeed = totalDist / maxTime
+		local speed = targetSpeed + targetSpeed * easeT * 3 -- speed up over time, max ~4x speed
+
+		-- Calculate move velocity vector
+		local moveVel = Vector3.zero
+		if distToDest > 0 then
+			moveVel = toDest.Unit * speed
+		end
+
+		-- Update BodyVelocity to move clone toward target
+		floatBodyVelocity.Velocity = Vector3.new(moveVel.X, floatBodyVelocity.Velocity.Y, moveVel.Z)
+
+		if distToDest <= speed * dt or t >= 1 then
+			-- Snap to final position and stop flying
 			hrp.CFrame = CFrame.new(destination, destination + direction)
 			flyConnection:Disconnect()
 			flyConnection = nil
 			setNoclip(char, false)
 			humanoid.AutoRotate = true
 			removeMarker()
+			-- reset BodyVelocity Y so it falls naturally
+			floatBodyVelocity.Velocity = Vector3.new(0, 0, 0)
 			print("[Fly] Arrived at destination")
-		else
-			local moveDir = toDest.Unit
-			hrp.CFrame = CFrame.new(currentPos + moveDir * moveDist, currentPos + moveDir * moveDist + direction)
 		end
 	end)
 	print("[Fly] Flying started to", destination)
@@ -241,12 +254,6 @@ local function endControl()
 
 		if lastPos then
 			placeMarker(lastPos)
-		end
-
-		-- Remove BodyVelocity so clone physics reset properly
-		if floatVelocity then
-			floatVelocity:Destroy()
-			floatVelocity = nil
 		end
 
 		dummy:Destroy()
