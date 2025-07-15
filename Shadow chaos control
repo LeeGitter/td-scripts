@@ -103,8 +103,8 @@ local function beginControl()
 		if not dummy or not dHRP then return end
 
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, -1) end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
 
@@ -120,7 +120,7 @@ local function beginControl()
 			dHumanoid:Move(Vector3.zero, false)
 		end
 
-		-- Float upward
+		-- Float upward only when space is held
 		if UIS:IsKeyDown(Enum.KeyCode.Space) then
 			floatVelocity.Velocity = Vector3.new(0, 50, 0)
 		else
@@ -162,6 +162,7 @@ local function flyToDestination(destination)
 		local toTarget = (destination - hrp.Position)
 		if toTarget.Magnitude <= speed * dt then
 			hrp.CFrame = CFrame.new(destination)
+			hrp.Velocity = Vector3.zero -- Prevent momentum carry
 			flyConn:Disconnect()
 			setNoclip(char, false)
 			humanoid.AutoRotate = true
