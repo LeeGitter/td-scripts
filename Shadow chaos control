@@ -1,0 +1,157 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local active = false
+local dummy = nil
+local path = {}
+local pathConnection = nil
+local moveConnection = nil
+
+local function createPathPoint(position)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.Size = Vector3.new(1, 0.2, 1)
+	part.Color = Color3.fromRGB(255, 255, 0)
+	part.Material = Enum.Material.Neon
+	part.CFrame = CFrame.new(position)
+	part.Parent = workspace
+	table.insert(path, part)
+end
+
+local function spawnDummy(position)
+	local newDummy = Instance.new("Model")
+	newDummy.Name = "ControllableDummy"
+
+	local humanoid = Instance.new("Humanoid")
+	humanoid.Parent = newDummy
+
+	local hrp = Instance.new("Part")
+	hrp.Name = "HumanoidRootPart"
+	hrp.Size = Vector3.new(2, 2, 1)
+	hrp.Anchored = false
+	hrp.CanCollide = true
+	hrp.Position = position
+	hrp.Parent = newDummy
+
+	local head = Instance.new("Part")
+	head.Name = "Head"
+	head.Size = Vector3.new(2, 1, 1)
+	head.Position = position + Vector3.new(0, 2, 0)
+	head.Parent = newDummy
+
+	local torso = Instance.new("Part")
+	torso.Name = "Torso"
+	torso.Size = Vector3.new(2, 2, 1)
+	torso.Position = position + Vector3.new(0, 1, 0)
+	torso.Parent = newDummy
+
+	-- Welds
+	local weld1 = Instance.new("WeldConstraint", hrp)
+	weld1.Part0 = hrp
+	weld1.Part1 = torso
+
+	local weld2 = Instance.new("WeldConstraint", torso)
+	weld2.Part0 = torso
+	weld2.Part1 = head
+
+	newDummy.PrimaryPart = hrp
+	newDummy:SetPrimaryPartCFrame(CFrame.new(position))
+	newDummy.Parent = workspace
+
+	return newDummy
+end
+
+local function startControl()
+	active = true
+
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hrp = char:WaitForChild("HumanoidRootPart")
+
+	-- Float and anchor player
+	hrp.Anchored = true
+	hrp.CFrame += Vector3.new(0, 10, 0)
+
+	-- Spawn dummy
+	dummy = spawnDummy(hrp.Position + hrp.CFrame.LookVector * 5)
+	local dummyHumanoid = dummy:WaitForChild("Humanoid")
+	camera.CameraSubject = dummyHumanoid
+
+	-- Movement control using Humanoid.MoveDirection
+	moveConnection = RunService.RenderStepped:Connect(function()
+		local moveDirection = player:GetMouse().Hit.LookVector
+		dummyHumanoid:Move(UIS:IsKeyDown(Enum.KeyCode.W) and dummyHumanoid.MoveDirection or Vector3.zero, true)
+	end)
+
+	-- Path tracking
+	local lastPos = dummy.PrimaryPart.Position
+	pathConnection = RunService.Heartbeat:Connect(function()
+		local pos = dummy.PrimaryPart.Position
+		if (pos - lastPos).Magnitude > 2 then
+			createPathPoint(pos)
+			lastPos = pos
+		end
+	end)
+end
+
+local function followPath()
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hrp = char:WaitForChild("HumanoidRootPart")
+
+	coroutine.wrap(function()
+		for _, p in path do
+			local goal = p.Position + Vector3.new(0, 1, 0)
+			local dist = (hrp.Position - goal).Magnitude
+			local tween = TweenService:Create(hrp, TweenInfo.new(dist / 16, Enum.EasingStyle.Linear), {
+				CFrame = CFrame.new(goal)
+			})
+			tween:Play()
+			tween.Completed:Wait()
+		end
+
+		for _, p in path do
+			p:Destroy()
+		end
+		table.clear(path)
+	end)()
+end
+
+local function stopControl()
+	active = false
+
+	-- Disconnect
+	if moveConnection then moveConnection:Disconnect() end
+	if pathConnection then pathConnection:Disconnect() end
+
+	-- Remove dummy
+	if dummy then
+		dummy:Destroy()
+	end
+
+	-- Restore player
+	local char = player.Character or player.CharacterAdded:Wait()
+	local hrp = char:WaitForChild("HumanoidRootPart")
+	hrp.Anchored = false
+	camera.CameraSubject = char:FindFirstChild("Humanoid")
+
+	-- Follow the path
+	followPath()
+end
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.T then
+		if not active then
+			startControl()
+		else
+			stopControl()
+		end
+	end
+end)
