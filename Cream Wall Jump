@@ -7,7 +7,7 @@ local player = Players.LocalPlayer
 local MAX_WALL_JUMPS = 2
 local WALL_DETECT_WINDOW = 0.5
 local STICK_TIME = 1
-local DETECTION_RADIUS = 1
+local RAY_LENGTH = 1 -- 1 stud raycasts
 local PUSH_FORCE = 40
 local JUMP_FORCE = Vector3.new(0, 55, 0)
 
@@ -29,19 +29,26 @@ local function getCharacterParts()
 	return char, hum, hrp
 end
 
-local function wallNearby(hrp)
-	local overlapParams = OverlapParams.new()
-	overlapParams.FilterDescendantsInstances = {player.Character}
-	overlapParams.FilterType = Enum.RaycastFilterType.Blacklist
+-- Raycast params excluding character
+local rayParams = RaycastParams.new()
+rayParams.FilterDescendantsInstances = {}
+rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 
-	local parts = workspace:GetPartBoundsInBox(hrp.CFrame, Vector3.new(4, 5, 2) + Vector3.new(DETECTION_RADIUS * 2, DETECTION_RADIUS * 2, DETECTION_RADIUS * 2), overlapParams)
-	for _, part in ipairs(parts) do
-		if part.CanCollide and not part:IsDescendantOf(player.Character) then
-			-- Check distance to wall surface
-			local dist = (part.Position - hrp.Position).Magnitude
-			if dist <= DETECTION_RADIUS + 1 then
-				return true
-			end
+local function isWallNear(hrp)
+	rayParams.FilterDescendantsInstances = {player.Character}
+	
+	local origin = hrp.Position
+	local directions = {
+		hrp.CFrame.LookVector,
+		-hrp.CFrame.LookVector,
+		hrp.CFrame.RightVector,
+		-hrp.CFrame.RightVector,
+	}
+	
+	for _, dir in ipairs(directions) do
+		local result = workspace:Raycast(origin, dir * RAY_LENGTH, rayParams)
+		if result and result.Instance and result.Instance.CanCollide then
+			return true
 		end
 	end
 	return false
@@ -57,7 +64,6 @@ local function startStick()
 	hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
 	hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
 
-	-- Freeze movement every frame
 	local freezeConnection
 	freezeConnection = RS.RenderStepped:Connect(function()
 		if not isSticking then
@@ -66,8 +72,6 @@ local function startStick()
 		end
 		hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
 		hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
-		-- Keep position fixed (optional)
-		-- hrp.CFrame = hrp.CFrame
 	end)
 end
 
@@ -98,7 +102,7 @@ UIS.JumpRequest:Connect(function()
 	animTrack:Play()
 end)
 
-RunService.RenderStepped:Connect(function()
+RS.RenderStepped:Connect(function()
 	local _, humanoid, hrp = getCharacterParts()
 	if not humanoid or not hrp then return end
 
@@ -107,16 +111,17 @@ RunService.RenderStepped:Connect(function()
 		humanoid.PlatformStand = false
 	end
 
-	if canDetect and tick() <= detectionExpire and wallNearby(hrp) then
-		canDetect = false
-		wallJumpCount += 1
-		startStick()
-	elseif tick() > detectionExpire then
-		canDetect = false
+	if canDetect and tick() <= detectionExpire and wallJumpCount < MAX_WALL_JUMPS then
+		if isWallNear(hrp) then
+			canDetect = false
+			wallJumpCount += 1
+			startStick()
+		elseif tick() > detectionExpire then
+			canDetect = false
+		end
 	end
 end)
 
--- Reset wall jumps on ground touch
 local _, humanoid = getCharacterParts()
 if humanoid then
 	humanoid.StateChanged:Connect(function(_, newState)
