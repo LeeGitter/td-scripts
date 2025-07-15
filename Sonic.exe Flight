@@ -47,7 +47,7 @@ local function stopAllFlightAnimations()
 	end
 end
 
--- Smooth tilt
+-- Smooth tilt helper: tilt avatar towards movement direction
 local function tiltBodyTowards(dir, dt)
 	if dir.Magnitude > 0 then
 		local currentCF = hrp.CFrame
@@ -76,11 +76,11 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- ✅ Character-based movement (not camera-based)
+-- Movement direction based on camera orientation (standard WASD)
 local function getMoveDirection()
-	local charCF = hrp.CFrame
-	local forward = charCF.LookVector
-	local right = charCF.RightVector
+	local camCF = workspace.CurrentCamera.CFrame
+	local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+	local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
 	local direction = Vector3.zero
 
 	for key, _ in pairs(heldKeys) do
@@ -89,7 +89,10 @@ local function getMoveDirection()
 		end
 	end
 
-	return direction.Magnitude > 0 and direction.Unit or Vector3.zero
+	if direction.Magnitude > 0 then
+		return direction.Unit
+	end
+	return Vector3.zero
 end
 
 -- Start flight
@@ -99,7 +102,7 @@ local function startFlight()
 	descending = false
 	currentSpeed = startSpeed
 
-	-- Fast upward boost
+	-- Quick upward boost (4 studs)
 	local goalPos = hrp.Position + Vector3.new(0, 4, 0)
 	local floatTween = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Sine), {CFrame = CFrame.new(goalPos)})
 	floatTween:Play()
@@ -107,7 +110,7 @@ local function startFlight()
 
 	humanoid.WalkSpeed = 0
 
-	-- Begin flight loop
+	-- Begin flight control loop
 	RunService:BindToRenderStep("FlightControl", Enum.RenderPriority.Input.Value, function(dt)
 		local inputDir = getMoveDirection()
 
@@ -119,8 +122,9 @@ local function startFlight()
 		end
 
 		local moveVector = moveDir * currentSpeed
-		hrp.Velocity = moveVector
+		hrp.Velocity = moveVector + Vector3.new(0, 0, 0) -- preserve only horizontal velocity; you can add vertical if needed
 
+		-- Tilt avatar smoothly to movement direction (based on camera movement)
 		tiltBodyTowards(moveVector, dt)
 
 		stopAllFlightAnimations()
@@ -134,14 +138,14 @@ local function startFlight()
 	end)
 end
 
--- Begin descent
+-- Start descent
 local function startDescent()
 	if not flying or descending then return end
 	descending = true
 	RunService:UnbindFromRenderStep("FlightControl")
 
 	local camCF = workspace.CurrentCamera.CFrame
-	local descendDir = (camCF.LookVector - Vector3.new(0, 1, 0)).Unit
+	local descendDir = (Vector3.new(camCF.LookVector.X, -1, camCF.LookVector.Z)).Unit
 
 	RunService:BindToRenderStep("DescentControl", Enum.RenderPriority.Input.Value, function(dt)
 		local fallVelocity = descendDir * descentSpeed
@@ -149,7 +153,7 @@ local function startDescent()
 
 		tiltBodyTowards(descendDir, dt)
 
-		-- Detect landing
+		-- Ground check with raycast
 		local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
 		local hit = workspace:FindPartOnRay(ray, character)
 		if hit then
