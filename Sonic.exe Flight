@@ -14,7 +14,7 @@ local descending = false
 local velocity = Vector3.zero
 local maxSpeed = 75
 local startSpeed = 10
-local acceleration = 0.8 -- slower acceleration
+local acceleration = 0.15 -- MUCH slower acceleration
 local descentSpeed = 40
 local currentSpeed = 0
 
