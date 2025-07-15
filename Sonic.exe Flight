@@ -13,10 +13,10 @@ local flying = false
 local descending = false
 local maxSpeed = 75
 local startSpeed = 10
-local acceleration = 0.15
-local deceleration = 0.4
+local acceleration = 0.1 -- slow accel for smooth feel
+local deceleration = 0.3
 local descentSpeed = 40
-local currentSpeed = 0
+local currentSpeed = Vector3.new(0,0,0) -- velocity vector
 local moveDir = Vector3.zero
 
 -- Animation IDs
@@ -27,10 +27,8 @@ local anims = {
 	land = "rbxassetid://92837953970970"
 }
 
--- Animator
 local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
 
--- Load animations
 local tracks = {}
 for name, id in pairs(anims) do
 	local anim = Instance.new("Animation")
@@ -38,7 +36,6 @@ for name, id in pairs(anims) do
 	tracks[name] = animator:LoadAnimation(anim)
 end
 
--- Stop all flight-related animations
 local function stopAllFlightAnimations()
 	for _, track in pairs(tracks) do
 		if track.IsPlaying then
@@ -47,7 +44,6 @@ local function stopAllFlightAnimations()
 	end
 end
 
--- Smooth tilt helper: tilt avatar towards movement direction
 local function tiltBodyTowards(dir, dt)
 	if dir.Magnitude > 0 then
 		local currentCF = hrp.CFrame
@@ -56,12 +52,11 @@ local function tiltBodyTowards(dir, dt)
 	end
 end
 
--- Movement key tracking
 local moveKeys = {
-	[Enum.KeyCode.W] = Vector3.new(0, 0, -1),
-	[Enum.KeyCode.S] = Vector3.new(0, 0, 1),
-	[Enum.KeyCode.A] = Vector3.new(-1, 0, 0),
-	[Enum.KeyCode.D] = Vector3.new(1, 0, 0),
+	[Enum.KeyCode.W] = 1,
+	[Enum.KeyCode.S] = -1,
+	[Enum.KeyCode.A] = -1,
+	[Enum.KeyCode.D] = 1,
 }
 local heldKeys = {}
 
@@ -76,17 +71,27 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Movement direction based on camera orientation (standard WASD)
 local function getMoveDirection()
 	local camCF = workspace.CurrentCamera.CFrame
-	local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+	local forward = camCF.LookVector.Unit
 	local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
+
 	local direction = Vector3.zero
 
-	for key, _ in pairs(heldKeys) do
-		if moveKeys[key] then
-			direction += (moveKeys[key].Z * forward + moveKeys[key].X * right)
-		end
+	-- Forward/back
+	if heldKeys[Enum.KeyCode.W] then
+		direction += forward
+	end
+	if heldKeys[Enum.KeyCode.S] then
+		direction -= forward
+	end
+
+	-- Strafe left/right (horizontal only)
+	if heldKeys[Enum.KeyCode.A] then
+		direction -= right
+	end
+	if heldKeys[Enum.KeyCode.D] then
+		direction += right
 	end
 
 	if direction.Magnitude > 0 then
@@ -95,42 +100,37 @@ local function getMoveDirection()
 	return Vector3.zero
 end
 
--- Start flight
 local function startFlight()
 	if flying then return end
 	flying = true
 	descending = false
-	currentSpeed = startSpeed
+	currentSpeed = Vector3.new(0,0,0)
 
-	-- Quick upward boost (4 studs)
-	local goalPos = hrp.Position + Vector3.new(0, 4, 0)
+	local goalPos = hrp.Position + Vector3.new(0,4,0)
 	local floatTween = TweenService:Create(hrp, TweenInfo.new(0.15, Enum.EasingStyle.Sine), {CFrame = CFrame.new(goalPos)})
 	floatTween:Play()
 	floatTween.Completed:Wait()
 
 	humanoid.WalkSpeed = 0
 
-	-- Begin flight control loop
 	RunService:BindToRenderStep("FlightControl", Enum.RenderPriority.Input.Value, function(dt)
 		local inputDir = getMoveDirection()
 
 		if inputDir.Magnitude > 0 then
-			moveDir = inputDir
-			currentSpeed = math.min(maxSpeed, currentSpeed + acceleration)
+			currentSpeed = currentSpeed:Lerp(inputDir * maxSpeed, acceleration)
 		else
-			currentSpeed = math.max(0, currentSpeed - deceleration)
+			currentSpeed = currentSpeed:Lerp(Vector3.new(0,0,0), deceleration)
 		end
 
-		local moveVector = moveDir * currentSpeed
-		hrp.Velocity = moveVector + Vector3.new(0, 0, 0) -- preserve only horizontal velocity; you can add vertical if needed
+		hrp.Velocity = currentSpeed
 
-		-- Tilt avatar smoothly to movement direction (based on camera movement)
-		tiltBodyTowards(moveVector, dt)
+		tiltBodyTowards(currentSpeed, dt)
 
 		stopAllFlightAnimations()
-		if currentSpeed < 1 then
+		local speedMag = currentSpeed.Magnitude
+		if speedMag < 1 then
 			tracks.idle:Play()
-		elseif currentSpeed < 30 then
+		elseif speedMag < 30 then
 			tracks.slow:Play()
 		else
 			tracks.fast:Play()
@@ -138,7 +138,6 @@ local function startFlight()
 	end)
 end
 
--- Start descent
 local function startDescent()
 	if not flying or descending then return end
 	descending = true
@@ -153,7 +152,6 @@ local function startDescent()
 
 		tiltBodyTowards(descendDir, dt)
 
-		-- Ground check with raycast
 		local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
 		local hit = workspace:FindPartOnRay(ray, character)
 		if hit then
@@ -166,13 +164,12 @@ local function startDescent()
 			humanoid.WalkSpeed = 45
 			flying = false
 			descending = false
-			currentSpeed = 0
+			currentSpeed = Vector3.new(0,0,0)
 			moveDir = Vector3.zero
 		end
 	end)
 end
 
--- Toggle flight with T
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.T then
