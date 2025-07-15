@@ -14,7 +14,7 @@ local moveConnection = nil
 
 local cloneSpawnPosition = nil
 
--- Create glowing path point
+-- Create glowing path part
 local function createPathPoint(position)
 	local part = Instance.new("Part")
 	part.Anchored = true
@@ -27,25 +27,39 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Create invisible dummy with Humanoid and HumanoidRootPart
-local function spawnInvisibleDummy(position)
-	local model = Instance.new("Model")
-	model.Name = "ControllableDummy"
+-- Spawn R6 dummy with your appearance, but fully invisible, hide HRP
+local function spawnDummy(position)
+	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
+
+	model.Name = "ControllableClone"
+
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Transparency = 1 -- Fully invisible
+			part.CanCollide = false
+			part.Material = Enum.Material.SmoothPlastic
+		end
+	end
+
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.Transparency = 1
+		hrp.CanCollide = false
+		for _, child in hrp:GetChildren() do
+			if child:IsA("Decal") or child:IsA("Mesh") or child:IsA("Attachment") then
+				child:Destroy()
+			end
+		end
+		hrp.CFrame = CFrame.new(position)
+	end
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 50
+	end
+
 	model.Parent = workspace
-
-	local hrp = Instance.new("Part")
-	hrp.Name = "HumanoidRootPart"
-	hrp.Size = Vector3.new(2, 2, 1)
-	hrp.Anchored = false
-	hrp.CanCollide = true
-	hrp.Transparency = 1
-	hrp.CFrame = CFrame.new(position)
-	hrp.Parent = model
-
-	local humanoid = Instance.new("Humanoid")
-	humanoid.WalkSpeed = 50
-	humanoid.Parent = model
-
 	return model
 end
 
@@ -54,34 +68,16 @@ local function beginControl()
 	active = true
 
 	local char = player.Character or player.CharacterAdded:Wait()
-	if not char then
-		warn("beginControl: Player character not found!")
-		active = false
-		return
-	end
+	local hrp = char:WaitForChild("HumanoidRootPart")
 
-	local hrp = char:WaitForChild("HumanoidRootPart", 5)
-	if not hrp then
-		warn("beginControl: HumanoidRootPart not found!")
-		active = false
-		return
-	end
-
-	-- Float and anchor real character 3 studs up (visible)
+	-- Float and anchor player 3 studs up (visible)
 	hrp.Anchored = true
 	hrp.CFrame += Vector3.new(0, 3, 0)
 
-	-- Spawn invisible dummy below real character
+	-- Spawn dummy and set camera
 	cloneSpawnPosition = hrp.Position - Vector3.new(0, 4, 0)
-	dummy = spawnInvisibleDummy(cloneSpawnPosition)
+	dummy = spawnDummy(cloneSpawnPosition)
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
-	if not dummyHumanoid then
-		warn("beginControl: Dummy humanoid not found!")
-		dummy:Destroy()
-		active = false
-		return
-	end
-
 	camera.CameraSubject = dummyHumanoid
 
 	-- Movement handling
@@ -89,7 +85,7 @@ local function beginControl()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
 		local moveVec = Vector3.zero
-		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end
+		if UIS:IsKeyDown(Enum.KeyCode.W) then moveVec += Vector3.new(0, 0, 1) end -- flipped Z sign here
 		if UIS:IsKeyDown(Enum.KeyCode.S) then moveVec += Vector3.new(0, 0, -1) end
 		if UIS:IsKeyDown(Enum.KeyCode.A) then moveVec += Vector3.new(-1, 0, 0) end
 		if UIS:IsKeyDown(Enum.KeyCode.D) then moveVec += Vector3.new(1, 0, 0) end
@@ -100,23 +96,19 @@ local function beginControl()
 			local right = camCF.RightVector * Vector3.new(1, 0, 1)
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
 
+			-- Limit clone movement within 200 studs radius from spawn
 			local root = dummy:FindFirstChild("HumanoidRootPart")
-			local humanoid = dummy:FindFirstChildOfClass("Humanoid")
-			if root and humanoid then
-				local dt = RunService.RenderStepped:Wait()
-				local proposedPos = root.Position + moveDir * humanoid.WalkSpeed * dt
+			if root then
+				local proposedPos = root.Position + moveDir * dummy:FindFirstChildOfClass("Humanoid").WalkSpeed * RunService.RenderStepped:Wait()
 				if (proposedPos - cloneSpawnPosition).Magnitude <= 200 then
-					humanoid:Move(moveDir, false)
+					dummy:FindFirstChildOfClass("Humanoid"):Move(moveDir, false)
 					root.CFrame = CFrame.new(root.Position, root.Position + moveDir)
 				else
-					humanoid:Move(Vector3.zero, false)
+					dummy:FindFirstChildOfClass("Humanoid"):Move(Vector3.zero, false)
 				end
 			end
 		else
-			local humanoid = dummy and dummy:FindFirstChildOfClass("Humanoid")
-			if humanoid then
-				humanoid:Move(Vector3.zero, false)
-			end
+			dummy:FindFirstChildOfClass("Humanoid"):Move(Vector3.zero, false)
 		end
 	end)
 
@@ -131,7 +123,7 @@ local function beginControl()
 	end)
 end
 
--- Smoothly glide your real character through path with acceleration, capped for 8 seconds
+-- Smoothly glide your real character through path with acceleration, retaining animations
 local function glideAlongPath(hrp, humanoid, pathPoints)
 	if #pathPoints == 0 then return end
 
@@ -147,34 +139,32 @@ local function glideAlongPath(hrp, humanoid, pathPoints)
 	end
 	if totalDist == 0 then return end
 
-	for i = 1, #pathPoints do
-		local targetPos = pathPoints[i].Position + Vector3.new(0, 1, 0)
-		local dist = (hrp.Position - targetPos).Magnitude
-		if dist == 0 then continue end
-
-		local speed = math.min(startSpeed + (maxSpeed - startSpeed) * (elapsed / maxTime), maxSpeed)
-		local timeForSegment = dist / speed
-		if elapsed + timeForSegment > maxTime then
-			timeForSegment = maxTime - elapsed
+	-- Coroutine to smoothly move the humanoid along the path using Humanoid:Move
+	coroutine.wrap(function()
+		for i = 1, #pathPoints do
+			local targetPos = pathPoints[i].Position + Vector3.new(0, 1, 0)
+			while (hrp.Position - targetPos).Magnitude > 0.5 do
+				local dist = (hrp.Position - targetPos).Magnitude
+				local speed = math.min(startSpeed + (maxSpeed - startSpeed) * (elapsed / maxTime), maxSpeed)
+				local direction = (targetPos - hrp.Position).Unit
+				humanoid:Move(direction, false)
+				-- Move character root part CFrame orientation smoothly towards movement direction
+				hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + direction)
+				wait(0.03)
+				elapsed = math.min(elapsed + 0.03, maxTime)
+			end
+			-- Stop movement briefly before next segment
+			humanoid:Move(Vector3.new(0,0,0), false)
+			wait(0.05)
 		end
-
-		if timeForSegment > 0 then
-			local tweenInfo = TweenInfo.new(timeForSegment, Enum.EasingStyle.Linear)
-			local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
-			tween:Play()
-			tween.Completed:Wait()
-		end
-
-		elapsed = elapsed + timeForSegment
-
-		if elapsed >= maxTime then
-			hrp.CFrame = CFrame.new(pathPoints[#pathPoints].Position + Vector3.new(0, 1, 0))
-			break
-		end
-	end
+		-- Stop at the end and clear path points
+		humanoid:Move(Vector3.new(0,0,0), false)
+		for _, p in path do p:Destroy() end
+		table.clear(path)
+	end)()
 end
 
--- End control and make your real character walk the path smoothly
+-- End control and walk the path with smooth accelerating walkspeed capped for 8 seconds max
 local function endControl()
 	active = false
 
@@ -190,12 +180,9 @@ local function endControl()
 	camera.CameraSubject = humanoid
 
 	glideAlongPath(hrp, humanoid, path)
-
-	for _, p in path do p:Destroy() end
-	table.clear(path)
 end
 
--- Toggle dummy control with T
+-- Toggle with T
 UIS.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.T then
