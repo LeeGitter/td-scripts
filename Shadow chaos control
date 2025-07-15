@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -123,57 +122,7 @@ local function beginControl()
 	end)
 end
 
--- Smoothly glide your real character through path with acceleration, retaining animations
-local function glideAlongPath(hrp, humanoid, pathPoints)
-	if #pathPoints == 0 then return end
-
-	local maxTime = 8
-	local startSpeed = 2
-	local maxSpeed = 300
-	local elapsed = 0
-
-	-- Calculate total distance
-	local totalDist = 0
-	for i = 2, #pathPoints do
-		totalDist += (pathPoints[i].Position - pathPoints[i-1].Position).Magnitude
-	end
-	if totalDist == 0 then return end
-
-	-- Coroutine for smooth glide
-	coroutine.wrap(function()
-		for i = 1, #pathPoints do
-			local targetPos = pathPoints[i].Position + Vector3.new(0, 1, 0)
-			while (hrp.Position - targetPos).Magnitude > 0.1 do
-				local dist = (hrp.Position - targetPos).Magnitude
-				local speed = math.min(startSpeed + (maxSpeed - startSpeed) * (elapsed / maxTime), maxSpeed)
-				local direction = (targetPos - hrp.Position).Unit
-
-				-- Tween HRP position slightly toward target to avoid physics glitches
-				local newPos = hrp.Position + direction * speed * 0.03
-				hrp.CFrame = CFrame.new(newPos, newPos + direction)
-
-				-- Send movement direction to humanoid to trigger walk/run animations
-				humanoid:Move(direction, false)
-
-				-- Prevent humanoid from falling or ragdolling
-				humanoid.PlatformStand = false
-
-				wait(0.03)
-				elapsed = math.min(elapsed + 0.03, maxTime)
-			end
-			-- Stop moving briefly before next segment
-			humanoid:Move(Vector3.new(0,0,0), false)
-			wait(0.05)
-		end
-
-		-- Stop movement and clear path points
-		humanoid:Move(Vector3.new(0,0,0), false)
-		for _, p in path do p:Destroy() end
-		table.clear(path)
-	end)()
-end
-
--- End control and walk the path with smooth accelerating walkspeed capped for 8 seconds max
+-- End control and walk the path normally with gradual acceleration to finish in <=8 seconds
 local function endControl()
 	active = false
 
@@ -188,7 +137,58 @@ local function endControl()
 	hrp.Anchored = false
 	camera.CameraSubject = humanoid
 
-	glideAlongPath(hrp, humanoid, path)
+	if #path == 0 then
+		return
+	end
+
+	-- Calculate total distance of path
+	local totalDist = 0
+	for i = 2, #path do
+		totalDist += (path[i].Position - path[i-1].Position).Magnitude
+	end
+
+	if totalDist == 0 then
+		for _, p in path do p:Destroy() end
+		table.clear(path)
+		return
+	end
+
+	-- Set max time and calculate necessary max speed
+	local maxTime = 8
+	local startSpeed = 8    -- starting walkspeed (slower than normal)
+	local maxSpeed = math.max(16, totalDist / maxTime) -- ensure reasonable max speed (at least 16)
+	local elapsed = 0
+
+	coroutine.wrap(function()
+		for i = 1, #path do
+			local targetPos = path[i].Position + Vector3.new(0, 1, 0)
+			while (hrp.Position - targetPos).Magnitude > 1 do
+				local distToTarget = (hrp.Position - targetPos).Magnitude
+				-- Accelerate walkspeed linearly over time, capped at maxSpeed
+				local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
+				humanoid.WalkSpeed = currentSpeed
+
+				local direction = (targetPos - hrp.Position).Unit
+				humanoid:Move(direction, false)
+
+				-- Face direction of movement
+				hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + direction)
+
+				wait(0.03)
+				elapsed = math.min(elapsed + 0.03, maxTime)
+			end
+			-- Stop moving briefly before next point
+			humanoid:Move(Vector3.new(0, 0, 0), false)
+			wait(0.05)
+		end
+
+		-- Reset walkspeed and cleanup path
+		humanoid.WalkSpeed = 16 -- default walkspeed (adjust as needed)
+		humanoid:Move(Vector3.new(0, 0, 0), false)
+
+		for _, p in path do p:Destroy() end
+		table.clear(path)
+	end)()
 end
 
 -- Toggle with T
