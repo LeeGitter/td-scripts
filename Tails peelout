@@ -180,7 +180,7 @@ UIS.InputEnded:Connect(function(input)
 		currentDir = currentDir:Lerp(moveVec, 0.05)
 
 		-- 🔧 Use BodyVelocity to simulate spoofed dash
-		local targetSpeed = 5
+		local targetSpeed = 2
 		bodyVel.Velocity = currentDir * targetSpeed
 
 		-- Face direction
