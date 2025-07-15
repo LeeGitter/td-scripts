@@ -3,124 +3,108 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-local function setupCharacter(character)
-	local humanoid = character:WaitForChild("Humanoid")
-	local hrp = character:WaitForChild("HumanoidRootPart")
+-- Default WalkSpeed
+humanoid.WalkSpeed = 28
 
-	local animation = Instance.new("Animation")
-	animation.AnimationId = "rbxassetid://132439703713518"
-	local track = humanoid:LoadAnimation(animation)
+local holdingE = false
+local dead = false
+local wallJumpCooldown = false
 
-	local holdingE = false
-	local lastNormal = Vector3.new(0, 1, 0)
-	local lastVelocity = Vector3.zero
-	local lastJump = 0
-	local debounce = false
+-- === Animation for E ===
+local anim = Instance.new("Animation")
+anim.AnimationId = "rbxassetid://132439703713518"
+local animTrack = humanoid:LoadAnimation(anim)
 
-	local wallJumpForce = Vector3.new(0, 50, 0)
-
-	-- Update loop
-	local conn
-	conn = RunService.RenderStepped:Connect(function(dt)
-		if not holdingE then return end
-		if not hrp or not hrp:IsDescendantOf(workspace) then return end
-
-		local velocity = hrp.Velocity
-
-		-- Apply very slow drag
-		local dragFactor = 0.995 -- closer to 1 = slower loss
-		hrp.Velocity *= dragFactor
-
-		-- Gravity-assisted acceleration down slopes
-		local ray = RaycastParams.new()
-		ray.FilterType = Enum.RaycastFilterType.Blacklist
-		ray.FilterDescendantsInstances = {character}
-
-		local result = workspace:Raycast(hrp.Position, Vector3.new(0, -4, 0), ray)
-		if result then
-			local normal = result.Normal
-			local slope = normal:Dot(Vector3.new(0, 1, 0))
-			if slope < 0.9 then
-				local down = Vector3.new(0, -1, 0)
-				local slopeDirection = (down - normal).Unit
-				local gain = slopeDirection * 1.25 -- adjust for gain speed
-				hrp.Velocity += gain * dt * 60
-			end
-		end
-
-		lastVelocity = hrp.Velocity
-	end)
-
-	-- Wall jump logic
-	local function attemptWallJump()
-		if debounce then return end
-		debounce = true
-
-		local rayOrigin = hrp.Position
-		local rayDir = hrp.CFrame.LookVector * 3
-
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Blacklist
-		params.FilterDescendantsInstances = {character}
-
-		local result = workspace:Raycast(rayOrigin, rayDir, params)
-		if result and result.Normal.Y < 0.5 then
-			-- Wall detected
-			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-			hrp.Velocity = result.Normal * 40 + wallJumpForce
-		end
-
-		task.delay(0.2, function()
-			debounce = false
-		end)
+-- === Hold E: play animation + apply physics ===
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.E and not holdingE then
+		holdingE = true
+		animTrack:Play()
 	end
+end)
 
-	-- Input handlers
-	local inputConn, releaseConn, jumpConn
+UIS.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.E then
+		holdingE = false
+		animTrack:Stop()
+	end
+end)
 
-	inputConn = UIS.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		if input.KeyCode == Enum.KeyCode.E then
-			if not track.IsPlaying then
-				track:Play()
-			end
-			holdingE = true
+-- === Apply drag and downhill boost while holding E ===
+local physicsLoop
+physicsLoop = RunService.RenderStepped:Connect(function()
+	if dead or not holdingE then return end
+
+	-- Apply slow drag
+	hrp.Velocity *= 0.99
+
+	-- Downhill boost using slope detection
+	local rayParams = RaycastParams.new()
+	rayParams.FilterDescendantsInstances = {character}
+	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+	local ray = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+	if ray then
+		local normal = ray.Normal
+		local slopeFactor = normal:Dot(Vector3.new(0, 1, 0))
+		if slopeFactor < 0.95 then
+			local boost = (Vector3.new(0, -1, 0) - normal).Unit * 0.4
+			hrp.Velocity += boost
 		end
-	end)
+	end
+end)
 
-	releaseConn = UIS.InputEnded:Connect(function(input)
-		if input.KeyCode == Enum.KeyCode.E then
-			holdingE = false
-			track:Stop()
+-- === Wall Jump: only when left or right wall is detected ===
+local function doWallJump()
+	if wallJumpCooldown or dead then return end
+
+	local directions = {
+		hrp.CFrame.RightVector, -- right side
+		-hrp.CFrame.RightVector -- left side
+	}
+
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = {character}
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+
+	for _, dir in ipairs(directions) do
+		local result = workspace:Raycast(hrp.Position, dir * 3, params)
+		if result and result.Normal.Y < 0.5 then
+			local forward = hrp.CFrame.LookVector
+			humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+
+			-- Boost velocity for momentum-based movement
+			hrp.Velocity = forward.Unit * 60 + Vector3.new(0, 50, 0)
+
+			wallJumpCooldown = true
+			task.delay(0.4, function()
+				wallJumpCooldown = false
+			end)
+			break
 		end
-	end)
-
-	jumpConn = humanoid.StateChanged:Connect(function(_, new)
-		if new == Enum.HumanoidStateType.Jumping and holdingE then
-			attemptWallJump()
-		end
-	end)
-
-	-- Disconnect everything when character dies
-	humanoid.Died:Connect(function()
-		conn:Disconnect()
-		inputConn:Disconnect()
-		releaseConn:Disconnect()
-		jumpConn:Disconnect()
-	end)
+	end
 end
 
--- Handle character spawn
-local function onCharacterAdded(char)
-	setupCharacter(char)
-end
+-- === Detect jump key ===
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.Space then
+		doWallJump()
+	end
+end)
 
-if player.Character then
-	onCharacterAdded(player.Character)
-end
+-- === Clean shutdown ===
+humanoid.Died:Connect(function()
+	dead = true
+	physicsLoop:Disconnect()
+	script:Destroy()
+end)
 
 player.CharacterAdded:Once(function()
-	-- Stop script from running again on respawn
 	script:Destroy()
 end)
