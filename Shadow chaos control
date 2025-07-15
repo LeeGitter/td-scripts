@@ -26,7 +26,7 @@ local function createPathPoint(position)
 	table.insert(path, part)
 end
 
--- Spawn R6 dummy fully invisible
+-- Spawn invisible dummy
 local function spawnDummy(position)
 	local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
 	local model = Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R6)
@@ -62,7 +62,7 @@ local function spawnDummy(position)
 	return model
 end
 
--- Begin control
+-- Begin control phase (float + dummy control)
 local function beginControl()
 	active = true
 
@@ -70,7 +70,10 @@ local function beginControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Float player gently by BodyVelocity upwards (no anchoring or platform stand)
+	-- Disable player control and physics
+	humanoid.PlatformStand = true
+
+	-- Float gently with BodyVelocity
 	local bodyVel = Instance.new("BodyVelocity")
 	bodyVel.Name = "FloatBodyVelocity"
 	bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
@@ -83,7 +86,7 @@ local function beginControl()
 	local dummyHumanoid = dummy:FindFirstChildOfClass("Humanoid")
 	camera.CameraSubject = dummyHumanoid
 
-	-- Movement handling
+	-- Movement handling for dummy
 	moveConnection = RunService.RenderStepped:Connect(function()
 		if not dummy or not dummy:FindFirstChild("HumanoidRootPart") then return end
 
@@ -99,7 +102,6 @@ local function beginControl()
 			local right = camCF.RightVector * Vector3.new(1, 0, 1)
 			local moveDir = (right * moveVec.X + forward * moveVec.Z).Unit
 
-			-- Limit clone movement within 200 studs radius
 			local root = dummy:FindFirstChild("HumanoidRootPart")
 			if root then
 				local proposedPos = root.Position + moveDir * dummy:FindFirstChildOfClass("Humanoid").WalkSpeed * RunService.RenderStepped:Wait()
@@ -126,7 +128,7 @@ local function beginControl()
 	end)
 end
 
--- End control and walk path
+-- End control and begin walking path
 local function endControl()
 	active = false
 
@@ -138,19 +140,20 @@ local function endControl()
 	local hrp = char:WaitForChild("HumanoidRootPart")
 	local humanoid = char:WaitForChild("Humanoid")
 
-	-- Remove BodyVelocity and restore normal physics
+	-- Remove BodyVelocity and restore control
 	local bodyVel = hrp:FindFirstChild("FloatBodyVelocity")
 	if bodyVel then
 		bodyVel:Destroy()
 	end
 
+	humanoid.PlatformStand = false
 	camera.CameraSubject = humanoid
 
 	if #path == 0 then
 		return
 	end
 
-	-- Calculate total distance
+	-- Calculate total distance for path
 	local totalDist = 0
 	for i = 2, #path do
 		totalDist += (path[i].Position - path[i-1].Position).Magnitude
@@ -162,20 +165,18 @@ local function endControl()
 		return
 	end
 
-	-- Walking the path with gradual acceleration
 	local maxTime = 8
 	local startSpeed = 8
 	local maxSpeed = math.max(16, totalDist / maxTime)
 	local elapsed = 0
 
-	-- Stop current humanoid movement
-	humanoid:Move(Vector3.new(0,0,0), false)
+	-- Ensure humanoid is not moving before start
+	humanoid:Move(Vector3.new(0, 0, 0), false)
 	humanoid.WalkSpeed = startSpeed
 
 	for i = 1, #path do
 		local targetPos = path[i].Position + Vector3.new(0, 1, 0)
 
-		-- Move towards each point
 		while (hrp.Position - targetPos).Magnitude > 1 do
 			local currentSpeed = math.min(startSpeed + ((maxSpeed - startSpeed) * (elapsed / maxTime)), maxSpeed)
 			humanoid.WalkSpeed = currentSpeed
