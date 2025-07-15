@@ -78,7 +78,240 @@ loadingLabel.TextSize = 18
 loadingLabel.Visible = false
 loadingLabel.Parent = guiBox
 
--- Function to drag GUI
+-- Chart display full screen behind box
+local chartDisplayFrame = Instance.new("Frame")
+chartDisplayFrame.Name = "ChartDisplay"
+chartDisplayFrame.Size = UDim2.new(1, 0, 1, 0)
+chartDisplayFrame.Position = UDim2.new(0, 0, 0, 0)
+chartDisplayFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+chartDisplayFrame.BorderSizePixel = 0
+chartDisplayFrame.ZIndex = 0
+chartDisplayFrame.Parent = screenGui
+
+local judgmentLine = Instance.new("Frame")
+judgmentLine.Name = "JudgmentLine"
+judgmentLine.BackgroundColor3 = Color3.new(1, 1, 1)
+judgmentLine.Size = UDim2.new(1, 0, 0, 4)
+judgmentLine.Position = UDim2.new(0, 0, 1, -100)
+judgmentLine.BorderSizePixel = 0
+judgmentLine.Parent = chartDisplayFrame
+
+-- Constants and vars
+local arrowSpeed = 200
+
+local keyToDir = {
+    Z = "left",
+    X = "up",
+    ["comma"] = "down",
+    ["period"] = "right"
+}
+
+local arrowSymbols = {
+    left = "←",
+    up = "↑",
+    down = "↓",
+    right = "→"
+}
+
+local laneXPositions = {
+    left = 80,
+    down = 150,
+    up = 220,
+    right = 290,
+}
+
+local activeArrows = {}
+local songStartTime = 0
+local currentSong = nil
+local connection
+
+-- Helper: wait for size (to get judgmentLine Y coord)
+local function waitForSize(guiElement)
+    if guiElement.AbsoluteSize.Y > 0 then return end
+    local finished = false
+    guiElement:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        if guiElement.AbsoluteSize.Y > 0 and not finished then
+            finished = true
+        end
+    end)
+    repeat task.wait() until finished
+end
+
+waitForSize(chartDisplayFrame)
+local judgmentLineY = chartDisplayFrame.AbsoluteSize.Y - 100
+
+-- Parses FNF JSON chart into {time, dir} list
+local function parseFNFChart(fnfJson)
+    local songData = fnfJson.song
+    if not songData then warn("Missing song data") return nil end
+
+    local bpm = songData.bpm or 120
+    local speed = songData.speed or 1
+    local notesSections = songData.notes
+    if not notesSections then warn("Missing notes") return nil end
+
+    local secondsPerStep = (60 / bpm) / 4
+    local chart = {}
+    local sectionStartTime = 0
+
+    local noteDataToDir = {
+        [0] = "left",
+        [1] = "down",
+        [2] = "up",
+        [3] = "right"
+    }
+
+    for _, section in ipairs(notesSections) do
+        local lengthInSteps = section.lengthInSteps or 16
+        local sectionNotes = section.sectionNotes or {}
+
+        for _, note in ipairs(sectionNotes) do
+            local dir = noteDataToDir[note.noteData]
+            if dir then
+                local time = sectionStartTime + (note.noteTime or 0) * secondsPerStep / speed
+                table.insert(chart, {time = time, dir = dir})
+            end
+        end
+
+        sectionStartTime = sectionStartTime + (lengthInSteps * secondsPerStep) / speed
+    end
+
+    table.sort(chart, function(a,b) return a.time < b.time end)
+    return chart
+end
+
+local function clearArrows()
+    for _, arrow in pairs(activeArrows) do
+        if arrow.UI then arrow.UI:Destroy() end
+    end
+    activeArrows = {}
+end
+
+local function startSong(song)
+    clearArrows()
+
+    currentSong = song
+    songStartTime = tick()
+
+    if connection then connection:Disconnect() end
+
+    for _, note in ipairs(song.chart) do
+        note.spawned = false
+    end
+
+    guiBox.Visible = false
+
+    connection = RunService.Heartbeat:Connect(function()
+        local elapsed = tick() - songStartTime
+
+        -- Spawn arrows
+        for _, note in ipairs(song.chart) do
+            local travelDistance = judgmentLineY
+            local spawnTime = note.time - (travelDistance / arrowSpeed)
+            if spawnTime <= elapsed and not note.spawned then
+                note.spawned = true
+
+                local arrowUI = Instance.new("TextLabel")
+                arrowUI.Text = arrowSymbols[note.dir] or "?"
+                arrowUI.Font = Enum.Font.SourceSansBold
+                arrowUI.TextColor3 = Color3.new(1, 1, 1)
+                arrowUI.BackgroundTransparency = 1
+                arrowUI.Size = UDim2.new(0, 40, 0, 40)
+                arrowUI.Position = UDim2.new(0, laneXPositions[note.dir], 0, chartDisplayFrame.AbsoluteSize.Y)
+                arrowUI.ZIndex = 10
+                arrowUI.Parent = chartDisplayFrame
+
+                table.insert(activeArrows, {
+                    UI = arrowUI,
+                    dir = note.dir,
+                    time = note.time,
+                    hit = false,
+                })
+            end
+        end
+
+        -- Move arrows up
+        for i = #activeArrows, 1, -1 do
+            local arrow = activeArrows[i]
+            if arrow.hit then
+                arrow.UI:Destroy()
+                table.remove(activeArrows, i)
+            else
+                local timeToJudgment = arrow.time - elapsed
+                local yPos = judgmentLineY + timeToJudgment * arrowSpeed
+
+                if yPos < -40 then
+                    arrow.UI:Destroy()
+                    table.remove(activeArrows, i)
+                else
+                    arrow.UI.Position = UDim2.new(0, laneXPositions[arrow.dir], 0, yPos)
+                end
+            end
+        end
+
+        -- Song ended check
+        local allSpawned = true
+        for _, note in ipairs(song.chart) do
+            if not note.spawned then
+                allSpawned = false
+                break
+            end
+        end
+
+        if allSpawned and #activeArrows == 0 then
+            connection:Disconnect()
+            connection = nil
+            currentSong = nil
+            guiBox.Visible = true
+        end
+    end)
+end
+
+-- Arrow hit detection
+local hitWindow = 0.15
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    local dir = keyToDir[input.KeyCode.Name]
+    if dir and currentSong then
+        local now = tick()
+        for i, arrow in ipairs(activeArrows) do
+            if not arrow.hit and arrow.dir == dir then
+                local diff = math.abs(arrow.time - (now - songStartTime))
+                if diff <= hitWindow then
+                    arrow.hit = true
+                    arrow.UI.TextColor3 = Color3.new(0, 1, 0)
+                    break
+                end
+            end
+        end
+    end
+end)
+
+-- Load button clicked handler
+loadButton.MouseButton1Click:Connect(function()
+    loadingLabel.Visible = true
+    task.wait(0.5)
+
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(jsonInput.Text)
+    end)
+
+    loadingLabel.Visible = false
+
+    if success and type(result) == "table" then
+        local chart = parseFNFChart(result)
+        if chart then
+            startSong({name = (result.song and result.song.song) or "Custom FNF Song", chart = chart})
+        else
+            warn("Failed to parse FNF chart")
+        end
+    else
+        warn("Failed to decode JSON")
+    end
+end)
+
+-- Drag logic for guiBox
 local dragging = false
 local dragStart = nil
 local startPos = nil
@@ -108,6 +341,3 @@ dragBar.InputChanged:Connect(function(input)
         )
     end
 end)
-
--- Just show the GUI box immediately
-guiBox.Visible = true
