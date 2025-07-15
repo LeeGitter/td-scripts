@@ -1,4 +1,4 @@
--- Spoofed Dash Script - Simulates WalkSpeed 100
+-- Dash Script - Uses actual WalkSpeed during dash
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -22,8 +22,11 @@ local cooldownGui, cooldownLabel
 local currentDir = Vector3.new(0, 0, -1)
 
 local function makeGui()
-    cooldownGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+    cooldownGui = Instance.new("ScreenGui")
     cooldownGui.Name = "DashCooldownGui"
+    cooldownGui.ResetOnSpawn = false
+    cooldownGui.Parent = player:WaitForChild("PlayerGui")
+
     cooldownLabel = Instance.new("TextLabel", cooldownGui)
     cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
     cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
@@ -48,7 +51,7 @@ local function startCooldown(duration)
 end
 
 local fourXTimeAccumulated = 0
-local simulatedWalkSpeed = 100 -- simulate as if WalkSpeed were 100
+local dashSpeed = 100
 local runTime = 5
 local decayStart = 3.5
 local decayDuration = runTime - decayStart
@@ -107,19 +110,20 @@ UIS.InputEnded:Connect(function(input)
 
     startCooldown(25)
     humanoid.AutoRotate = false
+    humanoid.WalkSpeed = dashSpeed
 
     runAnimTrack = humanoid:LoadAnimation(anim2)
     runAnimTrack:Play()
     runAnimTrack:AdjustSpeed(4)
 
     local dashStart = tick()
-    RunService:BindToRenderStep("SpoofDash", Enum.RenderPriority.Character.Value + 1, function()
+    RunService:BindToRenderStep("ActualDash", Enum.RenderPriority.Character.Value + 1, function()
         local elapsed = tick() - dashStart
         if elapsed > runTime then
-            RunService:UnbindFromRenderStep("SpoofDash")
+            RunService:UnbindFromRenderStep("ActualDash")
             humanoid.AutoRotate = true
+            humanoid.WalkSpeed = 25
             if runAnimTrack then runAnimTrack:Stop() end
-            humanoid.WalkSpeed = 16
             return
         end
 
@@ -129,7 +133,7 @@ UIS.InputEnded:Connect(function(input)
             runAnimTrack:AdjustSpeed(math.clamp(4 - (3 * pct), 1, 4))
         end
 
-        -- movement direction from input + camera
+        -- direction input
         local camCF = Camera.CFrame
         local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
         local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
@@ -141,16 +145,10 @@ UIS.InputEnded:Connect(function(input)
         moveVec = moveVec.Magnitude > 0 and moveVec.Unit or forward
 
         currentDir = currentDir:Lerp(moveVec, 0.05)
-
-        -- realistic spoofed movement at simulated speed
-        humanoid:Move(currentDir * simulatedWalkSpeed / 60, false) -- approx 60 FPS
-
-        -- rotate
         hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + currentDir)
     end)
 end)
 
--- reset on respawn
 player.CharacterAdded:Connect(function(char)
     character = char
     humanoid = char:WaitForChild("Humanoid")
