@@ -1,0 +1,64 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+local function setupCharacter(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	local hrp = character:WaitForChild("HumanoidRootPart")
+
+	local animation = Instance.new("Animation")
+	animation.AnimationId = "rbxassetid://132439703713518"
+	local track = humanoid:LoadAnimation(animation)
+
+	local holdingE = false
+	local lastNormal = Vector3.new(0, 1, 0)
+	local lastVelocity = Vector3.zero
+	local lastJump = 0
+	local debounce = false
+
+	local wallJumpForce = Vector3.new(0, 50, 0)
+
+	-- Update loop
+	local conn
+	conn = RunService.RenderStepped:Connect(function(dt)
+		if not holdingE then return end
+		if not hrp or not hrp:IsDescendantOf(workspace) then return end
+
+		local velocity = hrp.Velocity
+
+		-- Apply very slow drag
+		local dragFactor = 0.995 -- closer to 1 = slower loss
+		hrp.Velocity *= dragFactor
+
+		-- Gravity-assisted acceleration down slopes
+		local ray = RaycastParams.new()
+		ray.FilterType = Enum.RaycastFilterType.Blacklist
+		ray.FilterDescendantsInstances = {character}
+
+		local result = workspace:Raycast(hrp.Position, Vector3.new(0, -4, 0), ray)
+		if result then
+			local normal = result.Normal
+			local slope = normal:Dot(Vector3.new(0, 1, 0))
+			if slope < 0.9 then
+				local down = Vector3.new(0, -1, 0)
+				local slopeDirection = (down - normal).Unit
+				local gain = slopeDirection * 1.25 -- adjust for gain speed
+				hrp.Velocity += gain * dt * 60
+			end
+		end
+
+		lastVelocity = hrp.Velocity
+	end)
+
+	-- Wall jump logic
+	local function attemptWallJump()
+		if debounce then return end
+		debounce = true
+
+		local rayOrigin = hrp.Position
+		local rayDir = hrp.CFrame.LookVector * 3
+
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType
