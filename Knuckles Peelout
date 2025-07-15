@@ -108,7 +108,7 @@ UIS.InputEnded:Connect(function(input)
     local allowDash = fourXTimeAccumulated >= 1 -- must hold at 4x speed for 1 second
     if not allowDash then
         startCooldown(10)
-        humanoid.WalkSpeed = 16
+        humanoid.WalkSpeed = 25
         humanoid.AutoRotate = true
         return
     end
