@@ -22,8 +22,6 @@ for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
 		track:Stop()
 	end
 end
-
--- Stop new walk/run animations from playing
 humanoid.AnimationPlayed:Connect(function(track)
 	if track.Animation.AnimationId ~= anim.AnimationId then
 		track:Stop()
@@ -40,6 +38,7 @@ local ascendDuration = 1.5
 local bounceTimer = 0
 local isAscending = false
 local ascendStartTime = 0
+local ascendStartY = 0
 local moveVector = Vector3.zero
 local alive = true
 
@@ -78,6 +77,7 @@ UIS.InputBegan:Connect(function(input, gpe)
 	if gpe or input.KeyCode ~= Enum.KeyCode.Space or isAscending then return end
 	isAscending = true
 	ascendStartTime = tick()
+	ascendStartY = hrp.Position.Y
 
 	animTrack:AdjustSpeed(3)
 	animTrack.Priority = Enum.AnimationPriority.Action4
@@ -87,25 +87,26 @@ end)
 RunService.RenderStepped:Connect(function(dt)
 	if not alive or not character or not character.Parent then return end
 
-	-- Get target floating Y height
+	local ray = Ray.new(hrp.Position, Vector3.new(0, -12, 0))
+	local hit, groundPos = workspace:FindPartOnRay(ray, character)
+
 	local targetY
+
 	if isAscending then
 		local elapsed = tick() - ascendStartTime
 		if elapsed < ascendDuration then
-			targetY = ascendHeight
+			local alpha = elapsed / ascendDuration
+			targetY = math.clamp(ascendStartY + (ascendHeight - ascendStartY) * alpha, ascendStartY, ascendHeight)
 		else
 			isAscending = false
 			animTrack:AdjustSpeed(1)
 			animTrack.Priority = Enum.AnimationPriority.Idle
+			bounceTimer = 0 -- reset bounce phase
 		end
 	else
 		bounceTimer += dt * 2
 		targetY = floatMin + math.sin(bounceTimer) * ((floatMax - floatMin) / 2)
 	end
-
-	-- Ground detection
-	local ray = Ray.new(hrp.Position, Vector3.new(0, -12, 0))
-	local hit, groundPos = workspace:FindPartOnRay(ray, character)
 
 	if hit then
 		local desiredY = groundPos.Y + targetY
@@ -116,7 +117,7 @@ RunService.RenderStepped:Connect(function(dt)
 		hrp.Velocity = Vector3.new(hrp.Velocity.X, hrp.Velocity.Y * 0.6, hrp.Velocity.Z)
 	end
 
-	-- Movement-based tilt
+	-- Tilt based on movement
 	if moveVector.Magnitude > 0 then
 		local camera = workspace.CurrentCamera
 		local moveDirWorld = (camera.CFrame:VectorToWorldSpace(moveVector)).Unit
