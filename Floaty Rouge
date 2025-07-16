@@ -31,8 +31,8 @@ humanoid.AnimationPlayed:Connect(function(track)
 end)
 
 -- === SETTINGS ===
-local floatMin = 6
-local floatMax = 7.5
+local floatMin = 4.5
+local floatMax = 6
 local ascendHeight = 11
 local ascendDuration = 1.5
 
