@@ -1,0 +1,88 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+local floatAnimId = "rbxassetid://104113642912910"
+local animTrack = nil
+local bounceTimer = 0
+local isAscending = false
+local baseFloatY = 4
+local ascendTarget = 8
+local maxAscendTime = 1
+local ascendStart = 0
+
+-- Load animation
+local anim = Instance.new("Animation")
+anim.AnimationId = floatAnimId
+animTrack = humanoid:LoadAnimation(anim)
+animTrack:Play()
+animTrack.Looped = true
+animTrack.Priority = Enum.AnimationPriority.Movement
+
+-- Cleanup on respawn
+local alive = true
+character:WaitForChild("Humanoid").Died:Connect(function()
+	alive = false
+end)
+
+-- Input: Space = ascend
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe or input.KeyCode ~= Enum.KeyCode.Space or isAscending then return end
+	isAscending = true
+	ascendStart = tick()
+
+	-- Boost animation
+	animTrack:AdjustSpeed(3)
+	animTrack.Priority = Enum.AnimationPriority.Action4
+end)
+
+-- Override gravity for slow falling
+humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+humanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding, false)
+
+-- Float loop
+RunService.RenderStepped:Connect(function(dt)
+	if not alive or not character or not character.Parent then return end
+
+	local rootPos = hrp.Position
+	local targetY
+
+	if isAscending then
+		local elapsed = tick() - ascendStart
+		if elapsed < maxAscendTime then
+			targetY = ascendTarget
+		else
+			-- End ascend
+			isAscending = false
+			animTrack:AdjustSpeed(1)
+			animTrack.Priority = Enum.AnimationPriority.Movement
+		end
+	else
+		-- Bouncing between 4 and 5.5 studs
+		bounceTimer += dt * 2
+		targetY = baseFloatY + math.sin(bounceTimer) * 0.75
+	end
+
+	-- Ground detection (raycast downward)
+	local rayOrigin = hrp.Position
+	local rayDir = Vector3.new(0, -10, 0)
+	local ray = Ray.new(rayOrigin, rayDir)
+	local hit, pos = workspace:FindPartOnRay(ray, character)
+
+	if hit then
+		local targetHeight = pos.Y + targetY
+		local difference = targetHeight - hrp.Position.Y
+
+		-- Apply vertical movement (simulate float)
+		hrp.Velocity = Vector3.new(hrp.Velocity.X, difference * 10, hrp.Velocity.Z)
+	else
+		-- Falling: reduce gravity (simulate 1/3 speed fall)
+		hrp.Velocity = Vector3.new(hrp.Velocity.X, math.max(hrp.Velocity.Y, -25) * 0.33, hrp.Velocity.Z)
+	end
+end)
