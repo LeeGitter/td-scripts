@@ -28,8 +28,8 @@ local function startMonitoring(humanoid)
 
 				task.delay(5, function()
 					if humanoid and humanoid.Parent == player.Character then
-						-- Randomize WalkSpeed
-						humanoid.WalkSpeed = math.random(16, 45)
+						-- Randomize WalkSpeed between 20 and 30
+						humanoid.WalkSpeed = math.random(20, 30)
 
 						-- Apply random speed to all current animations
 						local allTracks = animator:GetPlayingAnimationTracks()
@@ -55,4 +55,4 @@ local char = getCharacter()
 local humanoid = char:WaitForChild("Humanoid")
 startMonitoring(humanoid)
 
--- Don't reconnect on respawn — it works only once per life
+-- Does NOT restart after respawn
