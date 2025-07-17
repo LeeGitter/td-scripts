@@ -1,26 +1,27 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local AnimationPriority = Enum.AnimationPriority
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
-local frameHoldTime = 0.15
-local maxFrames = 7  -- max frames for long animations
-local minFrames = 3  -- min frames for short animations
+local maxFrames = 7
+local minFrames = 2
+local baseFrameHoldTime = 0.15
+local minFrameHoldTime = 0.05
 
 local animationStates = {}
 
-local function getFramesForLength(length)
-    -- Decide how many frames based on length (more frames for longer animations)
-    local numFrames = math.clamp(math.floor(length), minFrames, maxFrames)
+-- Calculate frames and frame hold time based on animation length
+local function setupAnimationFrames(length)
+    local frameCount = math.clamp(math.floor(length), minFrames, maxFrames)
+    local holdTime = math.max(minFrameHoldTime, length / frameCount)
     local frames = {}
-
-    for i = 0, numFrames - 1 do
-        frames[#frames + 1] = i / (numFrames - 1)  -- normalized 0 to 1 positions evenly spaced
+    for i = 0, frameCount - 1 do
+        frames[#frames + 1] = i / (frameCount - 1)
     end
-
-    return frames
+    return frames, holdTime
 end
 
 local function cleanStoppedTracks()
@@ -29,6 +30,7 @@ local function cleanStoppedTracks()
             if track then
                 pcall(function()
                     track:AdjustSpeed(1)
+                    track:AdjustWeight(0)
                 end)
             end
             animationStates[track] = nil
@@ -40,11 +42,19 @@ local function addNewTracks()
     local playingTracks = humanoid:GetPlayingAnimationTracks()
     for _, track in ipairs(playingTracks) do
         if not animationStates[track] then
+            local frames, holdTime = setupAnimationFrames(track.Length)
             animationStates[track] = {
                 frameIndex = 1,
                 timer = 0,
-                frames = getFramesForLength(track.Length)
+                frames = frames,
+                frameHoldTime = holdTime
             }
+            -- Attempt to force priority to Action if lower to reduce blending issues
+            pcall(function()
+                if track.Priority < AnimationPriority.Action then
+                    track.Priority = AnimationPriority.Action
+                end
+            end)
         end
     end
 end
@@ -53,23 +63,50 @@ RunService.RenderStepped:Connect(function(dt)
     cleanStoppedTracks()
     addNewTracks()
 
-    for track, state in pairs(animationStates) do
-        state.timer = state.timer + dt
-        if state.timer >= frameHoldTime then
-            state.timer = 0
-            state.frameIndex = state.frameIndex + 1
-            if state.frameIndex > #state.frames then
-                state.frameIndex = 1
-            end
+    -- Find highest priority track
+    local highestPriorityTrack = nil
+    local highestPriority = -1
+    for track in pairs(animationStates) do
+        local prio = track.Priority and track.Priority.Value or 0
+        if prio > highestPriority then
+            highestPriority = prio
+            highestPriorityTrack = track
         end
+    end
 
-        local length = track.Length
-        local framePos = state.frames[state.frameIndex]
-        local clampedPos = math.clamp(framePos * length, 0, length - 0.01)
-
+    for track, state in pairs(animationStates) do
+        -- Weight = 1 for highest priority track, else 0
+        local weight = (track == highestPriorityTrack) and 1 or 0
         pcall(function()
-            track.TimePosition = clampedPos
-            track:AdjustSpeed(0)
+            track:AdjustWeight(weight)
         end)
+
+        if track == highestPriorityTrack then
+            -- Update frame cycling timer
+            state.timer = state.timer + dt
+            if state.timer >= state.frameHoldTime then
+                state.timer = 0
+                state.frameIndex = state.frameIndex + 1
+                if state.frameIndex > #state.frames then
+                    state.frameIndex = 1
+                end
+            end
+
+            -- Set animation time position for choppy frame effect
+            local length = track.Length
+            local framePos = state.frames[state.frameIndex]
+            local clampedPos = math.clamp(framePos * length, 0, length - 0.01)
+
+            pcall(function()
+                track.TimePosition = clampedPos
+                track:AdjustSpeed(0)
+            end)
+        else
+            -- Freeze other animations at start frame with zero speed
+            pcall(function()
+                track.TimePosition = 0
+                track:AdjustSpeed(0)
+            end)
+        end
     end
 end)
