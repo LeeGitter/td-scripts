@@ -2,42 +2,62 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+
 local function getCharacter()
 	return player.Character or player.CharacterAdded:Wait()
 end
 
-local function randomizeSpeed(humanoid)
+local function startMonitoring(humanoid)
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if not animator then return end
 
-	local playingTracks = animator:GetPlayingAnimationTracks()
-	if #playingTracks > 0 then
-		-- Randomize WalkSpeed
-		humanoid.WalkSpeed = math.random(16, 45)
-
-		-- Randomize each playing animation's speed
-		for _, track in ipairs(playingTracks) do
-			track:AdjustSpeed(math.random() * 2.5 + 0.5) -- 0.5 to 3.0
-		end
-	end
-end
-
-local function monitor()
-	local char = getCharacter()
-	local humanoid = char:WaitForChild("Humanoid")
+	local lastPlayedTracks = {}
 
 	RunService.RenderStepped:Connect(function()
-		pcall(function()
-			randomizeSpeed(humanoid)
-		end)
+		local currentTracks = animator:GetPlayingAnimationTracks()
+		local newAnimationFound = false
+
+		for _, track in ipairs(currentTracks) do
+			if not lastPlayedTracks[track] then
+				newAnimationFound = true
+				lastPlayedTracks[track] = true
+
+				-- Delay randomization by 5 seconds after a new animation starts
+				task.delay(5, function()
+					if humanoid and humanoid.Parent then
+						-- Random WalkSpeed
+						humanoid.WalkSpeed = math.random(16, 45)
+
+						-- Random animation speed applied to all current tracks
+						local allTracks = animator:GetPlayingAnimationTracks()
+						local randomSpeed = math.random() * 2.5 + 0.5 -- 0.5x to 3x
+						for _, animTrack in ipairs(allTracks) do
+							animTrack:AdjustSpeed(randomSpeed)
+						end
+					end
+				end)
+			end
+		end
+
+		-- Clean up finished tracks
+		for track in pairs(lastPlayedTracks) do
+			if not table.find(currentTracks, track) then
+				lastPlayedTracks[track] = nil
+			end
+		end
 	end)
 end
 
--- Start monitoring
-monitor()
+local function init()
+	local char = getCharacter()
+	local humanoid = char:WaitForChild("Humanoid")
+	startMonitoring(humanoid)
+end
 
--- Reapply on respawn
+init()
+
+-- Handle respawn
 player.CharacterAdded:Connect(function()
 	task.wait(1)
-	monitor()
+	init()
 end)
