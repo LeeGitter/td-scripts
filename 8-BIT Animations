@@ -1,60 +1,75 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
+local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
-local FRAME_SEGMENTS = 3
-local FRAME_HOLD_TIME = 0.12
+-- Settings
+local FRAME_RATE = 6 -- how many frames per second
+local FRAME_INTERVAL = 1 / FRAME_RATE
 
-local choppyState = {}
-
-local function getFrameTimes(length)
-	local times = {}
-	if length == 0 then
-		return {0}
-	end
-	for i = 0, FRAME_SEGMENTS - 1 do
-		table.insert(times, (length / (FRAME_SEGMENTS - 1)) * i)
-	end
-	return times
-end
+local activeTracks = {}
+local lastFrameTime = 0
+local currentFrameIndex = {}
+local frameMap = {}
 
 local function getAnimator()
-	local character = player.Character or player.CharacterAdded:Wait()
-	local humanoid = character:WaitForChild("Humanoid")
+	local char = player.Character or player.CharacterAdded:Wait()
+	local humanoid = char:WaitForChild("Humanoid")
 	return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
 end
 
+local function generateFrameTable(length)
+	local frames = {}
+	local count = math.max(1, math.floor(length / FRAME_INTERVAL))
+	for i = 0, count do
+		table.insert(frames, i * FRAME_INTERVAL)
+	end
+	return frames
+end
+
 RunService.RenderStepped:Connect(function(dt)
+	local now = tick()
+	if now - lastFrameTime < FRAME_INTERVAL then return end
+	lastFrameTime = now
+
 	local animator = getAnimator()
 	if not animator then return end
 
-	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		if not choppyState[track] then
-			local frames = getFrameTimes(track.Length)
-			choppyState[track] = {
-				frames = frames,
-				index = 1,
-				timer = 0,
-			}
-		end
-	end
+	local tracks = animator:GetPlayingAnimationTracks()
 
-	for track, state in pairs(choppyState) do
-		if not track.IsPlaying then
-			choppyState[track] = nil
-		else
-			state.timer += dt
-			if state.timer >= FRAME_HOLD_TIME then
-				state.timer = 0
-				state.index = (state.index % #state.frames) + 1
-				-- Snap to the next "frame" manually
-				track.TimePosition = state.frames[state.index]
-			end
+	for _, track in ipairs(tracks) do
+		local id = track.Animation.AnimationId
+
+		if not frameMap[id] then
+			frameMap[id] = generateFrameTable(track.Length)
+			currentFrameIndex[id] = 1
+		end
+
+		local frameList = frameMap[id]
+		local frameIndex = currentFrameIndex[id]
+
+		-- Restart animation at the next frame
+		local time = frameList[frameIndex]
+		if time then
+			local newTrack = animator:LoadAnimation(track.Animation)
+			newTrack:Play()
+			newTrack.TimePosition = time
+			newTrack.Priority = track.Priority
+			newTrack.Looped = false
+			newTrack:AdjustSpeed(0.001) -- tiny value to avoid T-pose
+		end
+
+		-- Stop the old track
+		track:Stop()
+
+		currentFrameIndex[id] = frameIndex + 1
+		if currentFrameIndex[id] > #frameList then
+			currentFrameIndex[id] = 1
 		end
 	end
 end)
 
 player.CharacterAdded:Connect(function()
-	choppyState = {}
+	activeTracks = {}
+	frameMap = {}
+	currentFrameIndex = {}
 end)
