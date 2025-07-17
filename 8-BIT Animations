@@ -8,19 +8,6 @@ local FRAME_HOLD_TIME = 0.3 -- seconds per frame hold
 local choppyTracks = {}
 local connection = nil
 
-local function getKeyframeTimes(animation)
-	local keyframeSequence = animation:GetKeyframeSequence()
-	if not keyframeSequence then return {0} end
-
-	local keyframes = keyframeSequence.Keyframes
-	local times = {}
-	for _, kf in ipairs(keyframes) do
-		table.insert(times, kf.Time)
-	end
-	table.sort(times)
-	return times
-end
-
 local function reset()
 	if connection then
 		connection:Disconnect()
@@ -37,24 +24,16 @@ local function startChoppy()
 	local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
 
 	connection = RunService.RenderStepped:Connect(function(dt)
-		-- Add new tracks
 		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-			if not choppyTracks[track] then
-				local anim = track.Animation
-				if anim and track.Length > 0 then
-					local frames = getKeyframeTimes(anim)
-					if #frames >= 3 then
-						choppyTracks[track] = {
-							frames = {frames[1], frames[math.floor(#frames / 2)], frames[#frames]},
-							index = 1,
-							timer = 0,
-						}
-					end
-				end
+			if not choppyTracks[track] and track.Length > 0 then
+				choppyTracks[track] = {
+					frames = {0, math.min(track.Length / 2, track.Length - 0.05)}, -- avoid exact end to prevent glitches
+					index = 1,
+					timer = 0,
+				}
 			end
 		end
 
-		-- Update existing tracks
 		for track, data in pairs(choppyTracks) do
 			if not track.IsPlaying then
 				choppyTracks[track] = nil
@@ -63,7 +42,12 @@ local function startChoppy()
 				if data.timer >= FRAME_HOLD_TIME then
 					data.timer = 0
 					data.index = data.index % #data.frames + 1
-					track.TimePosition = data.frames[data.index]
+					local frameTime = data.frames[data.index]
+					-- Clamp frameTime just before the animation end to avoid looping glitches
+					if frameTime >= track.Length then
+						frameTime = track.Length - 0.05
+					end
+					track.TimePosition = frameTime
 				end
 			end
 		end
@@ -74,10 +58,8 @@ local function startChoppy()
 	end)
 end
 
--- Start initially
 startChoppy()
 
--- Restart on respawn
 player.CharacterAdded:Connect(function()
 	startChoppy()
 end)
