@@ -1,122 +1,19 @@
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-
-local player = Players.LocalPlayer
-local camera = Workspace.CurrentCamera
-
-local keysPressed = {W=false, A=false, S=false, D=false}
-local wsToggle = false
-local wsTimer = 0
-local wsInterval = 0.05
-
-local FRAME_INTERVAL = 0.3
-local animTimer = 0
-local animFrameIndex = 1
-
-local humanoid
-local hrp
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then keysPressed.W = true end
-    if k == Enum.KeyCode.A then keysPressed.A = true end
-    if k == Enum.KeyCode.S then keysPressed.S = true end
-    if k == Enum.KeyCode.D then keysPressed.D = true end
-end)
-UserInputService.InputEnded:Connect(function(input, gp)
-    if gp then return end
-    local k = input.KeyCode
-    if k == Enum.KeyCode.W then keysPressed.W = false end
-    if k == Enum.KeyCode.A then keysPressed.A = false end
-    if k == Enum.KeyCode.S then keysPressed.S = false end
-    if k == Enum.KeyCode.D then keysPressed.D = false end
-end)
-
-local function snapAngle(angle)
-    local deg = math.deg(angle)
-    local snappedDeg = math.floor((deg + 22.5) / 45) * 45
-    return math.rad(snappedDeg)
-end
-
-local function getFrames(track)
-    local len = track.Length
-    return {0, len/2, len}
-end
-
-local function onCharacterAdded(char)
-    humanoid = char:WaitForChild("Humanoid")
-    hrp = char:WaitForChild("HumanoidRootPart")
-    humanoid.AutoRotate = false
-end
-
-player.CharacterAdded:Connect(onCharacterAdded)
-if player.Character then
-    onCharacterAdded(player.Character)
-end
-
-local function resetCamera()
-    camera.CameraType = Enum.CameraType.Custom
-    camera.CameraSubject = humanoid or player.Character and player.Character:FindFirstChildOfClass("Humanoid") or nil
-end
-
-player.CharacterRemoving:Connect(resetCamera)
-
-RunService.RenderStepped:Connect(function(dt)
-    if not humanoid or not hrp or not humanoid.Parent then return end
-
-    -- Calculate camera look flat direction (yaw only, no pitch)
-    local camCF = camera.CFrame
-    local lookVec = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
-    local rightVec = Vector3.new(-lookVec.Z, 0, lookVec.X)
-
-    -- Build raw movement vector from keys pressed
-    local moveVec = Vector3.new(0,0,0)
-    if keysPressed.W then moveVec += lookVec end
-    if keysPressed.S then moveVec -= lookVec end
-    if keysPressed.A then moveVec -= rightVec end
-    if keysPressed.D then moveVec += rightVec end
-
-    if moveVec.Magnitude < 0.01 then return end
-    moveVec = moveVec.Unit
-
-    -- WS flicker toggle
-    if keysPressed.W and keysPressed.S and not keysPressed.A and not keysPressed.D then
-        wsTimer = wsTimer + dt
-        if wsTimer >= wsInterval then
-            wsTimer = 0
-            wsToggle = not wsToggle
-        end
-        moveVec = wsToggle and lookVec or -lookVec
-    else
-        wsTimer = 0
-        wsToggle = false
-    end
-
-    -- Snap movement vector direction to nearest 45 degrees
-    local moveYaw = math.atan2(moveVec.Z, moveVec.X)
-    local snappedMoveYaw = snapAngle(moveYaw)
-    local snappedMoveDir = Vector3.new(math.cos(snappedMoveYaw), 0, math.sin(snappedMoveYaw))
-
-    -- Snap avatar facing rotation (keep position)
-    local pos = hrp.Position
-    hrp.CFrame = CFrame.new(pos, pos + snappedMoveDir)
-
-    -- Choppy animation 3-frame effect
+local function freezeAnimations(dt)
     animTimer = animTimer + dt
-    if animTimer >= FRAME_INTERVAL then
-        animTimer = 0
-        animFrameIndex = (animFrameIndex % 3) + 1
+    if animTimer < FRAME_INTERVAL then return end
+    animTimer = 0
 
-        local tracks = humanoid:GetPlayingAnimationTracks()
-        for _, track in ipairs(tracks) do
-            if track.IsPlaying and track.Length > 0 then
-                local frames = getFrames(track)
-                track.TimePosition = frames[animFrameIndex]
-                track:AdjustSpeed(0)
+    local tracks = humanoid:GetPlayingAnimationTracks()
+    animFrameIndex = (animFrameIndex % 3) + 1
+
+    for _, track in ipairs(tracks) do
+        if track.Length > 0 then
+            if not track.IsPlaying then
+                track:Play()  -- Ensure it's playing to control TimePosition
             end
+            local frames = getFrames(track)
+            track.TimePosition = frames[animFrameIndex]
+            track:AdjustSpeed(0)
         end
     end
-end)
+end
