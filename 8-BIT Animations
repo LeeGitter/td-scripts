@@ -3,70 +3,64 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local function waitForCharacter()
-	if player.Character then return player.Character end
-	return player.CharacterAdded:Wait()
+	return player.Character or player.CharacterAdded:Wait()
 end
 
-local character = waitForCharacter()
-local humanoid = character:WaitForChild("Humanoid")
-local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+local function getAnimator()
+	local character = waitForCharacter()
+	local humanoid = character:WaitForChild("Humanoid")
+	return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+end
 
-local TRACK_FRAME_COUNT = 3 -- start, mid, end
 local activeTracks = {}
+local choppyState = {}
 
-local function playChoppyTrack(track)
-	if activeTracks[track] then return end
-	activeTracks[track] = true
-	track.Looped = false -- manually loop it if needed
-	track:AdjustWeight(1, 0) -- snap in
-	track:Play(0, 1, 0) -- start paused
+-- How many distinct time positions we want to show per animation
+local FRAME_SEGMENTS = 3
+local FRAME_HOLD_TIME = 0.12 -- how long to hold each frame
 
-	local length = track.Length
+local function getFrameTimes(length)
 	if length == 0 then
-		activeTracks[track] = nil
-		return
+		return {0}
 	end
-
-	-- Divide time into 3 segments
-	local timestamps = {
-		0,
-		math.clamp(length / 2, 0, length),
-		length
-	}
-
-	task.spawn(function()
-		for i = 1, #timestamps do
-			if not track.IsPlaying then break end
-			track.TimePosition = timestamps[i]
-			track:AdjustSpeed(0) -- freeze frame
-			task.wait(0.1) -- hold frame
-		end
-
-		if track.IsPlaying then
-			track:Stop(0) -- no blending out
-		end
-		activeTracks[track] = nil
-	end)
+	local times = {}
+	for i = 0, FRAME_SEGMENTS - 1 do
+		table.insert(times, (length / (FRAME_SEGMENTS - 1)) * i)
+	end
+	return times
 end
 
--- Monitor tracks constantly
+-- Main logic: loop over animations and force them to show only a few frames
 RunService.RenderStepped:Connect(function()
+	local animator = getAnimator()
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		if not activeTracks[track] then
-			playChoppyTrack(track)
+		if not choppyState[track] then
+			choppyState[track] = {
+				frameTimes = getFrameTimes(track.Length),
+				currentIndex = 1,
+				timer = 0,
+			}
+			track:AdjustSpeed(0) -- freeze immediately
+			track.TimePosition = choppyState[track].frameTimes[1]
+		end
+	end
+
+	for track, state in pairs(choppyState) do
+		if not track.IsPlaying then
+			choppyState[track] = nil
+		else
+			state.timer += RunService.RenderStepped:Wait()
+			if state.timer >= FRAME_HOLD_TIME then
+				state.timer = 0
+				state.currentIndex = (state.currentIndex % #state.frameTimes) + 1
+				track.TimePosition = state.frameTimes[state.currentIndex]
+			end
+			track:AdjustSpeed(0) -- keep frozen
 		end
 	end
 end)
 
--- Clean up dead tracks
-humanoid.Died:Connect(function()
-	activeTracks = {}
-end)
-
--- Character respawn support
-player.CharacterAdded:Connect(function(char)
-	character = char
-	humanoid = character:WaitForChild("Humanoid")
-	animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
-	activeTracks = {}
+-- Reset when character respawns
+Players.LocalPlayer.CharacterAdded:Connect(function()
+	choppyState = {}
 end)
