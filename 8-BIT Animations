@@ -4,12 +4,19 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
 local activeTracks = {}
 local stopEffect = false
 local connections = {}
 
--- Constantly update the activeTracks list
+-- Constants
+local FRAME_RATE = 6 -- Simulate 6 FPS
+local FRAME_TIME = 1 / FRAME_RATE
+local FRAME_HOLD = 0.12 -- Freeze duration
+local FRAME_SKIP = 0.03 -- Advance window
+
+-- Keep animation list updated
 local function updateTracks()
 	local current = humanoid:GetPlayingAnimationTracks()
 	for _, track in ipairs(current) do
@@ -18,7 +25,7 @@ local function updateTracks()
 		end
 	end
 
-	-- Remove non-playing tracks
+	-- Clean up dead ones
 	for i = #activeTracks, 1, -1 do
 		if not activeTracks[i].IsPlaying then
 			table.remove(activeTracks, i)
@@ -26,36 +33,53 @@ local function updateTracks()
 	end
 end
 
--- Start update loop
+-- Store animation frame time manually
+local trackTimeMap = {}
+
+-- Start main simulation loop
 task.spawn(function()
 	while not stopEffect do
 		updateTracks()
-		task.wait(0.1)
-	end
-end)
 
--- Main frame-skip loop
-task.spawn(function()
-	while not stopEffect do
-		-- Pause animations
+		-- Cache current animation times
 		for _, track in ipairs(activeTracks) do
 			pcall(function()
+				trackTimeMap[track] = track.TimePosition
+				track:AdjustSpeed(0) -- pause
+			end)
+		end
+
+		-- Freeze character movement (velocity)
+		local lastVelocity = hrp.Velocity
+		local lastPos = hrp.Position
+		local lastCF = hrp.CFrame
+		local lastWalk = humanoid.MoveDirection
+
+		-- Apply freeze
+		humanoid.AutoRotate = false
+		humanoid:Move(Vector3.zero)
+		hrp.Velocity = Vector3.zero
+
+		task.wait(FRAME_HOLD)
+
+		-- Briefly unfreeze animations (advance)
+		for _, track in ipairs(activeTracks) do
+			pcall(function()
+				local last = trackTimeMap[track] or 0
+				track.TimePosition = last + FRAME_SKIP
 				track:AdjustSpeed(0)
 			end)
 		end
-		task.wait(0.45)
 
-		-- Briefly unpause
-		for _, track in ipairs(activeTracks) do
-			pcall(function()
-				track:AdjustSpeed(1)
-			end)
-		end
-		task.wait(0.05)
+		-- Briefly allow movement again
+		humanoid:Move(lastWalk, true)
+		hrp.Velocity = lastVelocity
+		humanoid.AutoRotate = true
+		task.wait(FRAME_SKIP)
 	end
 end)
 
--- Cleanup on respawn
+-- Stop on respawn
 table.insert(connections, player.CharacterAdded:Connect(function()
 	stopEffect = true
 	for _, conn in ipairs(connections) do
