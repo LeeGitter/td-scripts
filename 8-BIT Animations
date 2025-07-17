@@ -5,46 +5,56 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
-local connections = {}
 local activeTracks = {}
+local connections = {}
+local stopEffect = false
 
--- Monitor animation playing
-table.insert(connections, humanoid.AnimationPlayed:Connect(function(track)
-	if not table.find(activeTracks, track) then
-		table.insert(activeTracks, track)
+-- Watch for new animations playing
+local function trackAnim(anim)
+	if not table.find(activeTracks, anim) then
+		table.insert(activeTracks, anim)
 	end
-end))
+end
 
--- Cleanup animations that stop
+table.insert(connections, humanoid.AnimationPlayed:Connect(trackAnim))
+
+-- Force-inject existing animations (like idle) on load
+for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+	trackAnim(track)
+end
+
+-- Clean up stopped tracks
 table.insert(connections, RunService.Stepped:Connect(function()
 	for i = #activeTracks, 1, -1 do
-		if activeTracks[i].IsPlaying == false then
+		local track = activeTracks[i]
+		if not track.IsPlaying then
 			table.remove(activeTracks, i)
 		end
 	end
 end))
 
--- Choppy effect loop
-local stopEffect = false
-
+-- Simulate choppy 8-bit animation (freeze/resume loop)
 task.spawn(function()
 	while not stopEffect do
+		-- Freeze animations
 		for _, track in ipairs(activeTracks) do
 			pcall(function()
 				track:AdjustSpeed(0)
 			end)
 		end
-		task.wait(0.05)
+		task.wait(0.15)
+
+		-- Briefly play
 		for _, track in ipairs(activeTracks) do
 			pcall(function()
 				track:AdjustSpeed(1)
 			end)
 		end
-		task.wait(0.1)
+		task.wait(0.05)
 	end
 end)
 
--- Stop when character respawns
+-- Auto-disable on respawn
 table.insert(connections, player.CharacterAdded:Connect(function()
 	stopEffect = true
 	for _, conn in ipairs(connections) do
