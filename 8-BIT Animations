@@ -6,7 +6,6 @@ local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
--- Keys tracking
 local keysPressed = {W=false, A=false, S=false, D=false}
 local wsToggle = false
 local wsTimer = 0
@@ -19,10 +18,9 @@ local animFrameIndex = 1
 local humanoid
 local hrp
 
--- Animation tracks we froze already (to avoid restarting every frame)
 local frozenTracks = {}
 
--- Input listeners
+-- Input tracking
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     local k = input.KeyCode
@@ -40,25 +38,23 @@ UserInputService.InputEnded:Connect(function(input, gp)
     if k == Enum.KeyCode.D then keysPressed.D = false end
 end)
 
--- Snap angle helper
+-- Snap angle helper (nearest 45 degrees)
 local function snapAngle(angle)
     local deg = math.deg(angle)
     local snappedDeg = math.floor((deg + 22.5) / 45) * 45
     return math.rad(snappedDeg)
 end
 
--- Get 3 key frames for choppy animation
 local function getFrames(track)
     local len = track.Length
     return {0, len/2, len}
 end
 
--- Character setup
 local function onCharacterAdded(char)
     humanoid = char:WaitForChild("Humanoid")
     hrp = char:WaitForChild("HumanoidRootPart")
     humanoid.AutoRotate = false
-    frozenTracks = {} -- Reset frozen tracks on respawn
+    frozenTracks = {}
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
@@ -66,7 +62,6 @@ if player.Character then
     onCharacterAdded(player.Character)
 end
 
--- Reset camera on respawn to default
 local camera = Workspace.CurrentCamera
 local function resetCamera()
     camera.CameraType = Enum.CameraType.Custom
@@ -75,35 +70,71 @@ end
 
 player.CharacterRemoving:Connect(resetCamera)
 
--- Add PixelateEffect for dither-like look if not exists
-if not Lighting:FindFirstChild("DitherPixelate") then
+-- Setup dither effects and force highest priority
+local function setupDitherEffects()
+    -- Remove old ones first (optional)
+    for _, name in ipairs({"DitherPixelate", "DitherColorCorrection", "DitherBloom"}) do
+        local old = Lighting:FindFirstChild(name)
+        if old then old:Destroy() end
+    end
+
+    -- Pixelate effect
     local pixelate = Instance.new("PixelateEffect")
     pixelate.Name = "DitherPixelate"
-    pixelate.PixelSize = 6 -- tweak pixel size (higher = bigger pixels)
+    pixelate.PixelSize = 20 -- Increase for stronger pixelation
     pixelate.Parent = Lighting
+
+    -- Color correction for retro vibe
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "DitherColorCorrection"
+    cc.Saturation = -0.3
+    cc.Contrast = 0.5
+    cc.Parent = Lighting
+
+    -- Bloom effect (optional glow)
+    local bloom = Instance.new("BloomEffect")
+    bloom.Name = "DitherBloom"
+    bloom.Intensity = 0.15
+    bloom.Threshold = 0.8
+    bloom.Parent = Lighting
+
+    -- Move effects to end to ensure highest rendering priority
+    for _, effectName in ipairs({"DitherPixelate", "DitherColorCorrection", "DitherBloom"}) do
+        local effect = Lighting:FindFirstChild(effectName)
+        if effect then
+            effect.Parent = nil
+            effect.Parent = Lighting
+        end
+    end
 end
 
--- Main loop
+setupDitherEffects()
+
 RunService.RenderStepped:Connect(function(dt)
     if not humanoid or not hrp or not humanoid.Parent then return end
 
-    -- Movement direction based on current camera yaw (flat)
+    -- Get camera look vector flat on XZ plane
     local camCF = camera.CFrame
     local lookVec = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
     if lookVec.Magnitude < 0.001 then return end
     lookVec = lookVec.Unit
     local rightVec = Vector3.new(-lookVec.Z, 0, lookVec.X)
 
+    -- Compose movement vector from keys
     local moveVec = Vector3.new(0,0,0)
     if keysPressed.W then moveVec += lookVec end
     if keysPressed.S then moveVec -= lookVec end
     if keysPressed.A then moveVec -= rightVec end
     if keysPressed.D then moveVec += rightVec end
 
-    if moveVec.Magnitude < 0.01 then return end
+    if moveVec.Magnitude < 0.01 then
+        -- No movement input; skip facing update
+        return
+    end
+
     moveVec = moveVec.Unit
 
-    -- WS flicker toggle on W+S only
+    -- WS flicker toggle logic (rapidly face forward/back on W+S)
     if keysPressed.W and keysPressed.S and not keysPressed.A and not keysPressed.D then
         wsTimer = wsTimer + dt
         if wsTimer >= wsInterval then
@@ -116,16 +147,16 @@ RunService.RenderStepped:Connect(function(dt)
         wsToggle = false
     end
 
-    -- Snap movement direction to nearest 45 degrees
+    -- Snap move direction to nearest 45 degrees
     local moveYaw = math.atan2(moveVec.Z, moveVec.X)
     local snappedMoveYaw = snapAngle(moveYaw)
     local snappedMoveDir = Vector3.new(math.cos(snappedMoveYaw), 0, math.sin(snappedMoveYaw))
 
-    -- Snap avatar facing only (no position change)
+    -- Update avatar facing only (no position change)
     local pos = hrp.Position
     hrp.CFrame = CFrame.new(pos, pos + snappedMoveDir)
 
-    -- Animate choppy 3-frame effect with freezing
+    -- Animate choppy 3-frame freezing
     animTimer = animTimer + dt
     if animTimer >= FRAME_INTERVAL then
         animTimer = 0
@@ -134,12 +165,10 @@ RunService.RenderStepped:Connect(function(dt)
         local tracks = humanoid:GetPlayingAnimationTracks()
         for _, track in ipairs(tracks) do
             if track.Length > 0 then
-                -- Play track only once to ensure control
                 if not frozenTracks[track] then
                     track:Play()
                     frozenTracks[track] = true
                 end
-
                 local frames = getFrames(track)
                 track.TimePosition = frames[animFrameIndex]
                 track:AdjustSpeed(0)
