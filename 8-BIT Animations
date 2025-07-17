@@ -1,90 +1,93 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
-local activeTracks = {}
 local stopEffect = false
-local connections = {}
+local dummy = nil
+local animationController = nil
 
--- Constants
-local FRAME_RATE = 6 -- Simulate 6 FPS
-local FRAME_TIME = 1 / FRAME_RATE
-local FRAME_HOLD = 0.12 -- Freeze duration
-local FRAME_SKIP = 0.03 -- Advance window
-
--- Keep animation list updated
-local function updateTracks()
-	local current = humanoid:GetPlayingAnimationTracks()
-	for _, track in ipairs(current) do
-		if not table.find(activeTracks, track) and track.IsPlaying then
-			table.insert(activeTracks, track)
+-- Helper: hides real limbs to only show the dummy
+local function hideRealCharacter()
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+			part.Transparency = 1
+		elseif part:IsA("Decal") then
+			part.Transparency = 1
+		elseif part:IsA("Accessory") then
+			part:Destroy()
 		end
 	end
-
-	-- Clean up dead ones
-	for i = #activeTracks, 1, -1 do
-		if not activeTracks[i].IsPlaying then
-			table.remove(activeTracks, i)
-		end
-	end
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
 end
 
--- Store animation frame time manually
-local trackTimeMap = {}
+-- Helper: copy your current appearance to a dummy model
+local function createDummy()
+	local newDummy = Instance.new("Model")
+	newDummy.Name = "PixelDummy"
+	newDummy.Parent = workspace
 
--- Start main simulation loop
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 2, 1)
+	root.Anchored = true
+	root.CanCollide = false
+	root.Position = hrp.Position
+	root.Parent = newDummy
+
+	local animControl = Instance.new("AnimationController")
+	animControl.Name = "AnimationController"
+	animControl.Parent = newDummy
+
+	-- You can preload animations here if needed
+	return newDummy, animControl
+end
+
+-- Constantly update dummy every few frames
 task.spawn(function()
+	dummy, animationController = createDummy()
+	hideRealCharacter()
+
+	local currentAnim = nil
+	local activeTrack = nil
+	local lastAnimId = nil
+
 	while not stopEffect do
-		updateTracks()
-
-		-- Cache current animation times
-		for _, track in ipairs(activeTracks) do
-			pcall(function()
-				trackTimeMap[track] = track.TimePosition
-				track:AdjustSpeed(0) -- pause
-			end)
+		-- Snap dummy to real character
+		if dummy and hrp then
+			dummy:FindFirstChild("HumanoidRootPart").CFrame = hrp.CFrame
 		end
 
-		-- Freeze character movement (velocity)
-		local lastVelocity = hrp.Velocity
-		local lastPos = hrp.Position
-		local lastCF = hrp.CFrame
-		local lastWalk = humanoid.MoveDirection
+		-- Sync animation
+		local playingTracks = humanoid:GetPlayingAnimationTracks()
+		for _, track in ipairs(playingTracks) do
+			if track.IsPlaying then
+				if lastAnimId ~= track.Animation.AnimationId then
+					lastAnimId = track.Animation.AnimationId
+					if activeTrack then activeTrack:Stop() end
 
-		-- Apply freeze
-		humanoid.AutoRotate = false
-		humanoid:Move(Vector3.zero)
-		hrp.Velocity = Vector3.zero
-
-		task.wait(FRAME_HOLD)
-
-		-- Briefly unfreeze animations (advance)
-		for _, track in ipairs(activeTracks) do
-			pcall(function()
-				local last = trackTimeMap[track] or 0
-				track.TimePosition = last + FRAME_SKIP
-				track:AdjustSpeed(0)
-			end)
+					-- Play new track
+					local anim = Instance.new("Animation")
+					anim.AnimationId = lastAnimId
+					activeTrack = animationController:LoadAnimation(anim)
+					activeTrack:Play()
+				end
+				break
+			end
 		end
 
-		-- Briefly allow movement again
-		humanoid:Move(lastWalk, true)
-		hrp.Velocity = lastVelocity
-		humanoid.AutoRotate = true
-		task.wait(FRAME_SKIP)
+		task.wait(0.2) -- Controls how choppy the movement looks (lower = smoother)
 	end
 end)
 
--- Stop on respawn
-table.insert(connections, player.CharacterAdded:Connect(function()
+-- Clean up on respawn
+player.CharacterAdded:Connect(function()
 	stopEffect = true
-	for _, conn in ipairs(connections) do
-		pcall(function()
-			conn:Disconnect()
-		end)
+	if dummy then
+		dummy:Destroy()
 	end
-end))
+end)
