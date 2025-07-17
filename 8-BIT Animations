@@ -5,7 +5,6 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
 
 local directions = {
     Vector3.new(0,0,-1),       -- N
@@ -70,18 +69,15 @@ RunService.RenderStepped:Connect(function()
     if keysPressed.D then moveX += 1 end
     
     if moveX == 0 and moveZ == 0 then
-        -- No movement input, so don't override anything
+        -- No input, do nothing
         return
     end
     
-    local rawDirection = Vector3.new(moveX, 0, moveZ).Unit
-    local snappedDir = getClosestDirection(rawDirection)
+    local inputVector = Vector3.new(moveX, 0, moveZ).Unit
+    local snappedDir = getClosestDirection(inputVector)
     
     -- Snap character facing instantly to snappedDir
     local pos = hrp.Position
     local lookAt = pos + Vector3.new(snappedDir.X, 0, snappedDir.Z)
     hrp.CFrame = CFrame.new(pos, lookAt)
-    
-    -- Move humanoid in snapped direction without changing WalkSpeed
-    humanoid:Move(snappedDir, false)
 end)
