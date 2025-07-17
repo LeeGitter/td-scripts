@@ -1,75 +1,76 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 
--- Settings
-local FRAME_RATE = 6 -- how many frames per second
-local FRAME_INTERVAL = 1 / FRAME_RATE
+-- Store currently choppy-handled animations
+local trackedAnimations = {}
 
-local activeTracks = {}
-local lastFrameTime = 0
-local currentFrameIndex = {}
-local frameMap = {}
-
-local function getAnimator()
-	local char = player.Character or player.CharacterAdded:Wait()
-	local humanoid = char:WaitForChild("Humanoid")
-	return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+-- Helper to get keyframe times
+local function getKeyFrames(anim)
+	local keyframes = anim:GetKeyframeSequence().Keyframes
+	local times = {}
+	for _, keyframe in ipairs(keyframes) do
+		table.insert(times, keyframe.Time)
+	end
+	table.sort(times)
+	return times
 end
 
-local function generateFrameTable(length)
-	local frames = {}
-	local count = math.max(1, math.floor(length / FRAME_INTERVAL))
-	for i = 0, count do
-		table.insert(frames, i * FRAME_INTERVAL)
+-- Forces snapping to Start, Mid, End (no blending)
+local function setupChoppyTrack(track)
+	if trackedAnimations[track] then return end
+	trackedAnimations[track] = true
+
+	local anim = track.Animation
+	local length = track.Length
+	local connection
+	local keyframes = getKeyFrames(anim)
+
+	if #keyframes < 3 then
+		trackedAnimations[track] = nil
+		return
 	end
-	return frames
+
+	local snapTimes = {
+		keyframes[1], -- Start
+		keyframes[math.floor(#keyframes/2)], -- Middle
+		keyframes[#keyframes] -- End
+	}
+
+	local snapIndex = 1
+	local nextSnapTime = tick()
+
+	track:Play(0, 1, 0) -- Force no easing
+	track.TimePosition = snapTimes[snapIndex]
+
+	connection = RunService.RenderStepped:Connect(function()
+		if not track.IsPlaying or track.TimePosition >= length then
+			connection:Disconnect()
+			trackedAnimations[track] = nil
+			return
+		end
+
+		local now = tick()
+		if now >= nextSnapTime then
+			snapIndex += 1
+			if snapIndex > #snapTimes then
+				snapIndex = #snapTimes
+			end
+
+			track.TimePosition = snapTimes[snapIndex]
+			nextSnapTime = now + 0.1
+		end
+	end)
 end
 
-RunService.RenderStepped:Connect(function(dt)
-	local now = tick()
-	if now - lastFrameTime < FRAME_INTERVAL then return end
-	lastFrameTime = now
-
-	local animator = getAnimator()
-	if not animator then return end
-
-	local tracks = animator:GetPlayingAnimationTracks()
-
-	for _, track in ipairs(tracks) do
-		local id = track.Animation.AnimationId
-
-		if not frameMap[id] then
-			frameMap[id] = generateFrameTable(track.Length)
-			currentFrameIndex[id] = 1
-		end
-
-		local frameList = frameMap[id]
-		local frameIndex = currentFrameIndex[id]
-
-		-- Restart animation at the next frame
-		local time = frameList[frameIndex]
-		if time then
-			local newTrack = animator:LoadAnimation(track.Animation)
-			newTrack:Play()
-			newTrack.TimePosition = time
-			newTrack.Priority = track.Priority
-			newTrack.Looped = false
-			newTrack:AdjustSpeed(0.001) -- tiny value to avoid T-pose
-		end
-
-		-- Stop the old track
-		track:Stop()
-
-		currentFrameIndex[id] = frameIndex + 1
-		if currentFrameIndex[id] > #frameList then
-			currentFrameIndex[id] = 1
+-- Monitor new tracks
+RunService.Stepped:Connect(function()
+	for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+		if not trackedAnimations[track] then
+			setupChoppyTrack(track)
 		end
 	end
-end)
-
-player.CharacterAdded:Connect(function()
-	activeTracks = {}
-	frameMap = {}
-	currentFrameIndex = {}
 end)
