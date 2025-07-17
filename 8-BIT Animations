@@ -2,84 +2,71 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-
-local UPDATE_RATE = 0.15  -- Time between frames
-local FRAME_POINTS = {0, 0.5, 1} -- Start, middle, end
-
-local activeTracks = {}
-
--- Store what frame index the animation is on (0=start, 1=mid, 2=end)
-local trackStates = {}
-
--- Gets or creates a Motor6D pose snapshot
-local function snapshotPose(track)
-	local keyframeSequence = track.Animation and track.Animation:GetKeyframeSequence()
-	if not keyframeSequence then return nil end
-
-	local keyframes = keyframeSequence:GetKeyframes()
-	if #keyframes < 2 then return nil end
-
-	-- Determine frame times
-	local totalTime = keyframes[#keyframes].Time
-	local poses = {}
-
-	for _, point in ipairs(FRAME_POINTS) do
-		local time = totalTime * point
-		poses[#poses+1] = {Time = time}
-	end
-
-	return poses
+local function waitForCharacter()
+	if player.Character then return player.Character end
+	return player.CharacterAdded:Wait()
 end
 
--- Forces track to the frame index pose
-local function jumpToFrame(track, frameIndex)
-	local length = track.Length
-	if length <= 0 then return end
+local character = waitForCharacter()
+local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
 
-	local clampedIndex = math.clamp(frameIndex, 1, #FRAME_POINTS)
-	local time = length * FRAME_POINTS[clampedIndex]
-	track:AdjustSpeed(0)
-	track:AdjustWeight(1, 0) -- no easing
-	pcall(function()
-		track:Play(0, 1, 0) -- play with no fade or speed
-		track:AdjustTime(time)
+local TRACK_FRAME_COUNT = 3 -- start, mid, end
+local activeTracks = {}
+
+local function playChoppyTrack(track)
+	if activeTracks[track] then return end
+	activeTracks[track] = true
+	track.Looped = false -- manually loop it if needed
+	track:AdjustWeight(1, 0) -- snap in
+	track:Play(0, 1, 0) -- start paused
+
+	local length = track.Length
+	if length == 0 then
+		activeTracks[track] = nil
+		return
+	end
+
+	-- Divide time into 3 segments
+	local timestamps = {
+		0,
+		math.clamp(length / 2, 0, length),
+		length
+	}
+
+	task.spawn(function()
+		for i = 1, #timestamps do
+			if not track.IsPlaying then break end
+			track.TimePosition = timestamps[i]
+			track:AdjustSpeed(0) -- freeze frame
+			task.wait(0.1) -- hold frame
+		end
+
+		if track.IsPlaying then
+			track:Stop(0) -- no blending out
+		end
+		activeTracks[track] = nil
 	end)
 end
 
--- Main updater
-local function updateTracks()
-	for i = #activeTracks, 1, -1 do
-		local track = activeTracks[i]
-		if not track.IsPlaying then
-			table.remove(activeTracks, i)
-			trackStates[track] = nil
-		else
-			local currentIndex = (trackStates[track] or 0) + 1
-			if currentIndex > 3 then currentIndex = 1 end
-			jumpToFrame(track, currentIndex)
-			trackStates[track] = currentIndex
+-- Monitor tracks constantly
+RunService.RenderStepped:Connect(function()
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		if not activeTracks[track] then
+			playChoppyTrack(track)
 		end
 	end
-end
+end)
 
--- Scan for new animations
-local function scanAnimations()
-	for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-		if not trackStates[track] then
-			table.insert(activeTracks, track)
-			trackStates[track] = 1
-			jumpToFrame(track, 1)
-		end
-	end
-end
+-- Clean up dead tracks
+humanoid.Died:Connect(function()
+	activeTracks = {}
+end)
 
--- Run on loop
-task.spawn(function()
-	while true do
-		scanAnimations()
-		updateTracks()
-		task.wait(UPDATE_RATE)
-	end
+-- Character respawn support
+player.CharacterAdded:Connect(function(char)
+	character = char
+	humanoid = character:WaitForChild("Humanoid")
+	animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+	activeTracks = {}
 end)
