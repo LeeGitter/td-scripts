@@ -1,75 +1,101 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
+local CHOPPY_SPEED = 0.005
+local FRAME_HOLD_TIME = 0.5
+local FRAME_COUNT = 3
 
-local currentTrack = nil
-local choppySpeed = 0.005
-local frameStep = 0.5
+local choppyTracks = {}
+local trackOrder = {}
+local connection = nil
 
--- Allow looping of these animations while on ground
-local loopAnimations = {
-	["idle"] = true,
-	["walk"] = true,
-	["run"] = true
-}
-
-local function getAnimationName(track)
-	if track.Animation then
-		local name = track.Animation.Name:lower()
-		if name:find("idle") then return "idle"
-		elseif name:find("walk") then return "walk"
-		elseif name:find("run") then return "run"
-		elseif name:find("jump") then return "jump"
-		elseif name:find("fall") then return "fall"
-		else return name end
+local function reset()
+	if connection then
+		connection:Disconnect()
+		connection = nil
 	end
-	return "unknown"
+	for track, _ in pairs(choppyTracks) do
+		if track and track.IsPlaying then
+			track:AdjustSpeed(1)
+		end
+	end
+	choppyTracks = {}
+	trackOrder = {}
 end
 
--- Choppy animation update loop
-RunService.RenderStepped:Connect(function(dt)
-	if currentTrack then
-		-- If animation is playing too long and isn't idle/run/etc., stop it
-		if not loopAnimations[getAnimationName(currentTrack)] then
-			if currentTrack.TimePosition > 1 then
-				currentTrack:Stop()
-				currentTrack = nil
+local function limitPlayingTracks()
+	while #trackOrder > 2 do
+		local oldestTrack = table.remove(trackOrder, 1)
+		if oldestTrack and oldestTrack.IsPlaying then
+			oldestTrack:Stop()
+			choppyTracks[oldestTrack] = nil
+		end
+	end
+end
+
+local function startChoppy()
+	reset()
+
+	local character = player.Character or player.CharacterAdded:Wait()
+	local humanoid = character:WaitForChild("Humanoid")
+	local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+
+	connection = RunService.RenderStepped:Connect(function(dt)
+		-- Add or update playing tracks
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			if track.IsPlaying and track.Length > 0 then
+				if not choppyTracks[track] then
+					local length = track.Length
+					local frames = {}
+					for i = 0, FRAME_COUNT - 1 do
+						local frameTime = (length * i) / FRAME_COUNT
+						if frameTime >= length then
+							frameTime = length - 0.05
+						end
+						table.insert(frames, frameTime)
+					end
+					choppyTracks[track] = {
+						frames = frames,
+						index = 1,
+						timer = 0,
+						lastTimePosition = -1,
+					}
+					table.insert(trackOrder, track)
+					limitPlayingTracks()
+				end
+				track:AdjustSpeed(CHOPPY_SPEED)
 			end
 		end
-	end
-end)
 
--- Choppy frame stepping
-while true do
-	task.wait(frameStep)
+		-- Update time positions
+		for track, data in pairs(choppyTracks) do
+			if not track.IsPlaying then
+				track:AdjustSpeed(1)
+				choppyTracks[track] = nil
+				for i, t in ipairs(trackOrder) do
+					if t == track then
+						table.remove(trackOrder, i)
+						break
+					end
+				end
+			else
+				data.timer = data.timer + dt
+				if data.timer >= FRAME_HOLD_TIME then
+					data.timer = 0
+					data.index = data.index % #data.frames + 1
+					local newTime = data.frames[data.index]
+					if math.abs(newTime - data.lastTimePosition) > 0.01 then
+						track.TimePosition = newTime
+						data.lastTimePosition = newTime
+					end
+				end
+			end
+		end
+	end)
 
-	if currentTrack then
-		-- Resume for a moment, then pause again
-		currentTrack:AdjustSpeed(1)
-		task.wait(choppySpeed)
-		currentTrack:AdjustSpeed(0)
-	end
+	humanoid.Died:Connect(reset)
 end
 
--- Hook into new animations
-humanoid.AnimationPlayed:Connect(function(track)
-	local newName = getAnimationName(track)
-
-	if currentTrack then
-		if currentTrack ~= track then
-			currentTrack:Stop()
-		end
-	end
-
-	currentTrack = track
-	currentTrack:Play()
-	currentTrack:AdjustSpeed(0) -- Immediately pause after first frame
-end)
-
--- Stop script on respawn
-player.CharacterAdded:Connect(function()
-	script:Destroy()
-end)
+startChoppy()
+player.CharacterAdded:Connect(startChoppy)
