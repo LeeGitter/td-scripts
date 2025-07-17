@@ -3,7 +3,7 @@ local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 
-local FRAME_HOLD_TIME = 0.3 -- seconds per frame hold
+local FRAME_HOLD_TIME = 0.5 -- seconds per frame hold
 
 local choppyTracks = {}
 local connection = nil
