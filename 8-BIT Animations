@@ -1,10 +1,14 @@
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
+
+-- Disable Humanoid auto-rotate so we can control facing manually
+humanoid.AutoRotate = false
 
 local directions = {
     Vector3.new(0,0,-1),       -- N
@@ -76,8 +80,11 @@ RunService.RenderStepped:Connect(function()
     local inputVector = Vector3.new(moveX, 0, moveZ).Unit
     local snappedDir = getClosestDirection(inputVector)
     
-    -- Snap character facing instantly to snappedDir
-    local pos = hrp.Position
-    local lookAt = pos + Vector3.new(snappedDir.X, 0, snappedDir.Z)
-    hrp.CFrame = CFrame.new(pos, lookAt)
+    -- Only change Y rotation (facing) of HumanoidRootPart without affecting position
+    local currentPos = hrp.Position
+    -- Build a CFrame at the current position facing snappedDir
+    local newCFrame = CFrame.new(currentPos, currentPos + Vector3.new(snappedDir.X, 0, snappedDir.Z))
+    
+    -- Preserve position, set rotation only
+    hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.atan2(-snappedDir.Z, snappedDir.X) + math.pi/2, 0)
 end)
