@@ -3,8 +3,7 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
--- Configurable choppy frame hold time (seconds)
-local FRAME_HOLD_TIME = 0.25 -- increase to slow animation down
+local FRAME_HOLD_TIME = 0.25 -- seconds per frame hold
 
 local choppyState = {}
 local connections = {}
@@ -50,7 +49,7 @@ local function setupTrack(track)
 		length = length,
 	}
 
-	-- Play with no easing, normal speed (let Roblox handle the blend)
+	-- Start playing normally but we'll snap frames manually
 	track:Play(0, 1, 0)
 end
 
@@ -60,7 +59,6 @@ local function startChoppySystem()
 	local character = player.Character or player.CharacterAdded:Wait()
 	local humanoid = character:WaitForChild("Humanoid")
 
-	-- Monitor animations
 	connections.animMonitor = RunService.RenderStepped:Connect(function(dt)
 		for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
 			if not choppyState[track] then
@@ -68,7 +66,6 @@ local function startChoppySystem()
 			end
 		end
 
-		-- Update choppy frames
 		for track, state in pairs(choppyState) do
 			if not track.IsPlaying then
 				choppyState[track] = nil
@@ -78,23 +75,19 @@ local function startChoppySystem()
 					state.timer = 0
 					state.currentIndex = (state.currentIndex % #state.snapTimes) + 1
 					track.TimePosition = state.snapTimes[state.currentIndex]
-					-- Set speed to 0 briefly to hold the frame
-					track:AdjustSpeed(0)
+					track:AdjustSpeed(0) -- freeze at this frame
 				end
 			end
 		end
 	end)
 
-	-- Cleanup on death
 	connections.diedConn = humanoid.Died:Connect(function()
 		cleanup()
 	end)
 end
 
--- Start choppy effect initially
 startChoppySystem()
 
--- Restart on respawn
 player.CharacterAdded:Connect(function()
 	startChoppySystem()
 end)
