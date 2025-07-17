@@ -1,0 +1,55 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+local connections = {}
+local activeTracks = {}
+
+-- Monitor animation playing
+table.insert(connections, humanoid.AnimationPlayed:Connect(function(track)
+	if not table.find(activeTracks, track) then
+		table.insert(activeTracks, track)
+	end
+end))
+
+-- Cleanup animations that stop
+table.insert(connections, RunService.Stepped:Connect(function()
+	for i = #activeTracks, 1, -1 do
+		if activeTracks[i].IsPlaying == false then
+			table.remove(activeTracks, i)
+		end
+	end
+end))
+
+-- Choppy effect loop
+local stopEffect = false
+
+task.spawn(function()
+	while not stopEffect do
+		for _, track in ipairs(activeTracks) do
+			pcall(function()
+				track:AdjustSpeed(0)
+			end)
+		end
+		task.wait(0.05)
+		for _, track in ipairs(activeTracks) do
+			pcall(function()
+				track:AdjustSpeed(1)
+			end)
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- Stop when character respawns
+table.insert(connections, player.CharacterAdded:Connect(function()
+	stopEffect = true
+	for _, conn in ipairs(connections) do
+		pcall(function()
+			conn:Disconnect()
+		end)
+	end
+end))
