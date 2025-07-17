@@ -1,100 +1,70 @@
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
-local camera = Workspace.CurrentCamera
 
--- Disable automatic rotation control to rotate manually
-humanoid.AutoRotate = false
+local frameHoldTime = 0.15
+local frames = {0, 0.5, 1} -- start, middle, end frames in normalized position
 
-local keysPressed = {
-    W = false,
-    A = false,
-    S = false,
-    D = false,
-}
+-- Track animation state: track => {frameIndex, timer}
+local animationStates = {}
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    local key = input.KeyCode
-    if key == Enum.KeyCode.W then keysPressed.W = true end
-    if key == Enum.KeyCode.A then keysPressed.A = true end
-    if key == Enum.KeyCode.S then keysPressed.S = true end
-    if key == Enum.KeyCode.D then keysPressed.D = true end
-end)
-
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    local key = input.KeyCode
-    if key == Enum.KeyCode.W then keysPressed.W = false end
-    if key == Enum.KeyCode.A then keysPressed.A = false end
-    if key == Enum.KeyCode.S then keysPressed.S = false end
-    if key == Enum.KeyCode.D then keysPressed.D = false end
-end)
-
--- Snap angle (radians) to nearest multiple of 45 degrees
-local function snapAngle(angle)
-    local deg = math.deg(angle)
-    local snappedDeg = math.floor((deg + 22.5) / 45) * 45
-    return math.rad(snappedDeg)
+-- Remove stopped tracks from tracking
+local function cleanStoppedTracks()
+    for track, _ in pairs(animationStates) do
+        if not track.IsPlaying or not track.Parent then
+            -- Reset speed back to 1 just in case (to avoid freeze if reused)
+            if track then
+                pcall(function()
+                    track:AdjustSpeed(1)
+                end)
+            end
+            animationStates[track] = nil
+        end
+    end
 end
 
-local wsToggle = false
-local wsTimer = 0
-local wsInterval = 0.05
+-- Add new playing tracks that are not tracked yet
+local function addNewTracks()
+    local playingTracks = humanoid:GetPlayingAnimationTracks()
+    for _, track in ipairs(playingTracks) do
+        if not animationStates[track] then
+            animationStates[track] = {
+                frameIndex = 1,
+                timer = 0
+            }
+        end
+    end
+end
 
 RunService.RenderStepped:Connect(function(dt)
-    local camCFrame = camera.CFrame
+    cleanStoppedTracks()
+    addNewTracks()
 
-    -- Get camera yaw angle (XZ plane)
-    local lookVector = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z)
-    if lookVector.Magnitude < 0.001 then return end -- avoid divide by zero
-    lookVector = lookVector.Unit
-
-    local camYaw = math.atan2(lookVector.Z, lookVector.X)
-
-    -- Build camera look vector and right vector (no snapping to camera)
-    local camLook = lookVector
-    local camRight = Vector3.new(-camLook.Z, 0, camLook.X)
-
-    -- Construct movement vector relative to camera directions
-    local moveVector = Vector3.new(0, 0, 0)
-    if keysPressed.W then moveVector += camLook end
-    if keysPressed.S then moveVector -= camLook end
-    if keysPressed.A then moveVector -= camRight end
-    if keysPressed.D then moveVector += camRight end
-
-    if moveVector.Magnitude < 0.01 then
-        return -- no movement input, do nothing
-    end
-
-    -- Normalize moveVector to get direction only
-    moveVector = moveVector.Unit
-
-    -- WS flicker toggle (W + S pressed without A or D)
-    if keysPressed.W and keysPressed.S and not keysPressed.A and not keysPressed.D then
-        wsTimer += dt
-        if wsTimer >= wsInterval then
-            wsTimer = 0
-            wsToggle = not wsToggle
+    for track, state in pairs(animationStates) do
+        -- Update timer
+        state.timer = state.timer + dt
+        if state.timer >= frameHoldTime then
+            state.timer = 0
+            -- Cycle frame index 1->2->3->1 ...
+            state.frameIndex = state.frameIndex + 1
+            if state.frameIndex > #frames then
+                state.frameIndex = 1
+            end
         end
-        moveVector = wsToggle and camLook or -camLook
-    else
-        wsTimer = 0
-        wsToggle = false
+
+        -- Calculate time position in seconds
+        local length = track.Length
+        local framePos = frames[state.frameIndex]
+        local clampedPos = math.clamp(framePos * length, 0, length - 0.01)
+
+        -- Set animation frame and freeze
+        -- Use pcall in case track is removed mid-frame
+        pcall(function()
+            track.TimePosition = clampedPos
+            track:AdjustSpeed(0)
+        end)
     end
-
-    -- Snap moveVector to nearest 45 degrees (8 directions)
-    local moveYaw = math.atan2(moveVector.Z, moveVector.X)
-    local snappedMoveYaw = snapAngle(moveYaw)
-    local snappedMoveDir = Vector3.new(math.cos(snappedMoveYaw), 0, math.sin(snappedMoveYaw))
-
-    -- Snap avatar facing direction (only rotation)
-    local hrpPos = hrp.Position
-    hrp.CFrame = CFrame.new(hrpPos, hrpPos + snappedMoveDir)
 end)
