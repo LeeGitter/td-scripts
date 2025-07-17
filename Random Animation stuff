@@ -29,7 +29,7 @@ local function startMonitoring(humanoid)
 				task.delay(5, function()
 					if humanoid and humanoid.Parent == player.Character then
 						-- Randomize WalkSpeed between 20 and 30
-						humanoid.WalkSpeed = math.random(20, 30)
+						humanoid.WalkSpeed = math.random(24, 35)
 
 						-- Apply random speed to all current animations
 						local allTracks = animator:GetPlayingAnimationTracks()
