@@ -7,84 +7,75 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Disable Humanoid auto-rotate so we can control facing manually
+-- Disable default rotation control to control rotation manually
 humanoid.AutoRotate = false
-
-local directions = {
-    Vector3.new(0,0,-1),       -- N
-    Vector3.new(1,0,-1).Unit,  -- NE
-    Vector3.new(1,0,0),        -- E
-    Vector3.new(1,0,1).Unit,   -- SE
-    Vector3.new(0,0,1),        -- S
-    Vector3.new(-1,0,1).Unit,  -- SW
-    Vector3.new(-1,0,0),       -- W
-    Vector3.new(-1,0,-1).Unit  -- NW
-}
-
-local function getClosestDirection(vec)
-    local closestDir = directions[1]
-    local maxDot = -math.huge
-    for _, dir in ipairs(directions) do
-        local dot = vec:Dot(dir)
-        if dot > maxDot then
-            maxDot = dot
-            closestDir = dir
-        end
-    end
-    return closestDir
-end
 
 local keysPressed = {
     W = false,
     A = false,
     S = false,
     D = false,
-    Up = false,
-    Down = false,
-    Left = false,
-    Right = false,
 }
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     local key = input.KeyCode
-    if key == Enum.KeyCode.W or key == Enum.KeyCode.Up then keysPressed.W = true end
-    if key == Enum.KeyCode.A or key == Enum.KeyCode.Left then keysPressed.A = true end
-    if key == Enum.KeyCode.S or key == Enum.KeyCode.Down then keysPressed.S = true end
-    if key == Enum.KeyCode.D or key == Enum.KeyCode.Right then keysPressed.D = true end
+    if key == Enum.KeyCode.W then keysPressed.W = true end
+    if key == Enum.KeyCode.A then keysPressed.A = true end
+    if key == Enum.KeyCode.S then keysPressed.S = true end
+    if key == Enum.KeyCode.D then keysPressed.D = true end
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     local key = input.KeyCode
-    if key == Enum.KeyCode.W or key == Enum.KeyCode.Up then keysPressed.W = false end
-    if key == Enum.KeyCode.A or key == Enum.KeyCode.Left then keysPressed.A = false end
-    if key == Enum.KeyCode.S or key == Enum.KeyCode.Down then keysPressed.S = false end
-    if key == Enum.KeyCode.D or key == Enum.KeyCode.Right then keysPressed.D = false end
+    if key == Enum.KeyCode.W then keysPressed.W = false end
+    if key == Enum.KeyCode.A then keysPressed.A = false end
+    if key == Enum.KeyCode.S then keysPressed.S = false end
+    if key == Enum.KeyCode.D then keysPressed.D = false end
 end)
 
+-- Define vectors for each key combo
+local directions = {
+    W = Vector3.new(0,0,-1),
+    A = Vector3.new(-1,0,0),
+    S = Vector3.new(0,0,1),
+    D = Vector3.new(1,0,0),
+    WA = Vector3.new(-1,0,-1).Unit,
+    WD = Vector3.new(1,0,-1).Unit,
+    SA = Vector3.new(-1,0,1).Unit,
+    SD = Vector3.new(1,0,1).Unit,
+}
+
 RunService.RenderStepped:Connect(function()
-    local moveX = 0
-    local moveZ = 0
+    -- Determine which keys are pressed
+    local w,a,s,d = keysPressed.W, keysPressed.A, keysPressed.S, keysPressed.D
     
-    if keysPressed.W then moveZ -= 1 end
-    if keysPressed.S then moveZ += 1 end
-    if keysPressed.A then moveX -= 1 end
-    if keysPressed.D then moveX += 1 end
+    local directionVector = nil
     
-    if moveX == 0 and moveZ == 0 then
-        -- No input, do nothing
+    if w and a and not s and not d then
+        directionVector = directions.WA
+    elseif w and d and not s and not a then
+        directionVector = directions.WD
+    elseif s and a and not w and not d then
+        directionVector = directions.SA
+    elseif s and d and not w and not a then
+        directionVector = directions.SD
+    elseif w and not a and not s and not d then
+        directionVector = directions.W
+    elseif a and not w and not s and not d then
+        directionVector = directions.A
+    elseif s and not w and not a and not d then
+        directionVector = directions.S
+    elseif d and not w and not a and not s then
+        directionVector = directions.D
+    else
+        -- No recognized direction or conflicting keys, don't rotate
         return
     end
     
-    local inputVector = Vector3.new(moveX, 0, moveZ).Unit
-    local snappedDir = getClosestDirection(inputVector)
-    
-    -- Only change Y rotation (facing) of HumanoidRootPart without affecting position
-    local currentPos = hrp.Position
-    -- Build a CFrame at the current position facing snappedDir
-    local newCFrame = CFrame.new(currentPos, currentPos + Vector3.new(snappedDir.X, 0, snappedDir.Z))
-    
-    -- Preserve position, set rotation only
-    hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.atan2(-snappedDir.Z, snappedDir.X) + math.pi/2, 0)
+    -- Snap avatar facing direction instantly
+    local pos = hrp.Position
+    local lookAt = pos + Vector3.new(directionVector.X, 0, directionVector.Z)
+    hrp.CFrame = CFrame.new(pos, lookAt)
 end)
