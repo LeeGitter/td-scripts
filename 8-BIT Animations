@@ -7,18 +7,14 @@ local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Movement speed
-local moveSpeed = 16
-
--- Directions (unit vectors)
 local directions = {
-    Vector3.new(0,0,-1),    -- N
+    Vector3.new(0,0,-1),       -- N
     Vector3.new(1,0,-1).Unit,  -- NE
-    Vector3.new(1,0,0),     -- E
+    Vector3.new(1,0,0),        -- E
     Vector3.new(1,0,1).Unit,   -- SE
-    Vector3.new(0,0,1),     -- S
+    Vector3.new(0,0,1),        -- S
     Vector3.new(-1,0,1).Unit,  -- SW
-    Vector3.new(-1,0,0),    -- W
+    Vector3.new(-1,0,0),       -- W
     Vector3.new(-1,0,-1).Unit  -- NW
 }
 
@@ -35,9 +31,6 @@ local function getClosestDirection(vec)
     return closestDir
 end
 
-local inputVector = Vector3.new(0,0,0)
-
--- Track key states for movement
 local keysPressed = {
     W = false,
     A = false,
@@ -77,19 +70,18 @@ RunService.RenderStepped:Connect(function()
     if keysPressed.D then moveX += 1 end
     
     if moveX == 0 and moveZ == 0 then
-        humanoid.WalkSpeed = 0
+        -- No movement input, so don't override anything
         return
     end
     
     local rawDirection = Vector3.new(moveX, 0, moveZ).Unit
     local snappedDir = getClosestDirection(rawDirection)
     
-    -- Set HumanoidRootPart orientation instantly to face snapped direction
-    local lookCFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(snappedDir.X, 0, snappedDir.Z))
-    hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, lookCFrame.LookVector:AngleTo(Vector3.new(0,0,-1)), 0)
-    hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + snappedDir)  -- direct facing
+    -- Snap character facing instantly to snappedDir
+    local pos = hrp.Position
+    local lookAt = pos + Vector3.new(snappedDir.X, 0, snappedDir.Z)
+    hrp.CFrame = CFrame.new(pos, lookAt)
     
-    -- Move character forward in snapped direction
-    humanoid.WalkSpeed = moveSpeed
+    -- Move humanoid in snapped direction without changing WalkSpeed
     humanoid:Move(snappedDir, false)
 end)
