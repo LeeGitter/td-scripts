@@ -3,7 +3,7 @@ local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 
-local FRAME_HOLD_TIME = 0.5 -- seconds per frame hold
+local FRAME_HOLD_TIME = 0.5 -- hold frames longer for smooth choppiness
 
 local choppyTracks = {}
 local connection = nil
@@ -27,9 +27,10 @@ local function startChoppy()
 		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 			if not choppyTracks[track] and track.Length > 0 then
 				choppyTracks[track] = {
-					frames = {0, math.min(track.Length / 2, track.Length - 0.05)}, -- avoid exact end to prevent glitches
+					frames = {0, math.floor(track.Length / 2), track.Length - 0.05},
 					index = 1,
 					timer = 0,
+					lastTimePosition = -1,
 				}
 			end
 		end
@@ -42,12 +43,11 @@ local function startChoppy()
 				if data.timer >= FRAME_HOLD_TIME then
 					data.timer = 0
 					data.index = data.index % #data.frames + 1
-					local frameTime = data.frames[data.index]
-					-- Clamp frameTime just before the animation end to avoid looping glitches
-					if frameTime >= track.Length then
-						frameTime = track.Length - 0.05
+					local newTime = data.frames[data.index]
+					if math.abs(newTime - data.lastTimePosition) > 0.01 then
+						track.TimePosition = newTime
+						data.lastTimePosition = newTime
 					end
-					track.TimePosition = frameTime
 				end
 			end
 		end
