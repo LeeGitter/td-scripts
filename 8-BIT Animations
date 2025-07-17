@@ -7,7 +7,6 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Disable default rotation control to control rotation manually
 humanoid.AutoRotate = false
 
 local keysPressed = {
@@ -35,7 +34,6 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if key == Enum.KeyCode.D then keysPressed.D = false end
 end)
 
--- Define vectors for each key combo
 local directions = {
     W = Vector3.new(0,0,-1),
     A = Vector3.new(-1,0,0),
@@ -47,9 +45,30 @@ local directions = {
     SD = Vector3.new(1,0,1).Unit,
 }
 
-RunService.RenderStepped:Connect(function()
-    -- Determine which keys are pressed
+local wsToggle = false
+local wsTimer = 0
+local wsInterval = 0.05 -- 0.05 seconds delay for rapid toggle
+
+RunService.RenderStepped:Connect(function(dt)
     local w,a,s,d = keysPressed.W, keysPressed.A, keysPressed.S, keysPressed.D
+    
+    if w and s and not a and not d then
+        -- WS pressed together, rapidly toggle facing forward/back every 0.05s
+        wsTimer = wsTimer + dt
+        if wsTimer >= wsInterval then
+            wsTimer = 0
+            wsToggle = not wsToggle
+            local dir = wsToggle and directions.W or directions.S
+            local pos = hrp.Position
+            local lookAt = pos + Vector3.new(dir.X, 0, dir.Z)
+            hrp.CFrame = CFrame.new(pos, lookAt)
+        end
+        return
+    end
+    
+    -- Reset timer when not WS combo
+    wsTimer = 0
+    wsToggle = false
     
     local directionVector = nil
     
