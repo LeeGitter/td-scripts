@@ -9,16 +9,32 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
 
--- Disable Roblox automatic rotation to control facing manually
 humanoid.AutoRotate = false
 
--- Track keys pressed
 local keysPressed = {
     W = false,
     A = false,
     S = false,
     D = false,
 }
+
+-- Variables to track mouse delta for yaw and pitch
+local mouseDeltaX = 0
+local mouseDeltaY = 0
+
+-- Sensitivity (tweak to taste)
+local sensitivity = 0.3
+
+-- Current camera yaw and pitch (in radians)
+-- Initialize to current camera angles
+local function getYawPitchFromCFrame(cf)
+    local lookVector = cf.LookVector
+    local yaw = math.atan2(lookVector.Z, lookVector.X)
+    local pitch = math.asin(lookVector.Y)
+    return yaw, pitch
+end
+
+local camYaw, camPitch = getYawPitchFromCFrame(camera.CFrame)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -38,78 +54,86 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if key == Enum.KeyCode.D then keysPressed.D = false end
 end)
 
--- Helper: Snap angle (radians) to nearest 45 degrees
+-- Capture relative mouse movement for smooth yaw/pitch changes
+UserInputService.InputChanged:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        mouseDeltaX = mouseDeltaX + input.Delta.X * sensitivity
+        mouseDeltaY = mouseDeltaY + input.Delta.Y * sensitivity
+    end
+end)
+
+-- Snap angle to nearest 45 degrees (in radians)
 local function snapAngle(angle)
-    local degrees = math.deg(angle)
-    local snappedDegrees = math.floor((degrees + 22.5) / 45) * 45
-    return math.rad(snappedDegrees)
+    local deg = math.deg(angle)
+    local snappedDeg = math.floor((deg + 22.5) / 45) * 45
+    return math.rad(snappedDeg)
 end
 
--- WS flicker state
 local wsToggle = false
 local wsTimer = 0
-local wsInterval = 0.05 -- seconds
+local wsInterval = 0.05
 
 RunService.RenderStepped:Connect(function(dt)
-    -- Snap camera yaw rotation
-    local camCFrame = camera.CFrame
-    local camPos = camCFrame.Position
+    -- Update camera yaw and pitch by mouse delta
+    camYaw = camYaw + math.rad(mouseDeltaX)
+    camPitch = camPitch - math.rad(mouseDeltaY)
 
-    -- Extract current yaw from camera look vector (XZ plane)
-    local lookVec = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z)
-    if lookVec.Magnitude < 0.001 then return end -- avoid errors on edge cases
-    lookVec = lookVec.Unit
+    -- Clamp pitch so player can't flip camera upside down (between -80 and 80 degrees)
+    local pitchLimit = math.rad(80)
+    if camPitch > pitchLimit then camPitch = pitchLimit end
+    if camPitch < -pitchLimit then camPitch = -pitchLimit end
 
-    local camYaw = math.atan2(lookVec.Z, lookVec.X)
+    -- Reset mouse deltas after applying
+    mouseDeltaX = 0
+    mouseDeltaY = 0
+
+    -- Snap camera yaw to nearest 45 degrees (8 directions)
     local snappedYaw = snapAngle(camYaw)
 
-    -- Rebuild snapped camera CFrame keeping pitch and roll intact
-    local camPitch = math.asin(camCFrame.LookVector.Y) -- approx pitch
+    -- Build camera right and snapped look vectors
+    local snappedLook = Vector3.new(math.cos(snappedYaw), 0, math.sin(snappedYaw))
+    local camRight = Vector3.new(-snappedLook.Z, 0, snappedLook.X)
 
-    -- Construct new look vector from snapped yaw and pitch
-    local horizontalLook = Vector3.new(math.cos(snappedYaw), 0, math.sin(snappedYaw))
-    local rightVec = Vector3.new(-horizontalLook.Z, 0, horizontalLook.X)
-    local newLook = (CFrame.fromAxisAngle(rightVec, camPitch) * CFrame.lookAt(Vector3.new(), horizontalLook)).LookVector
+    -- Build camera look vector with snapped yaw but smooth pitch
+    local newLookVector = (CFrame.fromAxisAngle(camRight, camPitch) * CFrame.lookAt(Vector3.new(), snappedLook)).LookVector
 
-    local newCamCFrame = CFrame.new(camPos, camPos + newLook)
-    camera.CFrame = newCamCFrame
+    -- Set camera CFrame to snapped yaw + smooth pitch
+    local camPos = camera.CFrame.Position
+    camera.CFrame = CFrame.new(camPos, camPos + newLookVector)
 
-    -- Determine movement direction based on keys relative to snapped camera
-    local moveDir = Vector3.new(0,0,0)
-    if keysPressed.W then moveDir += horizontalLook end
-    if keysPressed.S then moveDir -= horizontalLook end
-    if keysPressed.A then moveDir -= rightVec end
-    if keysPressed.D then moveDir += rightVec end
+    -- Build move vector relative to snapped camera direction
+    local moveVector = Vector3.new(0, 0, 0)
+    if keysPressed.W then moveVector += snappedLook end
+    if keysPressed.S then moveVector -= snappedLook end
+    if keysPressed.A then moveVector -= camRight end
+    if keysPressed.D then moveVector += camRight end
 
-    if moveDir.Magnitude < 0.01 then
-        -- No movement keys pressed, no rotation change needed
+    if moveVector.Magnitude < 0.01 then
+        -- No movement input, do nothing
         return
     end
 
-    -- Normalize moveDir for direction only
-    moveDir = moveDir.Unit
+    moveVector = moveVector.Unit
 
-    -- Handle WS flicker special case (W and S pressed together without A or D)
+    -- WS flicker toggle (only when W and S pressed without A or D)
     if keysPressed.W and keysPressed.S and not keysPressed.A and not keysPressed.D then
-        wsTimer += dt
+        wsTimer = wsTimer + dt
         if wsTimer >= wsInterval then
             wsTimer = 0
             wsToggle = not wsToggle
         end
-        -- flicker between forward and backward relative to snapped camera
-        moveDir = wsToggle and horizontalLook or -horizontalLook
+        moveVector = wsToggle and snappedLook or -snappedLook
     else
-        -- reset flicker timer when not WS combo
         wsTimer = 0
         wsToggle = false
     end
 
-    -- Snap moveDir to nearest 45 degrees (8 directions)
-    local moveYaw = math.atan2(moveDir.Z, moveDir.X)
+    -- Snap move vector to nearest 45 degrees to prevent smooth circle movement
+    local moveYaw = math.atan2(moveVector.Z, moveVector.X)
     local snappedMoveYaw = snapAngle(moveYaw)
-    local snappedDir = Vector3.new(math.cos(snappedMoveYaw), 0, math.sin(snappedMoveYaw))
+    local snappedMoveDir = Vector3.new(math.cos(snappedMoveYaw), 0, math.sin(snappedMoveYaw))
 
-    -- Snap avatar facing direction instantly (only rotation, keep position)
-    local pos = hrp.Position
-    hrp.CFrame = CFrame.new(pos, pos + snappedDir)
+    -- Snap avatar facing direction (only rotation, keep position)
+    local hrpPos = hrp.Position
+    hrp.CFrame = CFrame.new(hrpPos, hrpPos + snappedMoveDir)
 end)
