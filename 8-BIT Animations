@@ -1,91 +1,75 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local CHOPPY_SPEED = 0.005
-local FRAME_HOLD_TIME = 0.5
-local FRAME_COUNT = 3
-local MAX_TRACK_TIME = 10 -- seconds, max allowed per animation before forced reset
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 
-local choppyTracks = {}
-local connection = nil
+local currentTrack = nil
+local choppySpeed = 0.005
+local frameStep = 0.5
 
-local function reset()
-	if connection then
-		connection:Disconnect()
-		connection = nil
+-- Allow looping of these animations while on ground
+local loopAnimations = {
+	["idle"] = true,
+	["walk"] = true,
+	["run"] = true
+}
+
+local function getAnimationName(track)
+	if track.Animation then
+		local name = track.Animation.Name:lower()
+		if name:find("idle") then return "idle"
+		elseif name:find("walk") then return "walk"
+		elseif name:find("run") then return "run"
+		elseif name:find("jump") then return "jump"
+		elseif name:find("fall") then return "fall"
+		else return name end
 	end
-	for track, _ in pairs(choppyTracks) do
-		if track and track.IsPlaying then
-			track:AdjustSpeed(1)
-			track:Stop()
-		end
-	end
-	choppyTracks = {}
+	return "unknown"
 end
 
-local function startChoppy()
-	reset()
-
-	local character = player.Character or player.CharacterAdded:Wait()
-	local humanoid = character:WaitForChild("Humanoid")
-	local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
-
-	connection = RunService.RenderStepped:Connect(function(dt)
-		-- Add or update all playing tracks
-		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-			if track.IsPlaying and track.Length > 0 then
-				if not choppyTracks[track] then
-					local length = track.Length
-					local frames = {}
-					for i = 0, FRAME_COUNT - 1 do
-						local frameTime = (length * i) / FRAME_COUNT
-						if frameTime >= length then
-							frameTime = length - 0.05
-						end
-						table.insert(frames, frameTime)
-					end
-					choppyTracks[track] = {
-						frames = frames,
-						index = 1,
-						timer = 0,
-						lastTimePosition = -1,
-						totalTime = 0,
-					}
-				end
-				track:AdjustSpeed(CHOPPY_SPEED)
+-- Choppy animation update loop
+RunService.RenderStepped:Connect(function(dt)
+	if currentTrack then
+		-- If animation is playing too long and isn't idle/run/etc., stop it
+		if not loopAnimations[getAnimationName(currentTrack)] then
+			if currentTrack.TimePosition > 1 then
+				currentTrack:Stop()
+				currentTrack = nil
 			end
 		end
+	end
+end)
 
-		for track, data in pairs(choppyTracks) do
-			if not track.IsPlaying then
-				track:AdjustSpeed(1)
-				choppyTracks[track] = nil
-			else
-				data.totalTime = data.totalTime + dt
-				if data.totalTime > MAX_TRACK_TIME then
-					-- Forced stop and reset to avoid never-ending animation
-					track:AdjustSpeed(1)
-					track:Stop()
-					choppyTracks[track] = nil
-				else
-					data.timer = data.timer + dt
-					if data.timer >= FRAME_HOLD_TIME then
-						data.timer = 0
-						data.index = data.index % #data.frames + 1
-						local newTime = data.frames[data.index]
-						if math.abs(newTime - data.lastTimePosition) > 0.01 then
-							track.TimePosition = newTime
-							data.lastTimePosition = newTime
-						end
-					end
-				end
-			end
-		end
-	end)
+-- Choppy frame stepping
+while true do
+	task.wait(frameStep)
 
-	humanoid.Died:Connect(reset)
+	if currentTrack then
+		-- Resume for a moment, then pause again
+		currentTrack:AdjustSpeed(1)
+		task.wait(choppySpeed)
+		currentTrack:AdjustSpeed(0)
+	end
 end
 
-startChoppy()
-player.CharacterAdded:Connect(startChoppy)
+-- Hook into new animations
+humanoid.AnimationPlayed:Connect(function(track)
+	local newName = getAnimationName(track)
+
+	if currentTrack then
+		if currentTrack ~= track then
+			currentTrack:Stop()
+		end
+	end
+
+	currentTrack = track
+	currentTrack:Play()
+	currentTrack:AdjustSpeed(0) -- Immediately pause after first frame
+end)
+
+-- Stop script on respawn
+player.CharacterAdded:Connect(function()
+	script:Destroy()
+end)
