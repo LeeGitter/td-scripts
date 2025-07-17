@@ -1,90 +1,85 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
-local minFrames = 2
-local maxFrames = 7
-local minFrameHoldTime = 0.05
+local UPDATE_RATE = 0.15  -- Time between frames
+local FRAME_POINTS = {0, 0.5, 1} -- Start, middle, end
 
-local animationStates = {}
-local lastPlayingTrack = nil
+local activeTracks = {}
 
-local function setupFrames(length)
-	local frameCount = math.clamp(math.floor(length), minFrames, maxFrames)
-	local frameTime = math.max(minFrameHoldTime, length / frameCount)
-	local frames = {}
-	for i = 0, frameCount - 1 do
-		frames[#frames + 1] = i / (frameCount - 1)
+-- Store what frame index the animation is on (0=start, 1=mid, 2=end)
+local trackStates = {}
+
+-- Gets or creates a Motor6D pose snapshot
+local function snapshotPose(track)
+	local keyframeSequence = track.Animation and track.Animation:GetKeyframeSequence()
+	if not keyframeSequence then return nil end
+
+	local keyframes = keyframeSequence:GetKeyframes()
+	if #keyframes < 2 then return nil end
+
+	-- Determine frame times
+	local totalTime = keyframes[#keyframes].Time
+	local poses = {}
+
+	for _, point in ipairs(FRAME_POINTS) do
+		local time = totalTime * point
+		poses[#poses+1] = {Time = time}
 	end
-	return frames, frameTime
+
+	return poses
 end
 
-local function cleanUp()
-	for track, _ in pairs(animationStates) do
-		if not track.IsPlaying or not track.Parent then
-			pcall(function()
-				track:AdjustSpeed(1)
-				track:AdjustWeight(0)
-			end)
-			animationStates[track] = nil
-		end
-	end
+-- Forces track to the frame index pose
+local function jumpToFrame(track, frameIndex)
+	local length = track.Length
+	if length <= 0 then return end
+
+	local clampedIndex = math.clamp(frameIndex, 1, #FRAME_POINTS)
+	local time = length * FRAME_POINTS[clampedIndex]
+	track:AdjustSpeed(0)
+	track:AdjustWeight(1, 0) -- no easing
+	pcall(function()
+		track:Play(0, 1, 0) -- play with no fade or speed
+		track:AdjustTime(time)
+	end)
 end
 
-RunService.RenderStepped:Connect(function(dt)
-	cleanUp()
-
-	local playingTracks = humanoid:GetPlayingAnimationTracks()
-	local activeTrack = nil
-
-	-- Detect newest playing track (highest ID = most recent)
-	if #playingTracks > 0 then
-		table.sort(playingTracks, function(a, b)
-			return tostring(a):lower() > tostring(b):lower()
-		end)
-		activeTrack = playingTracks[1]
-	end
-
-	for _, track in ipairs(playingTracks) do
-		if not animationStates[track] then
-			local frames, holdTime = setupFrames(track.Length)
-			animationStates[track] = {
-				frameIndex = 1,
-				timer = 0,
-				frames = frames,
-				frameHoldTime = holdTime,
-				justStarted = true
-			}
-		end
-	end
-
-	for track, state in pairs(animationStates) do
-		local isActive = (track == activeTrack)
-
-		if isActive then
-			state.timer = state.timer + dt
-			if state.timer >= state.frameHoldTime then
-				state.timer = 0
-				state.frameIndex += 1
-				if state.frameIndex > #state.frames then
-					state.frameIndex = 1
-				end
-			end
+-- Main updater
+local function updateTracks()
+	for i = #activeTracks, 1, -1 do
+		local track = activeTracks[i]
+		if not track.IsPlaying then
+			table.remove(activeTracks, i)
+			trackStates[track] = nil
 		else
-			state.frameIndex = 1
+			local currentIndex = (trackStates[track] or 0) + 1
+			if currentIndex > 3 then currentIndex = 1 end
+			jumpToFrame(track, currentIndex)
+			trackStates[track] = currentIndex
 		end
+	end
+end
 
-		local frame = state.frames[state.frameIndex]
-		local length = track.Length
-		local timePos = math.clamp(frame * length, 0, length - 0.001)
+-- Scan for new animations
+local function scanAnimations()
+	for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+		if not trackStates[track] then
+			table.insert(activeTracks, track)
+			trackStates[track] = 1
+			jumpToFrame(track, 1)
+		end
+	end
+end
 
-		pcall(function()
-			track:AdjustSpeed(0)
-			track:AdjustWeight(isActive and 1 or 0)
-			track.TimePosition = timePos
-		end)
+-- Run on loop
+task.spawn(function()
+	while true do
+		scanAnimations()
+		updateTracks()
+		task.wait(UPDATE_RATE)
 	end
 end)
