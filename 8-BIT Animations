@@ -6,16 +6,26 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 
 local frameHoldTime = 0.15
-local frames = {0, 0.5, 1} -- start, middle, end frames in normalized position
+local maxFrames = 7  -- max frames for long animations
+local minFrames = 3  -- min frames for short animations
 
--- Track animation state: track => {frameIndex, timer}
 local animationStates = {}
 
--- Remove stopped tracks from tracking
+local function getFramesForLength(length)
+    -- Decide how many frames based on length (more frames for longer animations)
+    local numFrames = math.clamp(math.floor(length), minFrames, maxFrames)
+    local frames = {}
+
+    for i = 0, numFrames - 1 do
+        frames[#frames + 1] = i / (numFrames - 1)  -- normalized 0 to 1 positions evenly spaced
+    end
+
+    return frames
+end
+
 local function cleanStoppedTracks()
     for track, _ in pairs(animationStates) do
         if not track.IsPlaying or not track.Parent then
-            -- Reset speed back to 1 just in case (to avoid freeze if reused)
             if track then
                 pcall(function()
                     track:AdjustSpeed(1)
@@ -26,14 +36,14 @@ local function cleanStoppedTracks()
     end
 end
 
--- Add new playing tracks that are not tracked yet
 local function addNewTracks()
     local playingTracks = humanoid:GetPlayingAnimationTracks()
     for _, track in ipairs(playingTracks) do
         if not animationStates[track] then
             animationStates[track] = {
                 frameIndex = 1,
-                timer = 0
+                timer = 0,
+                frames = getFramesForLength(track.Length)
             }
         end
     end
@@ -44,24 +54,19 @@ RunService.RenderStepped:Connect(function(dt)
     addNewTracks()
 
     for track, state in pairs(animationStates) do
-        -- Update timer
         state.timer = state.timer + dt
         if state.timer >= frameHoldTime then
             state.timer = 0
-            -- Cycle frame index 1->2->3->1 ...
             state.frameIndex = state.frameIndex + 1
-            if state.frameIndex > #frames then
+            if state.frameIndex > #state.frames then
                 state.frameIndex = 1
             end
         end
 
-        -- Calculate time position in seconds
         local length = track.Length
-        local framePos = frames[state.frameIndex]
+        local framePos = state.frames[state.frameIndex]
         local clampedPos = math.clamp(framePos * length, 0, length - 0.01)
 
-        -- Set animation frame and freeze
-        -- Use pcall in case track is removed mid-frame
         pcall(function()
             track.TimePosition = clampedPos
             track:AdjustSpeed(0)
