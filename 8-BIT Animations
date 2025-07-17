@@ -2,46 +2,41 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local function waitForCharacter()
-	return player.Character or player.CharacterAdded:Wait()
-end
 
-local function getAnimator()
-	local character = waitForCharacter()
-	local humanoid = character:WaitForChild("Humanoid")
-	return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
-end
+local FRAME_SEGMENTS = 3
+local FRAME_HOLD_TIME = 0.12
 
-local activeTracks = {}
 local choppyState = {}
 
--- How many distinct time positions we want to show per animation
-local FRAME_SEGMENTS = 3
-local FRAME_HOLD_TIME = 0.12 -- how long to hold each frame
-
 local function getFrameTimes(length)
+	local times = {}
 	if length == 0 then
 		return {0}
 	end
-	local times = {}
 	for i = 0, FRAME_SEGMENTS - 1 do
 		table.insert(times, (length / (FRAME_SEGMENTS - 1)) * i)
 	end
 	return times
 end
 
--- Main logic: loop over animations and force them to show only a few frames
-RunService.RenderStepped:Connect(function()
+local function getAnimator()
+	local character = player.Character or player.CharacterAdded:Wait()
+	local humanoid = character:WaitForChild("Humanoid")
+	return humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
+end
+
+RunService.RenderStepped:Connect(function(dt)
 	local animator = getAnimator()
+	if not animator then return end
+
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 		if not choppyState[track] then
+			local frames = getFrameTimes(track.Length)
 			choppyState[track] = {
-				frameTimes = getFrameTimes(track.Length),
-				currentIndex = 1,
+				frames = frames,
+				index = 1,
 				timer = 0,
 			}
-			track:AdjustSpeed(0) -- freeze immediately
-			track.TimePosition = choppyState[track].frameTimes[1]
 		end
 	end
 
@@ -49,18 +44,17 @@ RunService.RenderStepped:Connect(function()
 		if not track.IsPlaying then
 			choppyState[track] = nil
 		else
-			state.timer += RunService.RenderStepped:Wait()
+			state.timer += dt
 			if state.timer >= FRAME_HOLD_TIME then
 				state.timer = 0
-				state.currentIndex = (state.currentIndex % #state.frameTimes) + 1
-				track.TimePosition = state.frameTimes[state.currentIndex]
+				state.index = (state.index % #state.frames) + 1
+				-- Snap to the next "frame" manually
+				track.TimePosition = state.frames[state.index]
 			end
-			track:AdjustSpeed(0) -- keep frozen
 		end
 	end
 end)
 
--- Reset when character respawns
-Players.LocalPlayer.CharacterAdded:Connect(function()
+player.CharacterAdded:Connect(function()
 	choppyState = {}
 end)
