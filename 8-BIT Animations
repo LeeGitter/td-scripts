@@ -2,10 +2,10 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
+local FRAME_HOLD_TIME = 0.5 -- seconds per frame hold
 
-local FRAME_HOLD_TIME = 0.5 -- hold frames longer for smooth choppiness
-
-local choppyTracks = {}
+local currentTrack = nil
+local choppyData = nil
 local connection = nil
 
 local function reset()
@@ -13,7 +13,8 @@ local function reset()
 		connection:Disconnect()
 		connection = nil
 	end
-	choppyTracks = {}
+	currentTrack = nil
+	choppyData = nil
 end
 
 local function startChoppy()
@@ -24,32 +25,39 @@ local function startChoppy()
 	local animator = humanoid:FindFirstChildOfClass("Animator") or humanoid:WaitForChild("Animator")
 
 	connection = RunService.RenderStepped:Connect(function(dt)
-		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-			if not choppyTracks[track] and track.Length > 0 then
-				choppyTracks[track] = {
-					frames = {0, math.floor(track.Length / 2), track.Length - 0.05},
-					index = 1,
-					timer = 0,
-					lastTimePosition = -1,
-				}
+		-- If no animation playing, try to get a new one
+		if not currentTrack then
+			for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+				if track.IsPlaying and track.Length > 0 then
+					currentTrack = track
+					local length = track.Length
+					choppyData = {
+						frames = {0, math.floor(length / 2), length - 0.05},
+						index = 1,
+						timer = 0,
+						lastTimePosition = -1,
+					}
+					break
+				end
 			end
 		end
 
-		for track, data in pairs(choppyTracks) do
-			if not track.IsPlaying then
-				choppyTracks[track] = nil
-			else
-				data.timer = data.timer + dt
-				if data.timer >= FRAME_HOLD_TIME then
-					data.timer = 0
-					data.index = data.index % #data.frames + 1
-					local newTime = data.frames[data.index]
-					if math.abs(newTime - data.lastTimePosition) > 0.01 then
-						track.TimePosition = newTime
-						data.lastTimePosition = newTime
-					end
+		-- If there is a current track, snap frames
+		if currentTrack and currentTrack.IsPlaying then
+			choppyData.timer = choppyData.timer + dt
+			if choppyData.timer >= FRAME_HOLD_TIME then
+				choppyData.timer = 0
+				choppyData.index = choppyData.index % #choppyData.frames + 1
+				local newTime = choppyData.frames[choppyData.index]
+				if math.abs(newTime - choppyData.lastTimePosition) > 0.01 then
+					currentTrack.TimePosition = newTime
+					choppyData.lastTimePosition = newTime
 				end
 			end
+		else
+			-- Current animation ended, clear it to allow new animations
+			currentTrack = nil
+			choppyData = nil
 		end
 	end)
 
