@@ -1,0 +1,98 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local username = player.Name
+
+local function onMouthBloodVisible()
+    local args1 = {
+        [1] = "drown"
+    }
+    ReplicatedStorage.remotes.actions:FireServer(unpack(args1))
+    ReplicatedStorage.remotes.infect:FireServer()
+    player.PlayerGui.stats:SetAttribute("isDead", false)
+end
+
+local function watchWoundsFolder(woundsFolder)
+    local connections = {}
+
+    local function checkVisibility(obj)
+        if obj.Name == "mouthBlood" then
+            local visible = false
+            if obj:IsA("BasePart") then
+                visible = (obj.Transparency < 1)
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                visible = (obj.Transparency < 1)
+            elseif obj:IsA("GuiObject") then
+                visible = obj.Visible
+            else
+                visible = true
+            end
+
+            if visible then
+                onMouthBloodVisible()
+            end
+        end
+    end
+
+    -- Connect to property changes for existing mouthBlood objects
+    for _, child in ipairs(woundsFolder:GetChildren()) do
+        if child.Name == "mouthBlood" then
+            table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
+                checkVisibility(child)
+            end))
+            table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
+                checkVisibility(child)
+            end))
+            checkVisibility(child)
+        end
+    end
+
+    -- Listen for new children added named mouthBlood
+    table.insert(connections, woundsFolder.ChildAdded:Connect(function(child)
+        if child.Name == "mouthBlood" then
+            table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
+                checkVisibility(child)
+            end))
+            table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
+                checkVisibility(child)
+            end))
+            checkVisibility(child)
+        end
+    end))
+
+    return connections
+end
+
+local function disconnectAll(connections)
+    for _, conn in ipairs(connections) do
+        conn:Disconnect()
+    end
+end
+
+local connections = {}
+local woundsFolder = nil
+local character = player.Character or player.CharacterAdded:Wait()
+
+local function setup()
+    character = player.Character or player.CharacterAdded:Wait()
+    local model = workspace:FindFirstChild(username)
+    if model then
+        woundsFolder = model:FindFirstChild("wounds")
+        if woundsFolder then
+            connections = watchWoundsFolder(woundsFolder)
+        end
+    end
+end
+
+local function cleanup()
+    disconnectAll(connections)
+    connections = {}
+end
+
+setup()
+
+player.CharacterAdded:Connect(function()
+    cleanup()
+    setup()
+end)
