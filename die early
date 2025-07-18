@@ -4,7 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local username = player.Name
 
-local function onMouthBloodVisible()
+local function onWoundVisible()
     local args1 = {
         [1] = "drown"
     }
@@ -17,48 +17,42 @@ local function watchWoundsFolder(woundsFolder)
     local connections = {}
 
     local function checkVisibility(obj)
-        if obj.Name == "mouthBlood" then
-            local visible = false
-            if obj:IsA("BasePart") then
-                visible = (obj.Transparency < 1)
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                visible = (obj.Transparency < 1)
-            elseif obj:IsA("GuiObject") then
-                visible = obj.Visible
-            else
-                visible = true
-            end
+        local visible = false
+        if obj:IsA("BasePart") then
+            visible = (obj.Transparency < 1)
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            visible = (obj.Transparency < 1)
+        elseif obj:IsA("GuiObject") then
+            visible = obj.Visible
+        else
+            visible = true
+        end
 
-            if visible then
-                onMouthBloodVisible()
-            end
+        if visible then
+            onWoundVisible()
         end
     end
 
-    -- Connect to property changes for existing mouthBlood objects
+    -- Monitor existing children
     for _, child in ipairs(woundsFolder:GetChildren()) do
-        if child.Name == "mouthBlood" then
-            table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
-                checkVisibility(child)
-            end))
-            table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
-                checkVisibility(child)
-            end))
+        table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
             checkVisibility(child)
-        end
+        end))
+        table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
+            checkVisibility(child)
+        end))
+        checkVisibility(child)
     end
 
-    -- Listen for new children added named mouthBlood
+    -- Watch for new children
     table.insert(connections, woundsFolder.ChildAdded:Connect(function(child)
-        if child.Name == "mouthBlood" then
-            table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
-                checkVisibility(child)
-            end))
-            table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
-                checkVisibility(child)
-            end))
+        table.insert(connections, child:GetPropertyChangedSignal("Transparency"):Connect(function()
             checkVisibility(child)
-        end
+        end))
+        table.insert(connections, child:GetPropertyChangedSignal("Visible"):Connect(function()
+            checkVisibility(child)
+        end))
+        checkVisibility(child)
     end))
 
     return connections
