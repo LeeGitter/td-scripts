@@ -56,6 +56,36 @@ local function checkForGroundContact()
 	return result and result.Instance
 end
 
+-- Make character stand upright
+local function standUpright()
+	local pos = hrp.Position
+	local look = Vector3.new(dashDirection.X, 0, dashDirection.Z)
+	if look.Magnitude == 0 then
+		look = Vector3.new(0, 0, 1)
+	else
+		look = look.Unit
+	end
+	hrp.CFrame = CFrame.new(pos, pos + look)
+end
+
+-- Freeze all character parts
+local function freezeCharacter()
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") and part.Anchored == false then
+			part.Anchored = true
+		end
+	end
+end
+
+-- Unfreeze all character parts
+local function unfreezeCharacter()
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") and part.Anchored == true then
+			part.Anchored = false
+		end
+	end
+end
+
 -- Dash logic
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe or isDashing or isStunned then return end
@@ -98,24 +128,38 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			-- End dash after duration
 			if tick() - startTime >= DASH_DURATION then
 				isDashing = false
-				humanoid.PlatformStand = true
 				dashAnimTrack:Stop()
+
+				-- Stand upright when dash ends
+				standUpright()
+
+				-- Allow physics and movement again
+				humanoid.PlatformStand = false
+				humanoid.AutoRotate = true
+
+				conn:Disconnect()
 			end
 		end)
 
-		-- Wait for dash end
+		-- Wait for dash end then detect ground to start stun
 		task.delay(DASH_DURATION, function()
 			local groundedCheck = RunService.Heartbeat:Connect(function()
 				if checkForGroundContact() then
 					groundedCheck:Disconnect()
 					isStunned = true
 					hrp.Velocity = Vector3.zero
-					humanoid.PlatformStand = true
+
+					-- Freeze character physically instead of platform stand
+					freezeCharacter()
+
 					stunAnimTrack = playExclusiveAnimation(stunnedAnimId)
 
 					task.delay(STUN_DURATION, function()
 						isStunned = false
-						humanoid.PlatformStand = false
+
+						-- Unfreeze character so you can move again
+						unfreezeCharacter()
+
 						if stunAnimTrack then stunAnimTrack:Stop() end
 					end)
 				end
