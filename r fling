@@ -1,0 +1,125 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local humanoid = char:WaitForChild("Humanoid")
+
+-- Animation IDs
+local dashAnimId = "rbxassetid://108658565655599"
+local stunnedAnimId = "rbxassetid://92837953970970"
+
+-- Constants
+local DASH_SPEED = 200 -- 2x faster than 100
+local DASH_DURATION = 8
+local STUN_DURATION = 10
+local CAMERA_CONTROL_FACTOR = 0.03
+
+-- State
+local isDashing = false
+local isStunned = false
+local dashDirection = Vector3.zero
+local velocity = Vector3.zero
+local dashAnimTrack = nil
+local stunAnimTrack = nil
+
+-- Setup animations
+local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+
+-- Play animation exclusively
+local function playExclusiveAnimation(animId)
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		track:Stop()
+	end
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animId
+	local track = animator:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action4
+	track:Play()
+	return track
+end
+
+-- Bounce function with vector reflection
+local function bounceFrom(hitNormal)
+	-- Reflect dashDirection across hitNormal
+	dashDirection = (dashDirection - 2 * dashDirection:Dot(hitNormal) * hitNormal).Unit
+	velocity = dashDirection * DASH_SPEED
+end
+
+-- Detect ground contact after dash
+local function checkForGroundContact()
+	local rayOrigin = hrp.Position
+	local rayDir = Vector3.new(0, -5, 0)
+	local result = workspace:Raycast(rayOrigin, rayDir, RaycastParams.new())
+	return result and result.Instance
+end
+
+-- Dash logic
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe or isDashing or isStunned then return end
+	if input.KeyCode == Enum.KeyCode.R then
+		isDashing = true
+		humanoid.AutoRotate = false
+		humanoid.PlatformStand = true
+
+		-- Set initial direction
+		local cam = workspace.CurrentCamera
+		dashDirection = cam.CFrame.LookVector.Unit
+		velocity = dashDirection * DASH_SPEED
+
+		-- Play dash animation
+		dashAnimTrack = playExclusiveAnimation(dashAnimId)
+
+		local startTime = tick()
+
+		local conn
+		conn = RunService.Heartbeat:Connect(function(dt)
+			if not isDashing then conn:Disconnect() return end
+
+			-- Apply slight camera control
+			local camDir = cam.CFrame.LookVector
+			dashDirection = (dashDirection:Lerp(camDir, CAMERA_CONTROL_FACTOR)).Unit
+			velocity = dashDirection * DASH_SPEED
+
+			-- Move
+			hrp.Velocity = velocity
+
+			-- Check for collision
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = {char}
+			rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+			local result = workspace:Raycast(hrp.Position, dashDirection * 3, rayParams)
+			if result then
+				bounceFrom(result.Normal)
+			end
+
+			-- End dash after duration
+			if tick() - startTime >= DASH_DURATION then
+				isDashing = false
+				humanoid.PlatformStand = true
+				dashAnimTrack:Stop()
+			end
+		end)
+
+		-- Wait for dash end
+		task.delay(DASH_DURATION, function()
+			local groundedCheck = RunService.Heartbeat:Connect(function()
+				if checkForGroundContact() then
+					groundedCheck:Disconnect()
+					isStunned = true
+					hrp.Velocity = Vector3.zero
+					humanoid.PlatformStand = true
+					stunAnimTrack = playExclusiveAnimation(stunnedAnimId)
+
+					task.delay(STUN_DURATION, function()
+						isStunned = false
+						humanoid.PlatformStand = false
+						if stunAnimTrack then stunAnimTrack:Stop() end
+					end)
+				end
+			end)
+		end)
+	end
+end)
