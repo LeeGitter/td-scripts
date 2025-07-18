@@ -1,0 +1,144 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+-- Animation IDs
+local fastWalkAnimId = "rbxassetid://125854033695079"
+local dashAnimId = "rbxassetid://86763154472301"
+
+-- Animation Tracks
+local walkAnimTrack, dashAnimTrack
+local holdingT = false
+local moving = false
+
+-- Speed State
+local currentSpeed = 10
+local speedTimer = 0
+
+-- Load Walk Animation (set to Action4 to override blending)
+local function loadWalkAnimation()
+	if not walkAnimTrack then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = fastWalkAnimId
+		walkAnimTrack = humanoid:LoadAnimation(anim)
+		walkAnimTrack.Priority = Enum.AnimationPriority.Action4
+	end
+end
+
+-- Load Dash Animation (also Action4 priority)
+local function loadDashAnimation()
+	if not dashAnimTrack then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = dashAnimId
+		dashAnimTrack = humanoid:LoadAnimation(anim)
+		dashAnimTrack.Priority = Enum.AnimationPriority.Action4
+	end
+end
+
+-- Reset to base speed
+local function resetMovement()
+	currentSpeed = 10
+	speedTimer = 0
+	if walkAnimTrack then
+		walkAnimTrack:Stop()
+	end
+end
+
+-- Dash KeyDown
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.T and not holdingT then
+		holdingT = true
+		loadDashAnimation()
+		if dashAnimTrack then
+			dashAnimTrack:Play(0.1, 1, 1)
+		end
+	end
+end)
+
+-- Dash KeyUp
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.T then
+		holdingT = false
+		if dashAnimTrack then
+			dashAnimTrack:Stop()
+		end
+	end
+end)
+
+-- Movement & Animation Loop
+RunService.RenderStepped:Connect(function(dt)
+	if not character or not humanoid or not hrp then return end
+
+	local moveDir = humanoid.MoveDirection
+	moving = moveDir.Magnitude > 0.1
+
+	-- DASHING
+	if holdingT then
+		currentSpeed = 95
+		humanoid.WalkSpeed = 0
+
+		local camCF = workspace.CurrentCamera.CFrame
+		local forward = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+
+		-- Maintain Y velocity (prevent flying)
+		local verticalVel = Vector3.new(0, hrp.Velocity.Y, 0)
+		hrp.Velocity = forward * currentSpeed + verticalVel
+		hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + forward)
+
+		return
+	end
+
+	-- BASE MOVEMENT
+	if moving then
+		speedTimer += dt
+
+		if speedTimer < 1 then
+			currentSpeed = 10 + (18 * speedTimer) -- 10 → 28 in 1s
+		elseif speedTimer < 4 then
+			currentSpeed = 28
+		elseif speedTimer < 9 then
+			currentSpeed = 28 + (37 * ((speedTimer - 4) / 5)) -- 28 → 65 in 5s
+		else
+			currentSpeed = 65
+		end
+	else
+		resetMovement()
+	end
+
+	humanoid.WalkSpeed = currentSpeed
+
+	-- WALKING ANIMATION
+	if moving then
+		loadWalkAnimation()
+
+		if currentSpeed >= 25 then
+			if not walkAnimTrack.IsPlaying then
+				walkAnimTrack:Play(0.1, 1, 1)
+			end
+			if currentSpeed > 30 then
+				walkAnimTrack:AdjustSpeed(2)
+			else
+				walkAnimTrack:AdjustSpeed(1)
+			end
+		end
+	else
+		if walkAnimTrack and walkAnimTrack.IsPlaying then
+			walkAnimTrack:Stop()
+		end
+	end
+end)
+
+-- Respawn handler
+player.CharacterAdded:Connect(function(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+	hrp = char:WaitForChild("HumanoidRootPart")
+	walkAnimTrack = nil
+	dashAnimTrack = nil
+	resetMovement()
+end)
