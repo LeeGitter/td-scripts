@@ -10,11 +10,8 @@ local NUM_SEGMENTS = 16
 local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
 local LENGTH_PER_SEGMENT = 0.7
 
--- Base offset: low on waist/back (Y negative), Z back positive
-local BASE_OFFSET = Vector3.new(0, -1.5, 1.5)
-
--- Elevation increase for tail tip relative to base
-local TIP_ELEVATION = 3.0
+local BASE_OFFSET = Vector3.new(0, -1.5, 1.5) -- Base offset low on waist/back
+local MAX_PITCH_ANGLE = math.rad(30)          -- Max upward pitch angle at tail tip
 
 local BUILD_DELAY = 0.1
 
@@ -38,14 +35,14 @@ tailRootAttachment.Name = "TailRoot"
 tailRootAttachment.Position = BASE_OFFSET
 tailRootAttachment.Parent = torso
 
--- Create tail segment parts WITHOUT physics enabled (anchored) initially
-local function createSegment(index, parentAttachment)
+-- Create tail segment parts WITHOUT physics enabled initially
+local function createSegment(index)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
 	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, 0)
 	part.Material = Enum.Material.Neon
 	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
-	part.Anchored = true  -- initially anchored to hold shape
+	part.Anchored = true  -- initially anchored
 	part.CanCollide = false
 	part.Massless = true
 	part.CastShadow = false
@@ -62,32 +59,39 @@ local function createSegment(index, parentAttachment)
 	return part, att0, att1
 end
 
--- Build tail anchored, hold fixed shape, then enable physics and constraints for wobble
+-- Build tail anchored, with upward curve applied by rotating each segment slightly more pitch upward
 coroutine.wrap(function()
 	local lastAttachment = tailRootAttachment
 
 	for i = 1, NUM_SEGMENTS do
-		local part, att0, att1 = createSegment(i, lastAttachment)
+		local part, att0, att1 = createSegment(i)
 		segments[i] = part
 		attachments[i] = {att0, att1}
 
-		-- Position segments in a line backward and linearly rising Y for curve
-		local yOffset = BASE_OFFSET.Y + (TIP_ELEVATION * (i - 1) / (NUM_SEGMENTS - 1))
-		part.CFrame = torso.CFrame * CFrame.new(0, yOffset, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+		-- Normalized position along tail [0..1]
+		local t = (i - 1) / (NUM_SEGMENTS - 1)
 
-		-- Keep anchored during build phase
+		-- Calculate pitch angle increasing from 0 to MAX_PITCH_ANGLE along tail
+		local pitchAngle = MAX_PITCH_ANGLE * t
+
+		-- Base position behind torso
+		local basePos = Vector3.new(0, BASE_OFFSET.Y, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+
+		-- Compose CFrame: torso CFrame * position * pitch rotation upward
+		local cframe = torso.CFrame * CFrame.new(basePos) * CFrame.Angles(pitchAngle, 0, 0)
+
+		part.CFrame = cframe
 		part.Anchored = true
 
 		lastAttachment = att1
 		wait(BUILD_DELAY)
 	end
 
-	-- Now un-anchor all parts and add BallSocketConstraints + AlignOrientation to enable physics wobble
+	-- Enable physics and constraints after building
 	for i = 1, NUM_SEGMENTS do
 		local part = segments[i]
 		part.Anchored = false
 
-		-- Add BallSocketConstraint connecting current segment to previous
 		local ballSocket = Instance.new("BallSocketConstraint")
 		ballSocket.Attachment0 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
 		ballSocket.Attachment1 = attachments[i][1]
@@ -99,7 +103,6 @@ coroutine.wrap(function()
 		ballSocket.Parent = part
 		ballSockets[i] = ballSocket
 
-		-- Add AlignOrientation for smooth alignment between attachments
 		local alignOri = Instance.new("AlignOrientation")
 		alignOri.Attachment0 = attachments[i][1]
 		alignOri.Attachment1 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
@@ -111,7 +114,7 @@ coroutine.wrap(function()
 		alignOrientations[i] = alignOri
 	end
 
-	-- Create the spinning pastel cube tip
+	-- Create spinning pastel cube at tip
 	cube = Instance.new("Part")
 	cube.Shape = Enum.PartType.Block
 	cube.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -140,7 +143,7 @@ local lastPos = torso.Position
 RunService.RenderStepped:Connect(function()
 	if #segments == 0 then return end
 
-	local moveVec = torso.Velocity -- smoother movement delta
+	local moveVec = torso.Velocity
 
 	for i, part in ipairs(segments) do
 		local phase = tick() * 2 + i
@@ -149,10 +152,9 @@ RunService.RenderStepped:Connect(function()
 		part.AssemblyLinearVelocity = offset
 	end
 
-	-- Pastel cube color cycling and spinning
 	if cube then
 		cubeHue = (cubeHue + 0.005) % 1
-		cube.Color = Color3.fromHSV(cubeHue, 0.4, 1) -- pastel saturation 0.4, brightness 1
+		cube.Color = Color3.fromHSV(cubeHue, 0.4, 1)
 		cube.RotVelocity = Vector3.new(2, 4, 1)
 	end
 end)
