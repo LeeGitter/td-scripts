@@ -7,13 +7,13 @@ local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
 
--- Config for FOV and vignette beat-bop effect
+-- Config for SIGNIFICANTLY less sensitive FOV and vignette bopping
 local BASE_FOV = 70
-local MAX_FOV_INCREASE = 15
-local BOP_SPEED = 8          -- how fast the FOV pulses
-local VIGNETTE_BOP_SPEED = 10 -- how fast the vignette pulses
-local VIGNETTE_INTENSITY_MAX = 0.5
-local LOUDNESS_THRESHOLD = 150
+local MAX_FOV_INCREASE = 3          -- very subtle zoom
+local BOP_SPEED = 4                 -- slower bopping speed
+local VIGNETTE_BOP_SPEED = 5        -- slower vignette pulse speed
+local VIGNETTE_INTENSITY_MAX = 0.1  -- very subtle vignette
+local LOUDNESS_THRESHOLD = 1200     -- very high threshold
 
 -- Setup vignette effect
 local vignette = Instance.new("VignetteEffect")
@@ -30,12 +30,7 @@ colorCorrection.TintColor = Color3.new(1, 1, 1)
 local timeSinceLoud = 0
 local active = false
 
-local function lerp(a, b, t)
-    return a + (b - a) * t
-end
-
 RunService.RenderStepped:Connect(function(dt)
-    -- Get max loudness from all playing sounds near the player
     local maxLoudness = 0
     for _, sound in ipairs(Workspace:GetDescendants()) do
         if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
@@ -53,7 +48,7 @@ RunService.RenderStepped:Connect(function(dt)
         timeSinceLoud = 0
     else
         timeSinceLoud = timeSinceLoud + dt
-        if timeSinceLoud > 0.5 then -- stop effect after 0.5s quiet
+        if timeSinceLoud > 0.5 then
             active = false
             vignette.Intensity = 0
             colorCorrection.TintColor = Color3.new(1, 1, 1)
@@ -65,16 +60,13 @@ RunService.RenderStepped:Connect(function(dt)
     if active then
         timeSinceLoud = timeSinceLoud + dt
 
-        -- FOV bops with sine wave synced to time
         local fovOffset = math.sin(timeSinceLoud * BOP_SPEED) * (MAX_FOV_INCREASE / 2) + (MAX_FOV_INCREASE / 2)
         camera.FieldOfView = BASE_FOV + fovOffset
 
-        -- Vignette intensity pulses faster
         local vignettePulse = (math.sin(timeSinceLoud * VIGNETTE_BOP_SPEED) + 1) / 2
         vignette.Intensity = vignettePulse * VIGNETTE_INTENSITY_MAX
 
-        -- Cycle rainbow tint color over time
-        local hue = (tick() * 3) % 1
+        local hue = (tick() * 1.5) % 1
         colorCorrection.TintColor = Color3.fromHSV(hue, 1, 1)
     end
 end)
