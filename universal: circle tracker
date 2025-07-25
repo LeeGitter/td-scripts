@@ -72,8 +72,19 @@ local function getSoundPosition(sound)
     return head.Position
 end
 
--- Detect all nearby sounds and flag floating/global ones
-local function getNearbySounds()
+-- Cached sounds list and throttle timer
+local cachedSounds = {}
+local timeSinceLastScan = 0
+local scanInterval = 0.1 -- seconds
+
+-- Detect all nearby sounds and flag floating/global ones (throttled)
+local function getNearbySounds(dt)
+    timeSinceLastScan = timeSinceLastScan + dt
+    if timeSinceLastScan < scanInterval then
+        return cachedSounds
+    end
+    timeSinceLastScan = 0
+
     local sounds = {}
 
     for _, sound in pairs(workspace:GetDescendants()) do
@@ -103,6 +114,7 @@ local function getNearbySounds()
     addLocalSounds(player:WaitForChild("PlayerGui"))
     addLocalSounds(character)
 
+    cachedSounds = sounds
     return sounds
 end
 
@@ -125,7 +137,6 @@ local function removeHighlight()
     end
 end
 
--- Main visualizer update
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
@@ -161,7 +172,7 @@ RunService.Heartbeat:Connect(function(dt)
     local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
-    local sounds = getNearbySounds()
+    local sounds = getNearbySounds(dt)
     local highlightTriggeredThisFrame = false
 
     for i, part in ipairs(parts) do
@@ -176,14 +187,14 @@ RunService.Heartbeat:Connect(function(dt)
         if sound then
             loudness = sound.PlaybackLoudness or 0
             if soundData.IsFloating then
-                loudness *= 1.75 -- Boost global/floating sounds
+                loudness *= 2.5 -- Increased boost for floating/global sounds
             end
         end
 
         local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
         local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
 
-        partScales[i] += (targetHeight - partScales[i]) * 0.15
+        partScales[i] += (targetHeight - partScales[i]) * 0.25 -- slightly faster lerp
         part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
         part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
 
