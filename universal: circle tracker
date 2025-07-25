@@ -1,101 +1,167 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-
 local character = player.Character or player.CharacterAdded:Wait()
-local root = character:WaitForChild("HumanoidRootPart")
 
--- Print to confirm script runs
-print("Rainbow dust trail script started")
+local leftLeg = character:WaitForChild("Left Leg")
+local rightLeg = character:WaitForChild("Right Leg")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
-local function createDustPart(name, offset)
-    local attachment = Instance.new("Attachment")
-    attachment.Name = name .. "Attachment"
-    attachment.Position = offset
-    attachment.Parent = root
+-- Pillar properties
+local pillarSize = Vector3.new(0.3, 5, 0.3) -- tall pillars
+local afterimageLifetime = 4
+local afterimageFadeTime = 4
+local afterimageSpawnInterval = 0.15
 
-    local dust = Instance.new("Part")
-    dust.Name = name .. "Dust"
-    dust.Anchored = false
-    dust.CanCollide = false
-    dust.Size = Vector3.new(0.1, 1, 0.1)
-    dust.Material = Enum.Material.Neon
-    dust.Transparency = 0.3
-    dust.CastShadow = false
-    dust.Color = Color3.fromHSV(0, 0.8, 1)
+-- Particle aura properties
+local auraParticleCount = 30
+local auraRadius = 0.5
 
-    local alignPos = Instance.new("AlignPosition")
-    alignPos.Attachment0 = attachment
-    alignPos.RigidityEnabled = true
-    alignPos.MaxForce = math.huge
-    alignPos.Responsiveness = 200
-    alignPos.Parent = dust
+-- Audio detection
+local soundDetectionRadius = 60
+local maxLoudnessExpected = 1000
 
-    local alignOri = Instance.new("AlignOrientation")
-    alignOri.Attachment0 = attachment
-    alignOri.RigidityEnabled = true
-    alignOri.MaxTorque = math.huge
-    alignOri.Responsiveness = 200
-    alignOri.Parent = dust
+-- Folder to hold pillars
+local pillarFolder = Workspace:FindFirstChild("LocalPillars")
+if pillarFolder then
+    pillarFolder:Destroy()
+end
+pillarFolder = Instance.new("Folder")
+pillarFolder.Name = "LocalPillars"
+pillarFolder.Parent = Workspace
 
-    dust.Parent = workspace
-
-    print(name.." dust created")
-
-    return dust
+-- Create particle emitters for feet aura
+local function createAuraEmitter(parentPart)
+    local particleEmitter = Instance.new("ParticleEmitter")
+    particleEmitter.Color = ColorSequence.new(Color3.fromHSV(0, 0.6, 1)) -- start with pastel red
+    particleEmitter.LightEmission = 0.7
+    particleEmitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 0)})
+    particleEmitter.Rate = 60
+    particleEmitter.Speed = NumberRange.new(0.5, 1)
+    particleEmitter.Lifetime = NumberRange.new(1, 1.5)
+    particleEmitter.Rotation = NumberRange.new(0, 360)
+    particleEmitter.RotSpeed = NumberRange.new(-90, 90)
+    particleEmitter.EmissionDirection = Enum.NormalId.Top
+    particleEmitter.LockedToPart = true
+    particleEmitter.Parent = parentPart
+    return particleEmitter
 end
 
-local leftDust = createDustPart("Left", Vector3.new(-0.5, -2.3, 0))
-local rightDust = createDustPart("Right", Vector3.new(0.5, -2.3, 0))
+local leftAura = createAuraEmitter(leftLeg)
+local rightAura = createAuraEmitter(rightLeg)
 
+local lastPillarSpawnTime = 0
 local hue = 0
-local function nextRainbowColor(dt)
-    hue = (hue + dt * 1.5) % 1
-    return Color3.fromHSV(hue, 0.8, 1)
+
+-- Helper: Get nearby playing sounds within radius
+local function getNearbySounds(position)
+    local sounds = {}
+    for _, sound in pairs(Workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.IsPlaying and (sound.Parent and sound.Parent:IsA("BasePart")) then
+            local pos = sound.Parent.Position
+            if (pos - position).Magnitude <= soundDetectionRadius then
+                table.insert(sounds, sound)
+            end
+        end
+    end
+    return sounds
 end
 
-local lastTrailTime = 0
-local trailSpawnInterval = 0.1
-local trailFadeTime = 0.8
+-- Create a pillar at a position
+local function createPillar(position)
+    local pillar = Instance.new("Part")
+    pillar.Anchored = true
+    pillar.CanCollide = false
+    pillar.Size = pillarSize
+    pillar.Material = Enum.Material.Neon
+    pillar.Color = Color3.fromHSV(hue, 0.6, 1)
+    pillar.CFrame = CFrame.new(position + Vector3.new(0, pillarSize.Y/2, 0))
+    pillar.Transparency = 0
+    pillar.CastShadow = false
+    pillar.Parent = pillarFolder
+    return pillar
+end
+
+-- Afterimage pulse and fade coroutine
+local function animatePillar(pillar)
+    spawn(function()
+        local startTime = tick()
+        while true do
+            local dt = RunService.Heartbeat:Wait()
+            local elapsed = tick() - startTime
+            if elapsed > afterimageLifetime then
+                pillar:Destroy()
+                break
+            end
+
+            -- Find loudness of nearby sounds to pillar
+            local sounds = getNearbySounds(pillar.Position)
+            local maxLoudness = 0
+            for _, sound in pairs(sounds) do
+                local loudness = sound.PlaybackLoudness or 0
+                if loudness > maxLoudness then maxLoudness = loudness end
+            end
+
+            local loudnessNorm = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
+            local pulseHeight = 1 + loudnessNorm * 3 -- scale height from 1x to 4x
+
+            -- Adjust pillar size Y (height) smoothly
+            local currentSize = pillar.Size
+            local targetY = pillarSize.Y * pulseHeight
+            local newY = currentSize.Y + (targetY - currentSize.Y) * 0.2
+            pillar.Size = Vector3.new(currentSize.X, newY, currentSize.Z)
+
+            -- Adjust CFrame so bottom stays on ground
+            local basePos = pillar.Position - Vector3.new(0, currentSize.Y / 2, 0)
+            pillar.CFrame = CFrame.new(basePos + Vector3.new(0, newY / 2, 0))
+
+            -- Fade out transparency over time
+            local fadeAlpha = math.clamp(elapsed / afterimageFadeTime, 0, 1)
+            pillar.Transparency = fadeAlpha
+
+            -- Cycle color hue
+            hue = (hue + dt * 0.5) % 1
+            pillar.Color = Color3.fromHSV(hue, 0.6, 1)
+        end
+    end)
+end
 
 RunService.Heartbeat:Connect(function(dt)
     if not character or not character.Parent then
         character = player.Character or player.CharacterAdded:Wait()
-        root = character:WaitForChild("HumanoidRootPart")
-        print("Character respawned, references updated")
+        leftLeg = character:WaitForChild("Left Leg")
+        rightLeg = character:WaitForChild("Right Leg")
+        rootPart = character:WaitForChild("HumanoidRootPart")
+        leftAura = createAuraEmitter(leftLeg)
+        rightAura = createAuraEmitter(rightLeg)
     end
 
-    -- Update dust colors smoothly
-    local dustColor = nextRainbowColor(dt)
-    leftDust.Color = dustColor
-    rightDust.Color = dustColor
+    hue = (hue + dt * 0.5) % 1
+    local pastelColor = Color3.fromHSV(hue, 0.6, 1)
 
-    local speed = root.Velocity.Magnitude
+    -- Update aura colors on feet
+    if leftAura and leftAura.Parent then
+        leftAura.Color = ColorSequence.new(pastelColor)
+    end
+    if rightAura and rightAura.Parent then
+        rightAura.Color = ColorSequence.new(pastelColor)
+    end
 
-    if speed > 1 and tick() - lastTrailTime > trailSpawnInterval then
-        lastTrailTime = tick()
-        for _, dustPart in pairs({leftDust, rightDust}) do
-            local trailPart = Instance.new("Part")
-            trailPart.Size = Vector3.new(0.1, 1, 0.1)
-            trailPart.Anchored = true
-            trailPart.CanCollide = false
-            trailPart.Material = Enum.Material.Neon
-            trailPart.Color = nextRainbowColor(0)
-            trailPart.Transparency = 0.3
-            trailPart.CastShadow = false
-            trailPart.CFrame = dustPart.CFrame
-
-            local tweenInfo = TweenInfo.new(trailFadeTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-            local goal = {
-                Transparency = 1
-            }
-            TweenService:Create(trailPart, tweenInfo, goal):Play()
-
-            trailPart.Parent = workspace
-            game.Debris:AddItem(trailPart, trailFadeTime)
-            print("Trail part spawned")
+    local speed = rootPart.Velocity.Magnitude
+    if speed > 1 and tick() - lastPillarSpawnTime > afterimageSpawnInterval then
+        -- Spawn pillars near feet positions, offset a little behind root part to simulate trail
+        if leftLeg then
+            local pos = leftLeg.Position - rootPart.CFrame.LookVector * 0.5
+            local pillar = createPillar(pos)
+            animatePillar(pillar)
         end
+        if rightLeg then
+            local pos = rightLeg.Position - rootPart.CFrame.LookVector * 0.5
+            local pillar = createPillar(pos)
+            animatePillar(pillar)
+        end
+        lastPillarSpawnTime = tick()
     end
 end)
