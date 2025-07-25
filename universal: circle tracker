@@ -38,20 +38,17 @@ local function createSegment(index)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
 
-	-- Size grows slightly toward tip
 	local sizeMultiplier = 1 + (index / NUM_SEGMENTS) * 1.5
 	part.Size = Vector3.new(BASE_SIZE.X * sizeMultiplier, BASE_SIZE.Y * sizeMultiplier, LENGTH_PER_SEGMENT)
 
 	part.Material = Enum.Material.Neon
 	part.Anchored = false
-	part.CanCollide = false      -- No collision
+	part.CanCollide = false
 	part.Massless = true
 	part.CastShadow = false
 	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
 
-	-- Zero friction, elasticity etc. to prevent physics pushing
 	part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
-
 	part.Parent = tailModel
 
 	local att0 = Instance.new("Attachment", part)
@@ -65,7 +62,7 @@ local function createSegment(index)
 	return part, att0, att1
 end
 
--- Build tail anchored with upward curve by rotation
+-- Build curved tail
 for i = 1, NUM_SEGMENTS do
 	local part, att0, att1 = createSegment(i)
 	segments[i] = part
@@ -80,20 +77,18 @@ for i = 1, NUM_SEGMENTS do
 	part.CFrame = cframe
 	part.Anchored = true
 
-	wait(BUILD_DELAY)
+	task.wait(BUILD_DELAY)
 end
 
--- After build: unanchor parts and setup AlignPosition and AlignOrientation constraints for smooth following without physics push
+-- Enable physics-based follow
 for i = 1, NUM_SEGMENTS do
 	local part = segments[i]
 	part.Anchored = false
 
 	local att0, att1 = attachments[i][1], attachments[i][2]
-
 	local attachA = (i == 1) and tailRootAttachment or attachments[i - 1][2]
 	local attachB = att0
 
-	-- AlignPosition to follow previous attachment position smoothly
 	local alignPos = Instance.new("AlignPosition")
 	alignPos.Attachment0 = attachB
 	alignPos.Attachment1 = attachA
@@ -102,7 +97,6 @@ for i = 1, NUM_SEGMENTS do
 	alignPos.RigidityEnabled = false
 	alignPos.Parent = part
 
-	-- AlignOrientation to smoothly match previous attachment orientation
 	local alignOri = Instance.new("AlignOrientation")
 	alignOri.Attachment0 = attachB
 	alignOri.Attachment1 = attachA
@@ -111,21 +105,22 @@ for i = 1, NUM_SEGMENTS do
 	alignOri.Parent = part
 end
 
--- Create spinning pastel cube at tail tip
+-- 🟦 Create spinning pastel cube at tip
+local tipSegment = segments[#segments]
 
 local cube = Instance.new("Part")
 cube.Name = "TailTipCube"
 cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
 cube.Anchored = false
-cube.CanCollide = false       -- No collision
+cube.CanCollide = false
 cube.Massless = true
 cube.CastShadow = false
 cube.Color = Color3.fromHSV(0, 0.5, 1)
 cube.Parent = tailModel
 
-local tipAttach = Instance.new("Attachment", segments[#segments])
-tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
+local tipAttach = Instance.new("Attachment", tipSegment)
+tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT * 1.5) -- Further out
 
 local cubeAttach = Instance.new("Attachment", cube)
 cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
@@ -145,7 +140,7 @@ alignOriCube.MaxTorque = 10000
 alignOriCube.Responsiveness = 50
 alignOriCube.Parent = cube
 
--- Tail wobble parameters
+-- Wobble and color cycle
 local wobbleSpeed = 2
 local wobbleMagnitude = 0.05
 local cubeWobbleSpeed = 4
@@ -162,23 +157,16 @@ RunService.RenderStepped:Connect(function(dt)
 		local phase = time * wobbleSpeed + i
 		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
 		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
-
-		-- Offset attachment positions to create wobble
-		local att0, att1 = attachments[i][1], attachments[i][2]
+		local att0 = attachments[i][1]
 		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
 	end
 
 	if cube then
-		-- Idle spin of cube
-		cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(2), math.rad(1.5))
-
-		-- More intense wobble on cube
+		cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(3), math.rad(2))
 		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude * 2
 		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude * 2
-
 		cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2) + Vector3.new(wobbleX, wobbleY, 0)
 
-		-- Pastel color cycling on cube
 		cubeHue = (cubeHue + dt * 0.12) % 1
 		cube.Color = Color3.fromHSV(cubeHue, 0.5, 1)
 	end
