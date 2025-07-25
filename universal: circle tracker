@@ -5,34 +5,40 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local torso = character:WaitForChild("Torso")
 
--- Settings
+-- Tail Settings
 local NUM_SEGMENTS = 16
 local BASE_SIZE = Vector3.new(0.5, 0.5, 0.5)
 local LENGTH_PER_SEGMENT = 0.7
-local START_OFFSET = Vector3.new(0, 0.5, 1.5) -- Up and back offset relative to torso
-local BUILD_DELAY = 0.15 -- Seconds between segments spawning
+
+-- Base offset: **lower** near waist/back (Y negative), Z back positive
+local BASE_OFFSET = Vector3.new(0, -1.2, 1.5)
+
+-- How much the tail tip rises relative to base (total elevation gain)
+local TIP_ELEVATION = 2.5
+
+local BUILD_DELAY = 0.1
 
 local segments = {}
 local tailRootAttachment = nil
 local cube = nil
+local cubeHue = 0
 
--- Clean up old tail if exists
+-- Cleanup old tail
 if character:FindFirstChild("TailRoot") then
 	character.TailRoot:Destroy()
 end
 
--- Create a root attachment on torso (for constraints)
+-- Create root attachment on torso at base offset
 tailRootAttachment = Instance.new("Attachment")
 tailRootAttachment.Name = "TailRoot"
-tailRootAttachment.Position = START_OFFSET
+tailRootAttachment.Position = BASE_OFFSET
 tailRootAttachment.Parent = torso
 
--- Helper function to create a tail segment
+-- Create one tail segment, attaching to previous attachment
 local function createSegment(index, parentAttachment)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
 	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, LENGTH_PER_SEGMENT)
-	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1) -- rainbow colors
 	part.Material = Enum.Material.Neon
 	part.CanCollide = false
 	part.Anchored = false
@@ -40,20 +46,21 @@ local function createSegment(index, parentAttachment)
 	part.CastShadow = false
 	part.Parent = workspace
 
+	-- Calculate color rainbow gradient along tail
+	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
+
 	local att1 = Instance.new("Attachment", part)
 	local att2 = Instance.new("Attachment", parentAttachment.Parent)
 
-	-- Position attachments for ball socket
 	att1.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 	att2.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
 
-	-- Constraint to connect this segment to parent
 	local ballSocket = Instance.new("BallSocketConstraint")
 	ballSocket.Attachment0 = att2
 	ballSocket.Attachment1 = att1
 	ballSocket.LimitsEnabled = true
 	ballSocket.TwistLimitsEnabled = true
-	ballSocket.UpperAngle = 25
+	ballSocket.UpperAngle = 25 -- Allow more bending
 	ballSocket.TwistLowerAngle = -15
 	ballSocket.TwistUpperAngle = 15
 	ballSocket.Parent = part
@@ -70,21 +77,23 @@ coroutine.wrap(function()
 		table.insert(segments, segment)
 		lastAttachment = newAttachment
 
-		-- Position segment initially relative to torso + offset + length * i
-		segment.CFrame = torso.CFrame * CFrame.new(-START_OFFSET.X, START_OFFSET.Y, -START_OFFSET.Z - LENGTH_PER_SEGMENT * i)
-		
+		-- Calculate elevation for this segment: linearly interpolate from base offset Y to base + TIP_ELEVATION
+		local yOffset = BASE_OFFSET.Y + (TIP_ELEVATION * (i - 1) / (NUM_SEGMENTS - 1))
+		-- Position segments in a straight line backward on Z and rising on Y
+		segment.CFrame = torso.CFrame * CFrame.new(0, yOffset, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+
 		wait(BUILD_DELAY)
 	end
 
-	-- Now create the cube at the tail tip
+	-- Create spinning pastel cube at tip of tail
 	cube = Instance.new("Part")
 	cube.Shape = Enum.PartType.Block
 	cube.Size = Vector3.new(1.5, 1.5, 1.5)
 	cube.Material = Enum.Material.Neon
-	cube.Color = Color3.fromRGB(255, 255, 100)
-	cube.Anchored = false
 	cube.CanCollide = false
+	cube.Anchored = false
 	cube.Massless = true
+	cube.CastShadow = false
 	cube.Parent = workspace
 
 	local attachTail = Instance.new("Attachment", segments[#segments])
@@ -101,11 +110,10 @@ coroutine.wrap(function()
 	hinge.AngularVelocity = 5
 end)()
 
--- Movement-based wiggling
 local lastPos = torso.Position
 RunService.RenderStepped:Connect(function()
-	if #segments == 0 then return end -- Wait until tail is built
-	
+	if #segments == 0 then return end
+
 	local moveVec = (torso.Position - lastPos)
 	lastPos = torso.Position
 
@@ -116,7 +124,10 @@ RunService.RenderStepped:Connect(function()
 		part.AssemblyLinearVelocity = offset
 	end
 
+	-- Pastel cube color cycling and spinning
 	if cube then
-		cube.RotVelocity = Vector3.new(2, 4, 1) -- Independent wobble/spin
+		cubeHue = (cubeHue + 0.005) % 1
+		cube.Color = Color3.fromHSV(cubeHue, 0.4, 1) -- pastel saturation 0.4, brightness 1
+		cube.RotVelocity = Vector3.new(2, 4, 1)
 	end
 end)
