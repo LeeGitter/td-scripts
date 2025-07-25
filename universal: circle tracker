@@ -3,11 +3,11 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local torso = character:WaitForChild("Torso") -- R6 torso part
+local torso = character:WaitForChild("Torso") -- R6 torso
 
 local segmentCount = 11
 
--- Clear existing VisualizerCrown folder if any
+-- Cleanup old parts
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
 if crownFolder then
     crownFolder:Destroy()
@@ -17,12 +17,10 @@ crownFolder.Name = "VisualizerCrown"
 crownFolder.Parent = workspace
 
 local parts = {}
-local partScales = {}
-
 local basePartThickness = 0.25
 local basePartLength = 1.5
 
--- Create 11 tail parts
+-- Create parts
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
@@ -30,77 +28,74 @@ for i = 1, segmentCount do
     part.Material = Enum.Material.Neon
     part.Transparency = 0
     part.Name = "TailPart" .. i
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1) -- rainbow colors (optional)
+    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
     part.Parent = crownFolder
     parts[i] = part
-    partScales[i] = basePartLength
 end
 
--- Configure sizes:
--- Parts 1-3: Long thin tail segments (bendable)
+-- Set sizes for parts
+-- Tail segments 1-3 (long thin)
 for i = 1, 3 do
     parts[i].Size = Vector3.new(basePartThickness, basePartThickness, basePartLength)
 end
 
--- Parts 4-7: Hollow square at tail end, made of 4 parts forming the square frame
--- We'll make thin rectangular parts positioned to form a square outline
+-- Hollow square frame parts 4-7
 local squareThickness = basePartThickness
 local squareLength = basePartLength
+parts[4].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- top
+parts[5].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- right
+parts[6].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- bottom
+parts[7].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- left
 
--- We'll reuse parts 4,5,6,7 for square frame:
-parts[4].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- top side
-parts[5].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- right side
-parts[6].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- bottom side
-parts[7].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- left side
-
--- Parts 8-10: Crossing parts through tail near the square
+-- Crossing parts 8-10
 for i = 8, 10 do
     parts[i].Size = Vector3.new(squareThickness * 0.5, squareThickness * 0.5, squareLength * 0.9)
-    parts[i].Color = Color3.new(1, 0, 0) -- optional red for contrast
+    parts[i].Color = Color3.new(1, 0, 0)
 end
 
--- Part 11: Final extra part, thin and small, place near square
+-- Last part 11
 parts[11].Size = Vector3.new(squareThickness * 0.3, squareThickness * 0.3, squareLength * 0.6)
-parts[11].Color = Color3.new(0, 1, 0) -- optional green
+parts[11].Color = Color3.new(0, 1, 0)
 
--- Variables for wobble
 local wobbleTime = 0
 
 RunService.Heartbeat:Connect(function(dt)
-    wobbleTime = wobbleTime + dt * 5 -- speed of wobble
+    wobbleTime = wobbleTime + dt * 5
 
-    local basePos = torso.Position - Vector3.new(0, 1.5, 0) -- start just below torso
+    -- Calculate the tail base position: torso back waist
+    -- Torso size Y is height, Z is depth. Back is +Z/2 relative to torso center.
+    local backWaistOffset = Vector3.new(0, -torso.Size.Y/2, torso.Size.Z/2)
+    local baseCFrame = torso.CFrame * CFrame.new(backWaistOffset)
 
-    -- Tail segments 1-3: stacked and wobbling
+    -- Tail segments 1-3 extend backward (negative Z in torso space)
     for i = 1, 3 do
         local offsetZ = -basePartLength * (i - 1)
-        -- Sway side to side with sine wave and index to make slight phase differences
         local swayX = math.sin(wobbleTime + i) * 0.15
         local swayY = math.cos(wobbleTime * 1.5 + i) * 0.05
-        local pos = basePos + Vector3.new(swayX, swayY - 0.1 * i, offsetZ)
+        -- Offset in local torso space
+        local localOffset = Vector3.new(swayX, swayY - 0.1 * i, offsetZ)
+        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        -- Orient the tail parts to point along negative Z (away from torso)
-        parts[i].CFrame = CFrame.new(pos) * CFrame.Angles(math.rad(swayY * 10), 0, math.rad(swayX * 20))
+        -- Make the part face backward along torso's back (-Z)
+        local rotation = CFrame.Angles(math.rad(swayY * 10), 0, math.rad(swayX * 20))
+        parts[i].CFrame = CFrame.new(worldPos) * baseCFrame.Rotation * rotation
     end
 
-    -- Position the square parts (4-7) forming hollow square frame at tail end
-    local squareCenter = parts[3].Position + Vector3.new(0, -0.1, -basePartLength)
+    -- Square frame parts (4-7) positioned at tail tip (after part 3)
+    local tipLocalPos = Vector3.new(0, -0.1, -basePartLength * 3)
+    local tipCFrame = baseCFrame * CFrame.new(tipLocalPos)
+
     local halfLen = squareLength / 2
+    parts[4].CFrame = tipCFrame * CFrame.new(halfLen, 0, 0) -- top side
+    parts[5].CFrame = tipCFrame * CFrame.new(0, 0, halfLen) * CFrame.Angles(0, math.rad(90), 0) -- right side
+    parts[6].CFrame = tipCFrame * CFrame.new(-halfLen, 0, 0) -- bottom side
+    parts[7].CFrame = tipCFrame * CFrame.new(0, 0, -halfLen) * CFrame.Angles(0, math.rad(90), 0) -- left side
 
-    -- Top side (4): offset +X
-    parts[4].CFrame = CFrame.new(squareCenter + Vector3.new(halfLen, 0, 0)) * CFrame.Angles(0, 0, 0)
-    -- Right side (5): offset +Z and rotated 90deg Y
-    parts[5].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0, halfLen)) * CFrame.Angles(0, math.rad(90), 0)
-    -- Bottom side (6): offset -X
-    parts[6].CFrame = CFrame.new(squareCenter + Vector3.new(-halfLen, 0, 0)) * CFrame.Angles(0, 0, 0)
-    -- Left side (7): offset -Z and rotated 90deg Y
-    parts[7].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0, -halfLen)) * CFrame.Angles(0, math.rad(90), 0)
+    -- Crossing parts 8-10 crossing near the square center
+    parts[8].CFrame = tipCFrame * CFrame.Angles(math.rad(45), 0, 0)
+    parts[9].CFrame = tipCFrame * CFrame.Angles(math.rad(-45), 0, 0)
+    parts[10].CFrame = tipCFrame * CFrame.Angles(0, math.rad(45), 0)
 
-    -- Crossing parts (8-10) intersect near the square center with rotations for crossing effect
-    parts[8].CFrame = CFrame.new(squareCenter) * CFrame.Angles(math.rad(45), 0, 0)
-    parts[9].CFrame = CFrame.new(squareCenter) * CFrame.Angles(math.rad(-45), 0, 0)
-    parts[10].CFrame = CFrame.new(squareCenter) * CFrame.Angles(0, math.rad(45), 0)
-
-    -- Last part (11) near the square center with slight offset and rotation
-    parts[11].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(30))
+    -- Last part (11) near square center with slight offset and rotation
+    parts[11].CFrame = tipCFrame * CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.rad(30))
 end)
