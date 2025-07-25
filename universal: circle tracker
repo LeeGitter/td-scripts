@@ -1,105 +1,95 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local root = character:WaitForChild("HumanoidRootPart")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Settings
+-- Tail configuration
 local tailLength = 16
+local segmentDistance = 1
 local tailParts = {}
-local tailRadius = 0.5
-local segmentDistance = 0.6
-local idleThreshold = 4
-local boredAnimations = {
-	function(part)
-		part.CFrame *= CFrame.Angles(0.2, 0.2, 0)
-	end,
-	function(part)
-		part.CFrame *= CFrame.Angles(0, 0.2, 0.2)
-	end,
-	function(part)
-		part.CFrame *= CFrame.Angles(math.random(), math.random(), math.random())
-	end
-}
 
--- Make tail
-local function createTailPart(index)
-	local part = Instance.new("Part")
-	part.Shape = Enum.PartType.Block
-	part.Anchored = false
-	part.CanCollide = false
-	part.Size = Vector3.new(tailRadius, tailRadius, tailRadius)
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(index / tailLength, 1, 1)
-	part.Parent = workspace
-	local att = Instance.new("Attachment", part)
-	return part, att
-end
+-- Create a folder for organization
+local tailFolder = Instance.new("Folder")
+tailFolder.Name = "TailParts"
+tailFolder.Parent = workspace
 
--- Setup tail
+-- Build tail parts
 for i = 1, tailLength do
-	local part, att = createTailPart(i)
-	tailParts[i] = {
-		Part = part,
-		Attachment = att,
-		TargetPosition = root.Position - root.CFrame.LookVector * i * segmentDistance,
-		Velocity = Vector3.zero
-	}
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(0.6 + (i * 0.1), 0.6 + (i * 0.1), 0.6 + (i * 0.1))
+	part.Material = Enum.Material.Neon
+	part.Anchored = true
+	part.CanCollide = false
+	part.Color = Color3.fromHSV((i / tailLength), 1, 1)
+	part.Shape = Enum.PartType.Block
+	part.Parent = tailFolder
+	tailParts[#tailParts + 1] = part
 end
 
--- Create the white cube (17th part)
-local whiteCube = Instance.new("Part")
-whiteCube.Size = Vector3.new(1.5, 1.5, 1.5)
-whiteCube.Shape = Enum.PartType.Block
-whiteCube.Anchored = true
-whiteCube.CanCollide = false
-whiteCube.Material = Enum.Material.Neon
-whiteCube.Color = Color3.new(1, 1, 1)
-whiteCube.Parent = workspace
+-- Create glowing white tip
+local tipPart = Instance.new("Part")
+tipPart.Size = Vector3.new(1.5, 1.5, 1.5)
+tipPart.Shape = Enum.PartType.Ball
+tipPart.Material = Enum.Material.Neon
+tipPart.Anchored = true
+tipPart.CanCollide = false
+tipPart.Color = Color3.new(1, 1, 1)
+tipPart.Parent = tailFolder
 
-local glow = Instance.new("PointLight", whiteCube)
-glow.Brightness = 2
-glow.Range = 8
+-- Trail color rotation
+local hue = 0
 
--- Track idle
-local lastMoveTime = tick()
+-- Wobble and movement
+local velocity = Vector3.zero
+local lastPosition = rootPart.Position
+local idleTimer = 0
 
--- Update loop
 RunService.RenderStepped:Connect(function(dt)
-	local currentPosition = root.Position
-	local currentLook = root.CFrame.LookVector
+	local currentPosition = rootPart.Position
+	local moveDir = (currentPosition - lastPosition) / dt
+	velocity = velocity:Lerp(moveDir, 0.1)
+	lastPosition = currentPosition
 
-	-- Update tail parts
-	for i, segment in ipairs(tailParts) do
-		local target = (i == 1) and (currentPosition - currentLook * segmentDistance)
-			or tailParts[i - 1].Part.Position - (tailParts[i - 1].Part.Position - segment.Part.Position).Unit * segmentDistance
-
-		local direction = target - segment.Part.Position
-		segment.Velocity = segment.Velocity * 0.9 + direction * 0.1
-		segment.Part.Position += segment.Velocity * dt
-		segment.Part.CFrame = CFrame.new(segment.Part.Position, (i == 1 and root.Position or tailParts[i - 1].Part.Position))
-
-		-- Color update
-		local h = (i / tailLength + tick() * 0.1) % 1
-		segment.Part.Color = Color3.fromHSV(h, 1, 1)
+	local speed = velocity.Magnitude
+	local isIdle = speed < 1
+	if isIdle then
+		idleTimer += dt
+	else
+		idleTimer = 0
 	end
 
-	-- White cube follows last tail part's direction with -5 stud offset
-	local tip = tailParts[#tailParts].Part
-	local offsetCFrame = tip.CFrame * CFrame.new(0, 0, -5)
-	whiteCube.CFrame = offsetCFrame * CFrame.Angles(0, tick(), 0) -- passive spin
+	-- Color update
+	hue = (hue + dt * 0.2) % 1
+	for i, part in ipairs(tailParts) do
+		part.Color = Color3.fromHSV((hue + i * 0.03) % 1, 1, 1)
+	end
 
-	-- Idle detection
-	local velocity = root.Velocity.Magnitude
-	if velocity > 1 then
-		lastMoveTime = tick()
-	else
-		if tick() - lastMoveTime > idleThreshold then
-			local boredFunc = boredAnimations[math.random(1, #boredAnimations)]
-			for _, segment in ipairs(tailParts) do
-				boredFunc(segment.Part)
+	local basePos = rootPart.Position - Vector3.new(0, 2, 0)
+	local forward = rootPart.CFrame.LookVector
+	local up = rootPart.CFrame.UpVector
+	local right = rootPart.CFrame.RightVector
+
+	for i, part in ipairs(tailParts) do
+		local offset = forward * -segmentDistance * i
+		local wobble = math.sin(tick() * 3 + i) * right * 0.4 + math.cos(tick() * 3 + i) * up * 0.4
+		if idleTimer > 4 then
+			local mode = math.floor(tick()) % 3
+			if mode == 0 then
+				wobble = Vector3.new(math.sin(tick() * 5 + i), math.cos(tick() * 5 + i * 0.2), 0) * 2
+			elseif mode == 1 then
+				wobble = Vector3.new(0, math.sin(tick() * 8 + i) * 1.5, math.cos(tick() * 8 + i * 0.2)) * 1.5
+			else
+				wobble = Vector3.new(math.sin(tick() * 8 + i), 0, math.cos(tick() * 8 + i * 0.2)) * 1.5
 			end
 		end
+		part.Position = basePos + offset + wobble
 	end
+
+	-- Tip cube: 5 studs BEHIND the tail tip using the direction of last segment
+	local lastPart = tailParts[#tailParts]
+	local backDir = (lastPart.Position - tailParts[#tailParts - 1].Position).Unit
+	local spin = CFrame.Angles(0, tick() * 2, 0)
+	tipPart.CFrame = CFrame.new(lastPart.Position + backDir * -5) * spin
+	tipPart.Color = Color3.fromHSV((hue + 0.5) % 1, 0.7, 1)
 end)
