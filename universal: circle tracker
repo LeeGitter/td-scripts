@@ -90,6 +90,6 @@ RunService.RenderStepped:Connect(function(dt)
 	local lastPart = tailParts[#tailParts]
 	local backDir = (lastPart.Position - tailParts[#tailParts - 1].Position).Unit
 	local spin = CFrame.Angles(0, tick() * 2, 0)
-	tipPart.CFrame = CFrame.new(lastPart.Position + backDir * 5) * spin
+	tipPart.CFrame = CFrame.new(lastPart.Position + backDir * 10) * spin
 	tipPart.Color = Color3.fromHSV((hue + 0.5) % 1, 0.7, 1)
 end)
