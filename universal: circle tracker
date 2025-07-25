@@ -1,78 +1,144 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
+
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local root = character:WaitForChild("HumanoidRootPart")
+local torso = character:WaitForChild("Torso")
 
--- Tail settings
-local TAIL_LENGTH = 17
-local LENGTH_PER_SEGMENT = 1.5
-local SEGMENT_SIZE = Vector3.new(0.6, 0.6, LENGTH_PER_SEGMENT)
-local tailParts = {}
-local idleTime = 0
-local isIdle = false
+-- Tail Settings
+local NUM_SEGMENTS = 16
+local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
+local LENGTH_PER_SEGMENT = 0.7
 
--- Create the tail segments
-for i = 1, TAIL_LENGTH - 1 do
-	local part = Instance.new("Part")
-	part.Size = SEGMENT_SIZE
-	part.Material = Enum.Material.SmoothPlastic
-	part.Color = Color3.fromRGB(200 - i*5, 100 + i*5, 255 - i*7)
-	part.Anchored = false
-	part.CanCollide = false
-	part.Massless = true
-	part.CFrame = root.CFrame * CFrame.new(0, -1, i * -LENGTH_PER_SEGMENT)
-	part.Name = "TailPart"
-	part.Parent = workspace
-	table.insert(tailParts, part)
+local BASE_OFFSET = Vector3.new(0, -1.5, 1.5) -- Base offset low on waist/back
+local MAX_PITCH_ANGLE = math.rad(30)          -- Max upward pitch angle at tail tip
 
-	-- Attach segments with constraints
-	if i > 1 then
-		local a0 = Instance.new("Attachment", tailParts[i-1])
-		a0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT/2)
-		local a1 = Instance.new("Attachment", part)
-		a1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT/2)
+local BUILD_DELAY = 0.05
 
-		local ap = Instance.new("AlignPosition")
-		ap.Attachment0 = a1
-		ap.Attachment1 = a0
-		ap.Responsiveness = 20
-		ap.MaxForce = 5000
-		ap.RigidityEnabled = false
-		ap.Parent = part
-
-		local ao = Instance.new("AlignOrientation")
-		ao.Attachment0 = a1
-		ao.Attachment1 = a0
-		ao.Responsiveness = 15
-		ao.MaxTorque = 5000
-		ao.RigidityEnabled = false
-		ao.Parent = part
-	end
+-- Cleanup old tail
+if character:FindFirstChild("DynamicTailModel") then
+	character.DynamicTailModel:Destroy()
 end
 
--- Create the white glowing cube as the final segment
+-- Create Model to hold tail parts
+local tailModel = Instance.new("Model")
+tailModel.Name = "DynamicTailModel"
+tailModel.Parent = character
+
+-- Create root attachment on torso at base offset
+local tailRootAttachment = Instance.new("Attachment")
+tailRootAttachment.Name = "TailRootAttachment"
+tailRootAttachment.Position = BASE_OFFSET
+tailRootAttachment.Parent = torso
+
+local segments = {}
+local attachments = {}
+
+local function createSegment(index)
+	local part = Instance.new("Part")
+	part.Name = "TailSegment_" .. index
+
+	-- Size grows slightly toward tip
+	local sizeMultiplier = 1 + (index / NUM_SEGMENTS) * 1.5
+	part.Size = Vector3.new(BASE_SIZE.X * sizeMultiplier, BASE_SIZE.Y * sizeMultiplier, LENGTH_PER_SEGMENT)
+
+	part.Material = Enum.Material.Neon
+	part.Anchored = false
+	part.CanCollide = false      -- No collision
+	part.Massless = true
+	part.CastShadow = false
+	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
+
+	-- Zero friction, elasticity etc. to prevent physics pushing
+	part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+
+	part.Parent = tailModel
+
+	local att0 = Instance.new("Attachment", part)
+	att0.Name = "Attachment0"
+	att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
+
+	local att1 = Instance.new("Attachment", part)
+	att1.Name = "Attachment1"
+	att1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
+
+	return part, att0, att1
+end
+
+-- Build tail anchored with upward curve by rotation
+for i = 1, NUM_SEGMENTS do
+	local part, att0, att1 = createSegment(i)
+	segments[i] = part
+	attachments[i] = {att0, att1}
+
+	local t = (i - 1) / (NUM_SEGMENTS - 1)
+	local pitchAngle = MAX_PITCH_ANGLE * t
+
+	local basePos = Vector3.new(0, BASE_OFFSET.Y, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+	local cframe = torso.CFrame * CFrame.new(basePos) * CFrame.Angles(pitchAngle, 0, 0)
+
+	part.CFrame = cframe
+	part.Anchored = true
+
+	wait(BUILD_DELAY)
+end
+
+-- After build: unanchor parts and setup AlignPosition and AlignOrientation constraints for smooth following without physics push
+for i = 1, NUM_SEGMENTS do
+	local part = segments[i]
+	part.Anchored = false
+
+	local att0, att1 = attachments[i][1], attachments[i][2]
+
+	local attachA = (i == 1) and tailRootAttachment or attachments[i - 1][2]
+	local attachB = att0
+
+	-- AlignPosition to follow previous attachment position smoothly
+	local alignPos = Instance.new("AlignPosition")
+	alignPos.Attachment0 = attachB
+	alignPos.Attachment1 = attachA
+	alignPos.MaxForce = 10000
+	alignPos.Responsiveness = 50
+	alignPos.RigidityEnabled = false
+	alignPos.Parent = part
+
+	-- AlignOrientation to smoothly match previous attachment orientation
+	local alignOri = Instance.new("AlignOrientation")
+	alignOri.Attachment0 = attachB
+	alignOri.Attachment1 = attachA
+	alignOri.MaxTorque = 10000
+	alignOri.Responsiveness = 50
+	alignOri.Parent = part
+end
+
+-- Create white glowing pastel cube as 17th segment of tail
+
 local cube = Instance.new("Part")
-cube.Size = Vector3.new(1, 1, 1)
+cube.Name = "TailTipCube"
+cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
-cube.Color = Color3.fromRGB(255, 255, 255)
 cube.Anchored = false
-cube.CanCollide = false
+cube.CanCollide = false       -- No collision
 cube.Massless = true
-cube.Name = "TailCube"
-cube.Parent = workspace
+cube.CastShadow = false
+cube.Color = Color3.new(1,1,1)  -- White base color
+cube.Parent = tailModel
 
 -- Attachments for cube
 local cubeAttach0 = Instance.new("Attachment", cube)
 cubeAttach0.Name = "Attachment0"
-cubeAttach0.Position = Vector3.new(0, 0, -3) -- Offset back 3 studs
+cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2)  -- Back face of cube
 
--- Attach to final tail segment
-local tipAttach = Instance.new("Attachment", tailParts[#tailParts])
+local cubeAttach1 = Instance.new("Attachment", cube)
+cubeAttach1.Name = "Attachment1"
+cubeAttach1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2 - 2) -- Offset 2 studs behind tail tip
+
+-- Attach on tail tip segment
+local tipAttach = Instance.new("Attachment", segments[#segments])
 tipAttach.Name = "AttachmentTip"
-tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT/2)
+tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
+-- Align constraints between cube and tail tip
 local alignPosCube = Instance.new("AlignPosition")
 alignPosCube.Attachment0 = cubeAttach0
 alignPosCube.Attachment1 = tipAttach
@@ -86,76 +152,45 @@ alignOriCube.Attachment0 = cubeAttach0
 alignOriCube.Attachment1 = tipAttach
 alignOriCube.MaxTorque = 10000
 alignOriCube.Responsiveness = 50
-alignOriCube.RigidityEnabled = false
 alignOriCube.Parent = cube
 
--- Color shift and rotate the cube
-task.spawn(function()
-	local hue = 0
-	while true do
-		hue += 0.01
-		if hue > 1 then hue = 0 end
-		cube.Color = Color3.fromHSV(hue, 1, 1)
-		cube.CFrame *= CFrame.Angles(0, math.rad(2), 0)
-		task.wait(0.03)
+-- Tail wobble parameters
+local wobbleSpeed = 2
+local wobbleMagnitude = 0.05
+local cubeWobbleSpeed = 4
+local cubeWobbleMagnitude = 0.12
+local cubeHue = 0
+
+RunService.RenderStepped:Connect(function(dt)
+	if #segments == 0 then return end
+
+	local velocity = torso.Velocity.Magnitude
+	local time = tick()
+
+	for i, part in ipairs(segments) do
+		local phase = time * wobbleSpeed + i
+		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
+		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
+
+		-- Offset attachment positions to create wobble
+		local att0, att1 = attachments[i][1], attachments[i][2]
+		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
 	end
-end)
 
--- Tail follows the root position
-RunService.Heartbeat:Connect(function(dt)
-	local moveDirection = character:FindFirstChildWhichIsA("Humanoid") and character:FindFirstChildWhichIsA("Humanoid").MoveDirection
-	if moveDirection and moveDirection.Magnitude > 0.1 then
-		idleTime = 0
-		isIdle = false
-	else
-		idleTime += dt
-	end
+	if cube then
+		-- Passive slow spin on the cube (degrees per second)
+		local spinSpeed = math.rad(20)
+		cube.CFrame = cube.CFrame * CFrame.Angles(0, spinSpeed * dt, spinSpeed * 0.5 * dt)
 
-	tailParts[1].CFrame = root.CFrame * CFrame.new(0, -1, -1)
+		-- More intense wobble on cube
+		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude * 2
+		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude * 2
 
-	if isIdle then return end
+		cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2) + Vector3.new(wobbleX, wobbleY, 0)
 
-	for i = 2, #tailParts do
-		local prev = tailParts[i - 1]
-		local current = tailParts[i]
-		local targetPos = prev.Position - prev.CFrame.LookVector * LENGTH_PER_SEGMENT
-		local direction = (targetPos - current.Position)
-		current.Velocity = direction.Unit * math.min(direction.Magnitude * 10, 60)
-	end
-end)
-
--- Idle/bored animation
-task.spawn(function()
-	local modes = {"curl", "helicopter", "wave"}
-
-	while true do
-		if idleTime > 4 and not isIdle then
-			isIdle = true
-			local mode = modes[math.random(1, #modes)]
-			if mode == "curl" then
-				for i = 1, #tailParts do
-					local tween = TweenService:Create(tailParts[i], TweenInfo.new(0.3, Enum.EasingStyle.Sine), {
-						CFrame = tailParts[1].CFrame * CFrame.Angles(0, 0, math.rad(i * 20)) * CFrame.new(0, 0, -i * LENGTH_PER_SEGMENT)
-					})
-					tween:Play()
-				end
-			elseif mode == "helicopter" then
-				for i = 1, 50 do
-					for j = 2, #tailParts do
-						tailParts[j].CFrame = tailParts[j - 1].CFrame * CFrame.Angles(0, math.rad(20), 0) * CFrame.new(0, 0, -LENGTH_PER_SEGMENT)
-					end
-					task.wait(0.03)
-				end
-			elseif mode == "wave" then
-				for t = 0, math.pi * 4, 0.2 do
-					for i = 2, #tailParts do
-						local offset = math.sin(t + i * 0.5) * 0.5
-						tailParts[i].CFrame = tailParts[i - 1].CFrame * CFrame.new(offset, 0, -LENGTH_PER_SEGMENT)
-					end
-					task.wait(0.03)
-				end
-			end
-		end
-		task.wait(0.1)
+		-- Pastel color cycling on cube (blended with white)
+		cubeHue = (cubeHue + dt * 0.12) % 1
+		local pastelColor = Color3.fromHSV(cubeHue, 0.5, 1)
+		cube.Color = Color3.new(1,1,1):Lerp(pastelColor, 0.5)
 	end
 end)
