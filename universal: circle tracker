@@ -1,101 +1,78 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
-local wingSize = Vector3.new(3, 3, 0.1)
-local flapSpeedMultiplier = 5
-local afterimageLifetime = 0.5
-local afterimageFadeTime = 0.5
-local afterimageSpawnInterval = 0.05
+-- Wing asset info
 local wingImageId = "rbxassetid://75171109405668"
+local flapSpeedMultiplier = 1.5
+local afterimageDuration = 0.5
+local afterimageInterval = 0.1
+local wingOffset = Vector3.new(0.5, 1, -1)
 
-local wingsFolder = workspace:FindFirstChild("LocalWingsFolder")
-if wingsFolder then wingsFolder:Destroy() end
-wingsFolder = Instance.new("Folder", workspace)
-wingsFolder.Name = "LocalWingsFolder"
+-- Create the wings
+local function createWing(isLeft)
+	local wing = Instance.new("BillboardGui")
+	wing.Name = isLeft and "LeftWing" or "RightWing"
+	wing.Size = UDim2.new(2, 0, 2, 0)
+	wing.StudsOffset = wingOffset * Vector3.new(isLeft and -1 or 1, 1, 1)
+	wing.AlwaysOnTop = true
+	wing.Adornee = humanoidRootPart
+	wing.Parent = character
 
-local function createWing()
-    local wing = Instance.new("Part")
-    wing.Name = "Wing"
-    wing.Size = wingSize
-    wing.Anchored = true
-    wing.CanCollide = false
-    wing.Transparency = 0
-    wing.Material = Enum.Material.Neon
-    wing.CastShadow = false
-    wing.Parent = wingsFolder
+	local image = Instance.new("ImageLabel")
+	image.BackgroundTransparency = 1
+	image.Size = UDim2.new(1, 0, 1, 0)
+	image.Image = wingImageId
+	image.ImageColor3 = Color3.new(1, 1, 1)
+	image.ImageTransparency = 0
+	image.Parent = wing
 
-    wing.TopSurface = Enum.SurfaceType.Smooth
-    wing.BottomSurface = Enum.SurfaceType.Smooth
-    wing.FrontSurface = Enum.SurfaceType.Smooth
-    wing.BackSurface = Enum.SurfaceType.Smooth
-    wing.LeftSurface = Enum.SurfaceType.Smooth
-    wing.RightSurface = Enum.SurfaceType.Smooth
-
-    local decal = Instance.new("Decal")
-    decal.Face = Enum.NormalId.Front
-    decal.Texture = wingImageId
-    decal.Transparency = 0
-    decal.Parent = wing
-
-    return wing
+	return wing
 end
 
-local leftWing = createWing()
-local rightWing = createWing()
+local leftWing = createWing(true)
+local rightWing = createWing(false)
 
-local flapAngle = 0
-local lastAfterimageTime = 0
+-- Rainbow afterimage system
+local function createAfterimage(w)
+	local clone = w:Clone()
+	clone.Parent = w.Parent
+	local image = clone:FindFirstChildWhichIsA("ImageLabel")
+	if image then
+		local hue = tick() % 5 / 5
+		image.ImageColor3 = Color3.fromHSV(hue, 1, 1)
+		image.ImageTransparency = 0.3
+	end
 
-local function createAfterimage(wing)
-    local clone = wing:Clone()
-    clone.Parent = wingsFolder
-    clone.Anchored = true
-    clone.CanCollide = false
-    clone.CastShadow = false
-    clone.Material = Enum.Material.Neon
-
-    local hue = 0
-    local colorCycleSpeed = 10
-
-    spawn(function()
-        local startTime = tick()
-        while tick() - startTime < afterimageLifetime do
-            local dt = RunService.Heartbeat:Wait()
-            hue = (hue + colorCycleSpeed * dt) % 1
-            clone.Color = Color3.fromHSV(hue, 1, 1)
-
-            local elapsed = tick() - startTime
-            if elapsed > afterimageLifetime - afterimageFadeTime then
-                clone.Transparency = math.clamp((elapsed - (afterimageLifetime - afterimageFadeTime)) / afterimageFadeTime, 0, 1)
-            end
-        end
-        clone:Destroy()
-    end)
+	task.delay(afterimageDuration, function()
+		clone:Destroy()
+	end)
 end
 
-RunService.Heartbeat:Connect(function(dt)
-    -- Update character ref in case of respawn
-    if not character or not character.Parent then
-        character = player.Character or player.CharacterAdded:Wait()
-        rootPart = character:WaitForChild("HumanoidRootPart")
-    end
+-- Wing flapping based on movement
+local lastPos = humanoidRootPart.Position
+local timeSinceAfterimage = 0
+RunService.RenderStepped:Connect(function(dt)
+	local currentPos = humanoidRootPart.Position
+	local speed = (currentPos - lastPos).Magnitude / dt
+	lastPos = currentPos
 
-    local speed = rootPart.Velocity.Magnitude
-    flapAngle = flapAngle + dt * flapSpeedMultiplier * speed
-    local flapOffset = math.sin(flapAngle) * math.rad(20)
+	local flapAngle = math.sin(tick() * flapSpeedMultiplier + speed * 0.1) * 15
 
-    local rootCFrame = rootPart.CFrame
+	for _, wing in pairs({leftWing, rightWing}) do
+		local gui = wing:FindFirstChildWhichIsA("ImageLabel")
+		if gui then
+			gui.Rotation = (wing.Name == "LeftWing" and -1 or 1) * flapAngle
+		end
+	end
 
-    leftWing.CFrame = rootCFrame * CFrame.new(-2, 0, -1) * CFrame.Angles(0, 0, flapOffset)
-    rightWing.CFrame = rootCFrame * CFrame.new(2, 0, -1) * CFrame.Angles(0, math.rad(180), -flapOffset)
-
-    if speed > 1 and tick() - lastAfterimageTime > afterimageSpawnInterval then
-        createAfterimage(leftWing)
-        createAfterimage(rightWing)
-        lastAfterimageTime = tick()
-    end
+	timeSinceAfterimage += dt
+	if timeSinceAfterimage >= afterimageInterval and speed > 2 then
+		createAfterimage(leftWing)
+		createAfterimage(rightWing)
+		timeSinceAfterimage = 0
+	end
 end)
