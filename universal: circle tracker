@@ -18,6 +18,7 @@ local HORIZONTAL_GAP = 0.05
 local CLOSE_RADIUS = 20
 local DESPAWN_DISTANCE = 20
 local DESPAWN_TIME = 10 -- seconds outside distance before despawn
+local HEIGHT_LERP_SPEED = 5 -- higher = faster height changes
 
 local COLOR_START = Color3.fromRGB(255, 0, 255)  -- magenta
 local COLOR_END = Color3.fromRGB(0, 255, 100)    -- teal-greenish
@@ -30,9 +31,14 @@ local function lerpColor(a, b, t)
     )
 end
 
--- Create parts and track their out-of-range timers
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+-- Create parts and track their out-of-range timers and current heights
 local parts = {}
 local outsideTimers = {}
+local currentHeights = {}
 
 for i = 1, NUM_PARTS do
     local part = Instance.new("Part")
@@ -44,15 +50,17 @@ for i = 1, NUM_PARTS do
     part.Parent = workspace
     parts[i] = part
     outsideTimers[i] = 0
+    currentHeights[i] = BASE_SIZE.Y -- start at base height
 end
 
 local angle = 0
 
 RunService.RenderStepped:Connect(function(dt)
-    local closeBuckets = {}
-    local farBuckets = {}
     local half = math.floor(NUM_PARTS / 2)
 
+    -- Buckets for close and distributed far sounds (except last part)
+    local closeBuckets = {}
+    local farBuckets = {}
     for i = 1, half do
         closeBuckets[i] = 0
         farBuckets[i] = 0
@@ -79,32 +87,54 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Distribute sounds evenly in each group
+    -- Sum loudness for last part (all far sounds combined)
+    local farSoundsTotalLoudness = 0
+    for _, sound in ipairs(farSounds) do
+        farSoundsTotalLoudness = farSoundsTotalLoudness + (sound.PlaybackLoudness or 0)
+    end
+
+    -- Distribute close sounds evenly among first half parts
     for i, sound in ipairs(closeSounds) do
         local loudness = sound.PlaybackLoudness or 0
         local index = ((i - 1) % half) + 1
         closeBuckets[index] = closeBuckets[index] + loudness
     end
 
+    -- Distribute far sounds evenly among first (half - 1) parts of the far group
+    -- We'll reserve the last part (NUM_PARTS) for total far loudness visualization
+    local farGroupParts = half - 1
     for i, sound in ipairs(farSounds) do
         local loudness = sound.PlaybackLoudness or 0
-        local index = ((i - 1) % half) + 1
-        farBuckets[index] = farBuckets[index] + loudness
+        if farGroupParts > 0 then
+            local index = ((i - 1) % farGroupParts) + 1
+            farBuckets[index] = farBuckets[index] + loudness
+        end
     end
 
-    -- Parts to remove after loop
+    -- Update parts and check distance for despawn timer
     local partsToRemove = {}
 
-    -- Update parts and check distance for despawn timer
     for i = 1, #parts do
+        local targetHeight
         local bucketIndex = ((i - 1) % half) + 1
-        local height
+
         if i <= half then
-            height = math.clamp(BASE_SIZE.Y + closeBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
+            -- First half parts: close sounds buckets
+            targetHeight = math.clamp(BASE_SIZE.Y + closeBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
+        elseif i < NUM_PARTS then
+            -- Far group except last part: distributed farBuckets
+            targetHeight = math.clamp(BASE_SIZE.Y + farBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
         else
-            height = math.clamp(BASE_SIZE.Y + farBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
+            -- Last part (NUM_PARTS): reacts to total far sounds loudness (server-wide outside noises)
+            targetHeight = math.clamp(BASE_SIZE.Y + farSoundsTotalLoudness * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
         end
 
+        -- Smoothly lerp current height toward target
+        currentHeights[i] = lerp(currentHeights[i], targetHeight, math.clamp(dt * HEIGHT_LERP_SPEED, 0, 1))
+
+        local height = currentHeights[i]
+
+        -- Calculate position with gap offset
         local partAngle = angle + (2 * math.pi * (i - 1) / NUM_PARTS)
         local gapOffset = (height - BASE_SIZE.Y) * HORIZONTAL_GAP
         local x = hrp.Position.X + math.cos(partAngle) * (ORBIT_RADIUS + gapOffset)
@@ -137,6 +167,7 @@ RunService.RenderStepped:Connect(function(dt)
         parts[index]:Destroy()
         table.remove(parts, index)
         table.remove(outsideTimers, index)
+        table.remove(currentHeights, index)
     end
 
     angle = (angle + ORBIT_SPEED * dt) % (2 * math.pi)
