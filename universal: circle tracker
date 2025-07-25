@@ -10,7 +10,7 @@ local rightFoot = character:WaitForChild("RightFoot")
 local leftHand = character:WaitForChild("LeftHand")
 local rightHand = character:WaitForChild("RightHand")
 
--- Settings
+-- Settings for pillars
 local pillarSpawnInterval = 0.5
 local pillarLifetime = 10
 local basePillarSize = Vector3.new(0.3, 4, 0.3)
@@ -18,135 +18,164 @@ local maxPillarHeight = 8
 
 -- Pillar container
 local pillarFolder = workspace:FindFirstChild("LocalPillars")
-if pillarFolder then pillarFolder:Destroy() end
-pillarFolder = Instance.new("Folder", workspace)
+if pillarFolder then
+    pillarFolder:Destroy()
+end
+pillarFolder = Instance.new("Folder")
 pillarFolder.Name = "LocalPillars"
+pillarFolder.Parent = workspace
 
--- Create spark particle on a limb
+-- Create spark particles on hands and feet
 local function createSparkParticle(parent)
-	local particle = Instance.new("ParticleEmitter")
-	particle.Texture = "rbxassetid://243660364"
-	particle.Rate = 40
-	particle.Lifetime = NumberRange.new(0.4, 0.8)
-	particle.Speed = NumberRange.new(0, 0)
-	particle.Size = NumberSequence.new(0.5)
-	particle.Color = ColorSequence.new{
-		ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 0.7, 1)),
-		ColorSequenceKeypoint.new(1, Color3.fromHSV(0.7, 0.8, 1))
-	}
-	particle.LightEmission = 1
-	particle.Parent = parent
-	return particle
+    local particle = Instance.new("ParticleEmitter")
+    particle.Texture = "rbxassetid://243660364" -- Rainbow spark texture (can be changed)
+    particle.Rate = 30
+    particle.Lifetime = NumberRange.new(0.5, 1)
+    particle.Speed = NumberRange.new(0, 0)
+    particle.Size = NumberSequence.new(0.5)
+    particle.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 0.7, 1)),
+        ColorSequenceKeypoint.new(1, Color3.fromHSV(0.7, 0.8, 1))
+    }
+    particle.LightEmission = 1
+    particle.Parent = parent
+    return particle
 end
 
--- Spark emitters
+-- Attach spark particles to hands and feet
 local sparkEmitters = {}
 for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
-	sparkEmitters[limb.Name] = createSparkParticle(limb)
+    if limb then
+        sparkEmitters[limb.Name] = createSparkParticle(limb)
+    end
 end
 
--- Pillar state
+-- Pillar parts list & scales
 local pillars = {}
 local pillarScales = {}
 
--- Gather and classify sounds
+-- Get sounds from workspace, PlayerGui, character, SoundService
 local function getAllPlayingSounds()
-	local globalSounds, localSounds = {}, {}
-
-	local function collectSounds(parent)
-		for _, obj in ipairs(parent:GetDescendants()) do
-			if obj:IsA("Sound") and obj.IsPlaying and obj.PlaybackLoudness > 0 then
-				if obj:IsDescendantOf(workspace) then
-					table.insert(globalSounds, obj)
-				else
-					table.insert(localSounds, obj)
-				end
-			end
-		end
-	end
-
-	collectSounds(workspace)
-	if player:FindFirstChild("PlayerGui") then collectSounds(player.PlayerGui) end
-	if character then collectSounds(character) end
-	collectSounds(SoundService)
-
-	return globalSounds, localSounds
+    local sounds = {}
+    local function addSoundsFrom(parent)
+        for _, obj in pairs(parent:GetDescendants()) do
+            if obj:IsA("Sound") and obj.IsPlaying then
+                table.insert(sounds, obj)
+            end
+        end
+    end
+    addSoundsFrom(workspace)
+    if player:FindFirstChild("PlayerGui") then
+        addSoundsFrom(player.PlayerGui)
+    end
+    if character then
+        addSoundsFrom(character)
+    end
+    addSoundsFrom(SoundService)
+    return sounds
 end
 
--- Create pillar
+-- Create a pillar at position on the floor, with initial height, anchored, no collisions
 local function createPillar(position)
-	local part = Instance.new("Part")
-	part.Anchored = true
-	part.CanCollide = false
-	part.CastShadow = false
-	part.Transparency = 0
-	part.Size = basePillarSize
-	part.Material = Enum.Material.Neon
-	part.Position = position + Vector3.new(0, basePillarSize.Y / 2, 0)
-	part:SetAttribute("SpawnTime", tick())
-	part.Parent = pillarFolder
-	return part
+    local pillar = Instance.new("Part")
+    pillar.Anchored = true
+    pillar.CanCollide = false
+    pillar.Size = basePillarSize
+    pillar.Material = Enum.Material.Neon
+    pillar.CastShadow = false
+    pillar.Transparency = 0
+    pillar.Position = position + Vector3.new(0, basePillarSize.Y/2, 0) -- place on floor
+    pillar.Parent = pillarFolder
+
+    return pillar
 end
 
--- Time tracking
+-- Time trackers
 local lastPillarSpawn = 0
 
 RunService.Heartbeat:Connect(function(dt)
-	if not character or not character.Parent then
-		character = player.Character or player.CharacterAdded:Wait()
-		humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-		leftFoot = character:WaitForChild("LeftFoot")
-		rightFoot = character:WaitForChild("RightFoot")
-		leftHand = character:WaitForChild("LeftHand")
-		rightHand = character:WaitForChild("RightHand")
-		sparkEmitters = {}
-		for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
-			sparkEmitters[limb.Name] = createSparkParticle(limb)
-		end
-	end
+    -- Refresh character references if respawned
+    if not character or not character.Parent then
+        character = player.Character or player.CharacterAdded:Wait()
+        humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        leftFoot = character:WaitForChild("LeftFoot")
+        rightFoot = character:WaitForChild("RightFoot")
+        leftHand = character:WaitForChild("LeftHand")
+        rightHand = character:WaitForChild("RightHand")
 
-	local speed = humanoidRootPart.Velocity.Magnitude
-	if speed > 1 and tick() - lastPillarSpawn >= pillarSpawnInterval then
-		lastPillarSpawn = tick()
-		for _, footPos in ipairs({leftFoot.Position, rightFoot.Position}) do
-			for _, offset in ipairs({Vector3.new(-0.2, 0, 0), Vector3.new(0.2, 0, 0)}) do
-				local pos = Vector3.new(footPos.X, 0, footPos.Z) + offset
-				local p = createPillar(pos)
-				table.insert(pillars, p)
-				table.insert(pillarScales, basePillarSize.Y)
-			end
-		end
-	end
+        -- Reattach spark particles
+        for _, emitter in pairs(sparkEmitters) do
+            if emitter then
+                emitter:Destroy()
+            end
+        end
+        sparkEmitters = {}
+        for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
+            if limb then
+                sparkEmitters[limb.Name] = createSparkParticle(limb)
+            end
+        end
+    end
 
-	local globalSounds, localSounds = getAllPlayingSounds()
-	local allSounds = {}
+    -- Pillar spawning every 0.5 seconds if player is moving
+    local speed = humanoidRootPart.Velocity.Magnitude
+    if speed > 1 and tick() - lastPillarSpawn >= pillarSpawnInterval then
+        lastPillarSpawn = tick()
 
-	-- Assign 1 slot per global, 3 per local
-	for _, s in ipairs(globalSounds) do table.insert(allSounds, s) end
-	for _, s in ipairs(localSounds) do
-		table.insert(allSounds, s)
-		table.insert(allSounds, s)
-		table.insert(allSounds, s)
-	end
+        -- Spawn two pillars per foot, offset slightly sideways
+        local footPositions = {
+            leftFoot.Position,
+            rightFoot.Position
+        }
+        for _, footPos in pairs(footPositions) do
+            -- Left offset pillar
+            local offsetLeft = Vector3.new(-0.2, 0, 0)
+            local pillar1 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetLeft)
+            table.insert(pillars, pillar1)
+            table.insert(pillarScales, basePillarSize.Y)
 
-	-- Update pillars
-	for i, pillar in ipairs(pillars) do
-		local sound = allSounds[((i - 1) % #allSounds) + 1]
-		local loudness = sound and sound.PlaybackLoudness or 0
-		local normalized = math.clamp(loudness / 1000, 0, 1)
-		local targetHeight = 1 + normalized * maxPillarHeight
-		pillarScales[i] = pillarScales[i] + (targetHeight - pillarScales[i]) * 0.3
-		pillar.Size = Vector3.new(basePillarSize.X, pillarScales[i], basePillarSize.Z)
-		pillar.Position = Vector3.new(pillar.Position.X, pillar.Size.Y / 2, pillar.Position.Z)
-	end
+            -- Right offset pillar
+            local offsetRight = Vector3.new(0.2, 0, 0)
+            local pillar2 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetRight)
+            table.insert(pillars, pillar2)
+            table.insert(pillarScales, basePillarSize.Y)
+        end
+    end
 
-	-- Cleanup
-	for i = #pillars, 1, -1 do
-		local p = pillars[i]
-		if not p or not p.Parent or tick() - (p:GetAttribute("SpawnTime") or 0) > pillarLifetime then
-			if p then p:Destroy() end
-			table.remove(pillars, i)
-			table.remove(pillarScales, i)
-		end
-	end
+    -- Scale pillars based on sounds from all sources
+    local sounds = getAllPlayingSounds()
+    for i, pillar in ipairs(pillars) do
+        if pillar and pillar.Parent then
+            local sound = sounds[((i-1) % #sounds) + 1]
+            local loudness = 0
+            if sound then
+                loudness = sound.PlaybackLoudness or 0
+            end
+            local normalized = math.clamp(loudness / 1000, 0, 1)
+            local targetHeight = 1 + normalized * maxPillarHeight
+            pillarScales[i] = pillarScales[i] + (targetHeight - pillarScales[i]) * 0.25
+            pillar.Size = Vector3.new(basePillarSize.X, pillarScales[i], basePillarSize.Z)
+
+            -- Update pillar Y position to keep base on floor (y=0)
+            pillar.Position = Vector3.new(pillar.Position.X, pillar.Size.Y / 2, pillar.Position.Z)
+        end
+    end
+
+    -- Clean up old pillars after lifetime
+    for i = #pillars, 1, -1 do
+        local pillar = pillars[i]
+        if pillar and pillar.Parent then
+            local age = tick() - pillar:GetAttribute("SpawnTime") or 0
+            if not pillar:GetAttribute("SpawnTime") then
+                pillar:SetAttribute("SpawnTime", tick())
+            elseif age > pillarLifetime then
+                pillar:Destroy()
+                table.remove(pillars, i)
+                table.remove(pillarScales, i)
+            end
+        else
+            table.remove(pillars, i)
+            table.remove(pillarScales, i)
+        end
+    end
 end)
