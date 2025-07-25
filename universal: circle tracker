@@ -44,7 +44,7 @@ local function createSegment(index)
 
 	part.Material = Enum.Material.Neon
 	part.Anchored = false
-	part.CanCollide = false
+	part.CanCollide = false      -- No collision
 	part.Massless = true
 	part.CastShadow = false
 	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
@@ -84,7 +84,6 @@ for i = 1, NUM_SEGMENTS do
 end
 
 -- After build: unanchor parts and setup AlignPosition and AlignOrientation constraints for smooth following without physics push
-
 for i = 1, NUM_SEGMENTS do
 	local part = segments[i]
 	part.Anchored = false
@@ -119,7 +118,7 @@ cube.Name = "TailTipCube"
 cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
 cube.Anchored = false
-cube.CanCollide = false
+cube.CanCollide = false       -- No collision
 cube.Massless = true
 cube.CastShadow = false
 cube.Color = Color3.fromHSV(0, 0.5, 1)
@@ -164,21 +163,23 @@ RunService.RenderStepped:Connect(function(dt)
 		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
 		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
 
-		-- Apply small oscillations by setting AssemblyLinearVelocity (non-physical offset)
-		part.AssemblyLinearVelocity = Vector3.new(swayX, swayY, 0)
+		-- Offset attachment positions to create wobble
+		local att0, att1 = attachments[i][1], attachments[i][2]
+		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
 	end
 
 	if cube then
-		-- Spin cube continuously
-		cube.RotVelocity = Vector3.new(0, 3, 2)
+		-- Idle spin of cube
+		cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(2), math.rad(1.5))
 
-		-- Wobble cube position slightly independently
-		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude
-		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude
-		cube.AssemblyLinearVelocity = Vector3.new(wobbleX, wobbleY, 0)
+		-- More intense wobble on cube
+		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude * 2
+		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude * 2
 
-		-- Cycle pastel hue slowly
-		cubeHue = (cubeHue + dt * 0.1) % 1
+		cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2) + Vector3.new(wobbleX, wobbleY, 0)
+
+		-- Pastel color cycling on cube
+		cubeHue = (cubeHue + dt * 0.12) % 1
 		cube.Color = Color3.fromHSV(cubeHue, 0.5, 1)
 	end
 end)
