@@ -2,110 +2,121 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local root = char:WaitForChild("HumanoidRootPart")
+local character = player.Character or player.CharacterAdded:Wait()
+local torso = character:WaitForChild("Torso")
 
-local tailParts = {}
-local tailLength = 16
-local baseSize = Vector3.new(0.3, 0.3, 0.5)
-local offset = Vector3.new(0, 0.5, 1.5) -- slight downward and behind offset
+-- Settings
+local NUM_SEGMENTS = 16
+local BASE_SIZE = Vector3.new(0.5, 0.5, 0.5)
+local LENGTH_PER_SEGMENT = 0.7
+local START_OFFSET = Vector3.new(0, 0.5, 1.5) -- Up and back offset relative to torso
+local BUILD_DELAY = 0.15 -- Seconds between segments spawning
 
--- Clean old tail
-if char:FindFirstChild("TailBase") then
-	char:FindFirstChild("TailBase"):Destroy()
+local segments = {}
+local tailRootAttachment = nil
+local cube = nil
+
+-- Clean up old tail if exists
+if character:FindFirstChild("TailRoot") then
+	character.TailRoot:Destroy()
 end
 
--- Base attachment point
-local tailBase = Instance.new("Attachment")
-tailBase.Name = "TailBase"
-tailBase.Position = -root.CFrame.LookVector * offset.Z + Vector3.new(0, offset.Y, 0)
-tailBase.Parent = root
+-- Create a root attachment on torso (for constraints)
+tailRootAttachment = Instance.new("Attachment")
+tailRootAttachment.Name = "TailRoot"
+tailRootAttachment.Position = START_OFFSET
+tailRootAttachment.Parent = torso
 
--- Create tail segments
-for i = 1, tailLength do
+-- Helper function to create a tail segment
+local function createSegment(index, parentAttachment)
 	local part = Instance.new("Part")
-	part.Anchored = false
-	part.CanCollide = false
-	part.Size = baseSize + Vector3.new(i * 0.02, i * 0.02, 0)
+	part.Name = "TailSegment_" .. index
+	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, LENGTH_PER_SEGMENT)
+	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1) -- rainbow colors
 	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(i / tailLength, 1, 1)
-	part.Transparency = 0
-	part.Name = "TailSegment_" .. i
+	part.CanCollide = false
+	part.Anchored = false
+	part.Massless = true
 	part.CastShadow = false
 	part.Parent = workspace
 
-	local att0 = Instance.new("Attachment", part)
-	local att1 = Instance.new("Attachment")
+	local att1 = Instance.new("Attachment", part)
+	local att2 = Instance.new("Attachment", parentAttachment.Parent)
 
-	local constraint = Instance.new("BallSocketConstraint")
-	constraint.Attachment0 = att0
-	constraint.Attachment1 = att1
-	constraint.LimitsEnabled = true
-	constraint.TwistLimitsEnabled = true
-	constraint.UpperAngle = 25
-	constraint.TwistLowerAngle = -15
-	constraint.TwistUpperAngle = 15
-	constraint.Parent = part
+	-- Position attachments for ball socket
+	att1.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
+	att2.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
 
-	tailParts[i] = {
-		part = part,
-		att1 = att1
-	}
+	-- Constraint to connect this segment to parent
+	local ballSocket = Instance.new("BallSocketConstraint")
+	ballSocket.Attachment0 = att2
+	ballSocket.Attachment1 = att1
+	ballSocket.LimitsEnabled = true
+	ballSocket.TwistLimitsEnabled = true
+	ballSocket.UpperAngle = 25
+	ballSocket.TwistLowerAngle = -15
+	ballSocket.TwistUpperAngle = 15
+	ballSocket.Parent = part
+
+	return part, att1
 end
 
--- Weld tail to body with constraints
-for i, data in ipairs(tailParts) do
-	local part = data.part
-	local att1 = data.att1
+-- Coroutine to build tail gradually
+coroutine.wrap(function()
+	local lastAttachment = tailRootAttachment
 
-	if i == 1 then
-		att1.Parent = root
-		att1.Position = tailBase.Position
-	else
-		local prevPart = tailParts[i - 1].part
-		att1.Parent = prevPart
-		att1.Position = Vector3.new(0, 0, -prevPart.Size.Z / 2)
+	for i = 1, NUM_SEGMENTS do
+		local segment, newAttachment = createSegment(i, lastAttachment)
+		table.insert(segments, segment)
+		lastAttachment = newAttachment
+
+		-- Position segment initially relative to torso + offset + length * i
+		segment.CFrame = torso.CFrame * CFrame.new(-START_OFFSET.X, START_OFFSET.Y, -START_OFFSET.Z - LENGTH_PER_SEGMENT * i)
+		
+		wait(BUILD_DELAY)
 	end
 
-	part.CFrame = root.CFrame * CFrame.new(0, offset.Y, offset.Z + (i * 0.5))
-end
+	-- Now create the cube at the tail tip
+	cube = Instance.new("Part")
+	cube.Shape = Enum.PartType.Block
+	cube.Size = Vector3.new(1.5, 1.5, 1.5)
+	cube.Material = Enum.Material.Neon
+	cube.Color = Color3.fromRGB(255, 255, 100)
+	cube.Anchored = false
+	cube.CanCollide = false
+	cube.Massless = true
+	cube.Parent = workspace
 
--- Add spinning cube to the tail tip
-local cube = Instance.new("Part")
-cube.Shape = Enum.PartType.Block
-cube.Size = Vector3.new(0.8, 0.8, 0.8)
-cube.Color = Color3.fromRGB(255, 255, 255)
-cube.Material = Enum.Material.Neon
-cube.Anchored = false
-cube.CanCollide = false
-cube.Name = "TailCube"
-cube.Parent = workspace
+	local attachTail = Instance.new("Attachment", segments[#segments])
+	attachTail.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
-local cubeAtt0 = Instance.new("Attachment", cube)
-local cubeAtt1 = Instance.new("Attachment", tailParts[#tailParts].part)
+	local attachCube = Instance.new("Attachment", cube)
+	attachCube.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
 
-local cubeConstraint = Instance.new("BallSocketConstraint")
-cubeConstraint.Attachment0 = cubeAtt0
-cubeConstraint.Attachment1 = cubeAtt1
-cubeConstraint.Parent = cube
+	local hinge = Instance.new("HingeConstraint")
+	hinge.Attachment0 = attachTail
+	hinge.Attachment1 = attachCube
+	hinge.Parent = cube
+	hinge.MotorMaxTorque = math.huge
+	hinge.AngularVelocity = 5
+end)()
 
--- Rotate cube
-RunService.RenderStepped:Connect(function(dt)
-	cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(90) * dt, 0)
-end)
+-- Movement-based wiggling
+local lastPos = torso.Position
+RunService.RenderStepped:Connect(function()
+	if #segments == 0 then return end -- Wait until tail is built
+	
+	local moveVec = (torso.Position - lastPos)
+	lastPos = torso.Position
 
--- Dynamic wiggle
-local previousPos = root.Position
-RunService.Heartbeat:Connect(function()
-	local velocity = (root.Position - previousPos) * 50
-	previousPos = root.Position
+	for i, part in ipairs(segments) do
+		local phase = tick() * 2 + i
+		local sway = math.sin(phase) * (moveVec.Magnitude * 5)
+		local offset = Vector3.new(sway * 0.05, 0, 0)
+		part.AssemblyLinearVelocity = offset
+	end
 
-	for i, data in ipairs(tailParts) do
-		local sway = math.sin(tick() * 3 + i) * 0.15
-		local lift = math.cos(tick() * 2 + i) * 0.1
-		local vec = Vector3.new(sway, lift, 0)
-		local part = data.part
-
-		part.Velocity = velocity + vec * (i / tailLength)
+	if cube then
+		cube.RotVelocity = Vector3.new(2, 4, 1) -- Independent wobble/spin
 	end
 end)
