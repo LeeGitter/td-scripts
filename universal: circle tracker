@@ -1,185 +1,156 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local localPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-local function waitForCharacter()
-	local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-	repeat task.wait() until char:FindFirstChild("HumanoidRootPart")
-	return char
+-- Mesh IDs (replace if needed)
+local RING_MESH_ID = "rbxassetid://3270017"        -- Torus ring
+local SEGMENT_MESH_ID = "rbxassetid://9856898"     -- Pie slice segment
+
+-- === GUI ===
+local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+gui.Name = "RadarGUI"
+
+local nameLabel = Instance.new("TextLabel", gui)
+nameLabel.Size = UDim2.new(0, 300, 0, 40)
+nameLabel.Position = UDim2.new(0.5, -150, 0, 10)
+nameLabel.BackgroundTransparency = 1
+nameLabel.Text = player.Name
+nameLabel.TextScaled = true
+nameLabel.Font = Enum.Font.GothamBold
+nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local avatarImage = Instance.new("ImageLabel", gui)
+avatarImage.Size = UDim2.new(0, 60, 0, 60)
+avatarImage.Position = UDim2.new(0.5, -30, 0, 50)
+avatarImage.BackgroundTransparency = 1
+avatarImage.Image = ("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png"):format(player.UserId)
+Instance.new("UICorner", avatarImage).CornerRadius = UDim.new(1, 0)
+
+-- === CIRCLE SEGMENTS ===
+local segmentColors = {
+	Color3.fromRGB(200, 200, 255), -- FL
+	Color3.fromRGB(200, 255, 200), -- FR
+	Color3.fromRGB(255, 200, 200), -- BL
+	Color3.fromRGB(255, 255, 200), -- BR
+}
+
+local segmentParts = {}
+for i = 1, 4 do
+	local part = Instance.new("MeshPart")
+	part.Size = Vector3.new(10, 0.1, 10)
+	part.MeshId = SEGMENT_MESH_ID
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = segmentColors[i]
+	part.Transparency = 0.6
+	part.Name = "Segment_" .. i
+	part.Parent = workspace
+	table.insert(segmentParts, part)
 end
 
-local function createUI()
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "RadarUI"
-	gui.ResetOnSpawn = false
-	gui.Parent = localPlayer:WaitForChild("PlayerGui")
-
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(0, 300, 0, 40)
-	nameLabel.Position = UDim2.new(0.5, -150, 0, 10)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.TextScaled = true
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextColor3 = Color3.new(1, 1, 1)
-	nameLabel.Text = localPlayer.Name
-	nameLabel.Parent = gui
-
-	local icon = Instance.new("ImageLabel")
-	icon.Size = UDim2.new(0, 50, 0, 50)
-	icon.Position = UDim2.new(0.5, -25, 0, 50)
-	icon.BackgroundTransparency = 1
-	icon.Image = ("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png"):format(localPlayer.UserId)
-	icon.Parent = gui
-
-	local mask = Instance.new("UICorner")
-	mask.CornerRadius = UDim.new(1, 0)
-	mask.Parent = icon
-end
-
-createUI()
-
-local function createRing(height, transparency)
-	local ring = Instance.new("Part")
-	ring.Size = Vector3.new(12, 0.2, 12)
+-- === RINGS ===
+local rings = {}
+local transparencies = {0.9, 0.5, 0.2}
+for i = 1, 3 do
+	local ring = Instance.new("MeshPart")
+	ring.Size = Vector3.new(14, 0.5, 14)
+	ring.MeshId = RING_MESH_ID
 	ring.Anchored = true
 	ring.CanCollide = false
-	ring.Shape = Enum.PartType.Cylinder
 	ring.Material = Enum.Material.Neon
-	ring.Transparency = transparency
-	ring.Color = Color3.new(1, 1, 1)
-	ring.Name = "FloatingRing"
+	ring.Transparency = transparencies[i]
+	ring.Color = Color3.fromRGB(255, 255, 255)
+	ring.Name = "AuraRing_" .. i
 	ring.Parent = workspace
-	return ring, height
+	table.insert(rings, ring)
 end
 
-local function createSection(color)
-	local p = Instance.new("Part")
-	p.Size = Vector3.new(6, 0.1, 6)
-	p.Anchored = true
-	p.CanCollide = false
-	p.Material = Enum.Material.Neon
-	p.Color = color
-	p.Shape = Enum.PartType.Cylinder
-	p.Transparency = 0.6
-	p.Name = "QuadPart"
-	p.Parent = workspace
-	return p
-end
-
-local function addOverheadName(player)
-	if not player.Character then return end
-	local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-	if not hrp or hrp:FindFirstChild("NameBillboard") then return end
+-- === Rainbowify Nearby Players ===
+local function addBillboard(plr)
+	if not plr.Character then return end
+	local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+	if not hrp or hrp:FindFirstChild("PlayerNameTag") then return end
 
 	local bb = Instance.new("BillboardGui")
-	bb.Name = "NameBillboard"
 	bb.Size = UDim2.new(0, 200, 0, 50)
 	bb.StudsOffset = Vector3.new(0, 3, 0)
 	bb.AlwaysOnTop = true
+	bb.Name = "PlayerNameTag"
 	bb.Parent = hrp
 
-	local label = Instance.new("TextLabel")
+	local label = Instance.new("TextLabel", bb)
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.BackgroundTransparency = 1
+	label.Text = plr.Name
 	label.TextScaled = true
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.Text = player.Name
 	label.Font = Enum.Font.GothamBold
-	label.Parent = bb
+	label.TextColor3 = Color3.new(1, 1, 1)
 end
 
-local character = waitForCharacter()
-local hrp = character:WaitForChild("HumanoidRootPart")
-
-local rings = {
-	{createRing(2.5, 0.9)},
-	{createRing(3.5, 0.6)},
-	{createRing(4.5, 0.2)}
-}
-
-local segments = {
-	createSection(Color3.fromRGB(200, 200, 255)), -- FL
-	createSection(Color3.fromRGB(200, 255, 200)), -- FR
-	createSection(Color3.fromRGB(255, 200, 200)), -- BL
-	createSection(Color3.fromRGB(255, 255, 200))  -- BR
-}
-
-local rainbowHue = 0
+local hue = 0
 
 RunService.RenderStepped:Connect(function()
-	if not hrp or not hrp:IsDescendantOf(workspace) then return end
-	local pos = hrp.Position
 	local cf = hrp.CFrame
+	local pos = hrp.Position
 
-	-- Update ring positions and rainbow color
-	rainbowHue = (rainbowHue + 0.001) % 1
-	local rainbowColor = Color3.fromHSV(rainbowHue, 1, 1)
-	for i, data in ipairs(rings) do
-		local ring, height = data[1], data[2]
-		ring.Position = pos + Vector3.new(0, height, 0)
+	-- Update rings
+	hue = (hue + 0.001) % 1
+	local rainbowColor = Color3.fromHSV(hue, 0.5, 1)
+
+	for i, ring in ipairs(rings) do
+		ring.Position = pos + Vector3.new(0, 1 + i * 0.75, 0)
 		ring.Orientation = Vector3.new(90, 0, 0)
 		ring.Color = rainbowColor
 	end
 
-	-- Reset segment transparency
-	for _, s in ipairs(segments) do
-		s.Transparency = 0.6
-	end
-
-	-- Update segment positions around HRP
+	-- Update segments
 	local offsets = {
-		Vector3.new(-4, 0, 4),  -- FL
-		Vector3.new(4, 0, 4),   -- FR
-		Vector3.new(-4, 0, -4), -- BL
-		Vector3.new(4, 0, -4)   -- BR
+		Vector3.new(-1, 0, 1),  -- FL
+		Vector3.new(1, 0, 1),   -- FR
+		Vector3.new(-1, 0, -1), -- BL
+		Vector3.new(1, 0, -1),  -- BR
 	}
-
-	for i, s in ipairs(segments) do
-		local offset = cf:VectorToWorldSpace(offsets[i])
-		s.Position = pos + offset
-		s.Orientation = Vector3.new(0, 0, 0)
+	for i, segment in ipairs(segmentParts) do
+		local offset = cf:VectorToWorldSpace(offsets[i] * 5)
+		segment.Position = pos + offset
+		segment.Orientation = Vector3.new(0, math.deg(math.atan2(offset.Z, offset.X)), 0)
+		segment.Transparency = 0.6
 	end
 
-	-- Player detection logic
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= localPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-			local otherHRP = plr.Character.HumanoidRootPart
+	-- Detect players and highlight segments
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and other.Character and other.Character:FindFirstChild("HumanoidRootPart") then
+			local otherHRP = other.Character.HumanoidRootPart
 			local dir = (otherHRP.Position - pos).Unit
 			local dotF = cf.LookVector:Dot(dir)
 			local dotR = cf.RightVector:Dot(dir)
 
-			local left = dotR < -0.5
-			local right = dotR > 0.5
-			local front = dotF > 0.5
-			local back = dotF < -0.5
+			local lit = {}
 
-			if front and left then segments[1].Transparency = 0.1 end
-			if front and right then segments[2].Transparency = 0.1 end
-			if back and left then segments[3].Transparency = 0.1 end
-			if back and right then segments[4].Transparency = 0.1 end
-			if left and not (front or back) then
-				segments[1].Transparency = 0.1
-				segments[3].Transparency = 0.1
-			end
-			if right and not (front or back) then
-				segments[2].Transparency = 0.1
-				segments[4].Transparency = 0.1
-			end
-			if front and not (left or right) then
-				segments[1].Transparency = 0.1
-				segments[2].Transparency = 0.1
-			end
-			if back and not (left or right) then
-				segments[3].Transparency = 0.1
-				segments[4].Transparency = 0.1
+			if dotF > 0.5 and dotR < 0 then lit[1] = true end -- FL
+			if dotF > 0.5 and dotR > 0 then lit[2] = true end -- FR
+			if dotF < -0.5 and dotR < 0 then lit[3] = true end -- BL
+			if dotF < -0.5 and dotR > 0 then lit[4] = true end -- BR
+			if dotR < -0.5 and math.abs(dotF) < 0.3 then lit[1], lit[3] = true, true end
+			if dotR > 0.5 and math.abs(dotF) < 0.3 then lit[2], lit[4] = true, true end
+			if dotF > 0.5 and math.abs(dotR) < 0.3 then lit[1], lit[2] = true, true end
+			if dotF < -0.5 and math.abs(dotR) < 0.3 then lit[3], lit[4] = true, true end
+
+			for idx, segment in ipairs(segmentParts) do
+				if lit[idx] then
+					segment.Transparency = 0.1
+				end
 			end
 
-			addOverheadName(plr)
+			addBillboard(other)
 
-			for _, part in ipairs(plr.Character:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Color = rainbowColor
-					part.Material = Enum.Material.Neon
+			for _, p in ipairs(other.Character:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.Material = Enum.Material.Neon
+					p.Color = rainbowColor
 				end
 			end
 		end
