@@ -3,83 +3,106 @@ local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
-local head = character:WaitForChild("Head")
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local head = char:WaitForChild("Head")
 
-local crownParts = {}
-local lastNearTime = tick()
-local crownRadius = 2
-local crownHeight = 0.5
-local numParts = 12
+-- Settings
+local CROWN_RADIUS = 3
+local HEIGHT_ABOVE_HEAD = 0.5
+local NUM_PARTS = 12
+local DETECTION_RADIUS = 50
+local SCALE_MULTIPLIER = 4
+local DECAY_RATE = 0.1
+local VISUALIZER_LIFETIME = 10
 
--- Create visualizer crown
-for i = 1, numParts do
-	local angle = (2 * math.pi / numParts) * i
+-- Data
+local visualizerParts = {}
+local partTimers = {}
+
+-- Utility
+local function createVisualizerPart(index)
 	local part = Instance.new("Part")
+	part.Size = Vector3.new(0.25, 1, 0.25)
 	part.Anchored = true
 	part.CanCollide = false
-	part.Size = Vector3.new(0.3, 0.3, 0.3)
-	part.Shape = Enum.PartType.Ball
 	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(i / numParts, 1, 1)
+	part.Color = Color3.fromHSV(index / NUM_PARTS, 1, 1)
+	part.Name = "VisualizerPart_" .. index
 	part.Parent = workspace
-	crownParts[i] = part
+	visualizerParts[index] = {
+		Part = part,
+		Scale = 1,
+		Sound = nil,
+	}
+	partTimers[index] = tick()
 end
 
--- Get nearby sounds
+-- Create crown
+for i = 1, NUM_PARTS do
+	createVisualizerPart(i)
+end
+
+-- Find nearby sounds
 local function getNearbySounds()
 	local sounds = {}
-	for _, s in ipairs(workspace:GetDescendants()) do
-		if s:IsA("Sound") and s.IsPlaying and (s.Position - hrp.Position).Magnitude < 50 then
-			table.insert(sounds, s)
-		end
-	end
-	for _, s in ipairs(SoundService:GetDescendants()) do
-		if s:IsA("Sound") and s.IsPlaying then
-			table.insert(sounds, s)
+	for _, sound in ipairs(workspace:GetDescendants()) do
+		if sound:IsA("Sound") and sound.IsPlaying and (sound.Position - hrp.Position).Magnitude <= DETECTION_RADIUS then
+			table.insert(sounds, sound)
 		end
 	end
 	return sounds
 end
 
--- Update loop
+-- Main update loop
 RunService.RenderStepped:Connect(function(dt)
-	if not hrp or not hrp.Parent then return end
+	local nearbySounds = getNearbySounds()
 
-	local sounds = getNearbySounds()
-	if #sounds > 0 then
-		lastNearTime = tick()
+	-- Tilt angle based on head movement (inverted)
+	local tiltX = -math.clamp(head.RotVelocity.X, -1, 1)
+	local tiltZ = -math.clamp(head.RotVelocity.Z, -1, 1)
+
+	for i = 1, NUM_PARTS do
+		local visual = visualizerParts[i]
+		local part = visual.Part
+
+		local angle = (i / NUM_PARTS) * math.pi * 2
+		local offsetX = math.cos(angle + tiltX) * CROWN_RADIUS
+		local offsetZ = math.sin(angle + tiltZ) * CROWN_RADIUS
+		local offsetY = HEIGHT_ABOVE_HEAD
+
+		local position = head.Position + Vector3.new(offsetX, offsetY, offsetZ)
+		part.Position = position
+
+		-- Track a sound for this visualizer part
+		local sound = nearbySounds[i % #nearbySounds + 1]
+		visual.Sound = sound
+
+		-- Scale height based on loudness
+		local targetScale = 1
+		if sound then
+			targetScale = 1 + (sound.PlaybackLoudness / 300) * SCALE_MULTIPLIER
+			part.Color = Color3.fromHSV(i / NUM_PARTS, 1, 1):Lerp(Color3.new(1, 1, 1), math.clamp(targetScale / 6, 0, 1))
+			partTimers[i] = tick()
+		end
+
+		-- Smooth scaling
+		visual.Scale = visual.Scale + (targetScale - visual.Scale) * 0.1
+		part.Size = Vector3.new(0.25, visual.Scale, 0.25)
+
+		-- Align base of part to crown level
+		part.CFrame = CFrame.new(part.Position) * CFrame.new(0, visual.Scale / 2, 0)
 	end
 
-	local now = tick()
-	if (hrp.Position - head.Position).Magnitude > 20 and now - lastNearTime > 10 then
-		for _, p in ipairs(crownParts) do p:Destroy() end
-		crownParts = {}
-		script:Destroy()
-		return
-	end
-
-	local hrpCFrame = hrp.CFrame
-	local tiltX = -hrpCFrame.RightVector.Y * 20
-	local tiltZ = -hrpCFrame.LookVector.Y * 20
-
-	for i, part in ipairs(crownParts) do
-		local angle = (2 * math.pi / numParts) * i
-		local x = math.cos(angle) * crownRadius
-		local z = math.sin(angle) * crownRadius
-		local offset = Vector3.new(x, crownHeight, z)
-
-		-- Apply tilt
-		local tiltOffset = CFrame.Angles(math.rad(tiltX), 0, math.rad(tiltZ)):VectorToWorldSpace(offset)
-		local worldPos = head.Position + tiltOffset
-		part.Position = worldPos
-
-		-- Get some sound data
-		local sound = sounds[i % #sounds + 1]
-		local volume = sound and sound.PlaybackLoudness or 0
-		local scale = 0.3 + math.clamp(volume / 500, 0, 0.5)
-
-		part.Size = part.Size:Lerp(Vector3.new(scale, scale, scale), 0.2)
+	-- Despawn old parts
+	for i, t in pairs(partTimers) do
+		if tick() - t > VISUALIZER_LIFETIME then
+			local v = visualizerParts[i]
+			if v and v.Part then
+				v.Part:Destroy()
+			end
+			visualizerParts[i] = nil
+			partTimers[i] = nil
+		end
 	end
 end)
