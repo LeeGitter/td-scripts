@@ -39,27 +39,36 @@ for i = 1, segmentCount do
     partScales[i] = basePartSize.Y
 end
 
--- Variables for smooth tilt and wobble
+-- Wobble variables
 local prevTiltX, prevTiltZ = 0, 0
 local tiltSmoothing = 0.1
 local tiltIntensity = 0.1
-
--- Wobble parameters
 local wobbleDuration = 0.5
 local wobbleTime = 0
 local wobbleAmplitudePos = 0.2
 local wobbleAmplitudeRot = 0.09
 local wobbleActive = false
-
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Rainbow highlight vars
+-- Rainbow glow effect
 local highlight = nil
-local highlightTime = 0
-local highlightDuration = 1.0 -- 0.2s visible + 0.8s fade out
-local highlightFullyVisibleTime = 0.2
-local rainbowCycleDuration = 0.5
+local glowTimer = 0
+local glowActive = false
+local colorStepTime = 0.05
+local timeSinceColorChange = 0
+
+local function triggerGlow()
+    if highlight then highlight:Destroy() end
+    highlight = Instance.new("Highlight")
+    highlight.Adornee = character
+    highlight.Parent = character
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 1
+    glowTimer = 0
+    timeSinceColorChange = 0
+    glowActive = true
+end
 
 local function getSoundPosition(sound)
     if sound.Parent:IsA("BasePart") then
@@ -103,29 +112,10 @@ local function getNearbySounds()
     return sounds
 end
 
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("SelectionBox")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.LineThickness = 0.05
-    highlight.Transparency = 0
-    highlight.Color3 = Color3.new(1,1,1)
-    highlight.SurfaceTransparency = 0.8
-end
-
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
-end
-
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
 
-    -- Detect significant head tilt change to trigger wobble
     if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
         wobbleActive = true
         wobbleTime = 0
@@ -133,13 +123,11 @@ RunService.Heartbeat:Connect(function(dt)
     lastPitch = pitch
     lastRoll = roll
 
-    -- Smooth tilt targets (invert to tilt opposite direction)
     local targetTiltX = -pitch * tiltIntensity
     local targetTiltZ = -roll * tiltIntensity
     prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
     prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
 
-    -- Wobble progress [0 to 1]
     if wobbleActive then
         wobbleTime = wobbleTime + dt
         if wobbleTime > wobbleDuration then
@@ -149,7 +137,6 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     local wobbleProgress = wobbleTime / wobbleDuration
-
     local wobblePosOffset = 0
     local wobbleRotOffset = 0
     if wobbleActive then
@@ -162,15 +149,13 @@ RunService.Heartbeat:Connect(function(dt)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
     local sounds = getNearbySounds()
-
-    local highlightTriggeredThisFrame = false
+    local triggeredGlow = false
 
     for i, part in ipairs(parts) do
         local angle = (2 * math.pi / segmentCount) * i
         local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        -- Visualize sound loudness per segment
         local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
         local sound = soundIndex and sounds[soundIndex] or nil
 
@@ -184,40 +169,38 @@ RunService.Heartbeat:Connect(function(dt)
 
         partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
         part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-
         part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
         part.Orientation = Vector3.new(0, yawAngle, 0)
 
-        -- Trigger highlight if any part close to max height
-        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
-            highlightTriggeredThisFrame = true
+        if not triggeredGlow and partScales[i] >= maxPartHeight - 0.1 then
+            triggeredGlow = true
         end
     end
 
-    -- Trigger highlight only if a part is at max height this frame
-    if highlightTriggeredThisFrame then
-        highlightTime = 0
-        createHighlight()
+    if triggeredGlow and not glowActive then
+        triggerGlow()
     end
 
-    -- Update highlight effect if active
-    if highlight then
-        highlightTime = highlightTime + dt
+    if glowActive then
+        glowTimer += dt
+        timeSinceColorChange += dt
 
-        -- Cycle rainbow colors every 0.5 seconds
-        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
-        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
+        if highlight then
+            if timeSinceColorChange >= colorStepTime then
+                timeSinceColorChange = 0
+                local hue = (tick() % 1)
+                highlight.FillColor = Color3.fromHSV(hue, 1, 1)
+            end
+        end
 
-        -- Manage transparency (fade out after 0.2 seconds)
-        if highlightTime < highlightFullyVisibleTime then
-            highlight.Transparency = 0
-        elseif highlightTime < highlightDuration then
-            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.Transparency = fadeProgress
-        else
-            removeHighlight()
+        if glowTimer >= 0.2 then
+            if highlight then
+                highlight:Destroy()
+                highlight = nil
+            end
+            glowActive = false
         end
     end
 end)
