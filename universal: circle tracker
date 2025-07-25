@@ -1,15 +1,11 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 local rootPart = character:WaitForChild("HumanoidRootPart")
-local leftLeg = character:WaitForChild("Left Leg")
-local rightLeg = character:WaitForChild("Right Leg")
 
--- Crown audio visualizer params
 local segmentCount = 10
 local radius = 2
 local heightOffset = 3
@@ -18,31 +14,18 @@ local soundDetectionRadius = 60
 local maxLoudnessExpected = 1000
 local maxPartHeight = 5
 
--- Pillar trail params
-local pillarSize = Vector3.new(0.3, 5, 0.3) -- tall pillars
-local pillarSpawnInterval = 0.5
-local pillarLifetime = 10
-local pillarFadeTime = 3
-
--- Feet aura params
-local auraRadius = 1 -- thicker
-local auraHeight = 0.3 -- lower to ground
-local auraParticleRate = 150
-
--- Cleanup old folders
-local crownFolder = Workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then crownFolder:Destroy() end
-crownFolder = Instance.new("Folder", Workspace)
+-- Clear existing crown folder if any
+local crownFolder = workspace:FindFirstChild("VisualizerCrown")
+if crownFolder then
+    crownFolder:Destroy()
+end
+crownFolder = Instance.new("Folder")
 crownFolder.Name = "VisualizerCrown"
+crownFolder.Parent = workspace
 
-local pillarFolder = Workspace:FindFirstChild("LocalPillars")
-if pillarFolder then pillarFolder:Destroy() end
-pillarFolder = Instance.new("Folder", Workspace)
-pillarFolder.Name = "LocalPillars"
-
--- Create crown parts
 local parts = {}
 local partScales = {}
+
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
@@ -57,49 +40,66 @@ for i = 1, segmentCount do
     partScales[i] = basePartSize.Y
 end
 
--- Aura particles attached to feet
-local function createAuraEmitter(parentPart)
-    local emitter = Instance.new("ParticleEmitter")
-    emitter.Color = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromHSV(0,0.6,1)),
-        ColorSequenceKeypoint.new(1, Color3.fromHSV(1,0.6,1))
-    }
-    emitter.LightEmission = 0.7
-    emitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0)})
-    emitter.Rate = auraParticleRate
-    emitter.Speed = NumberRange.new(0.5,1)
-    emitter.Lifetime = NumberRange.new(1, 1.5)
-    emitter.Rotation = NumberRange.new(0, 360)
-    emitter.RotSpeed = NumberRange.new(-90, 90)
-    emitter.EmissionDirection = Enum.NormalId.Top
-    emitter.LockedToPart = true
-    emitter.Parent = parentPart
-    emitter.Enabled = true
-    return emitter
+-- Variables for smooth tilt and wobble
+local prevTiltX, prevTiltZ = 0, 0
+local tiltSmoothing = 0.1
+local tiltIntensity = 0.1
+
+local wobbleDuration = 0.5
+local wobbleTime = 0
+local wobbleAmplitudePos = 0.2
+local wobbleAmplitudeRot = 0.09
+local wobbleActive = false
+
+local lastPitch, lastRoll = 0, 0
+local wobbleTriggerThreshold = 0.05
+
+-- Highlight vars
+local highlight = nil
+local highlightTime = 0
+local highlightDuration = 0.7  -- 0.2s fully visible + 0.5s fade out
+local highlightFullyVisibleTime = 0.2
+local rainbowCycleDuration = 0.5
+
+-- Pillars trail vars
+local trailFolder = workspace:FindFirstChild("PillarTrail")
+if trailFolder then
+    trailFolder:Destroy()
+end
+trailFolder = Instance.new("Folder")
+trailFolder.Name = "PillarTrail"
+trailFolder.Parent = workspace
+
+local lastPillarSpawnTime = 0
+local pillarSpawnInterval = 1 -- spawn every 1 second
+
+local function createPillar(position, height, color)
+    local pillar = Instance.new("Part")
+    pillar.Anchored = true
+    pillar.CanCollide = false
+    pillar.Size = Vector3.new(0.2, height, 0.2)
+    pillar.Position = position + Vector3.new(0, height / 2, 0)
+    pillar.Material = Enum.Material.Neon
+    pillar.Color = color
+    pillar.Transparency = 0
+    pillar.Parent = trailFolder
+
+    -- Fade out over 10 seconds
+    spawn(function()
+        local lifeTime = 10
+        local fadeTime = 4
+        local startTime = tick()
+        while tick() - startTime < lifeTime do
+            local dt = RunService.Heartbeat:Wait()
+            local elapsed = tick() - startTime
+            if elapsed > lifeTime - fadeTime then
+                pillar.Transparency = math.clamp((elapsed - (lifeTime - fadeTime)) / fadeTime, 0, 1)
+            end
+        end
+        pillar:Destroy()
+    end)
 end
 
-local leftAura = createAuraEmitter(leftLeg)
-local rightAura = createAuraEmitter(rightLeg)
-
--- Particle trail for pillars - strong and thick
-local trailEmitter = Instance.new("ParticleEmitter")
-trailEmitter.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 0.6, 1)),
-    ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 0.6, 1))
-}
-trailEmitter.LightEmission = 1
-trailEmitter.Size = NumberSequence.new(0.4)
-trailEmitter.Rate = 500
-trailEmitter.Speed = NumberRange.new(0)
-trailEmitter.Lifetime = NumberRange.new(pillarLifetime)
-trailEmitter.EmissionDirection = Enum.NormalId.Top
-trailEmitter.LockedToPart = true
-trailEmitter.Parent = rootPart
-
-local lastPillarSpawn = 0
-local hue = 0
-
--- Helpers for sound detection
 local function getSoundPosition(sound)
     if sound.Parent:IsA("BasePart") then
         return sound.Parent.Position
@@ -118,7 +118,8 @@ end
 
 local function getNearbySounds()
     local sounds = {}
-    for _, sound in pairs(Workspace:GetDescendants()) do
+
+    for _, sound in pairs(workspace:GetDescendants()) do
         if sound:IsA("Sound") and sound.IsPlaying then
             local pos = getSoundPosition(sound)
             if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
@@ -126,103 +127,25 @@ local function getNearbySounds()
             end
         end
     end
+
+    local function addLocalSounds(root)
+        for _, sound in pairs(root:GetDescendants()) do
+            if sound:IsA("Sound") and sound.IsPlaying then
+                table.insert(sounds, sound)
+            end
+        end
+    end
+
+    addLocalSounds(player:WaitForChild("PlayerGui"))
+    addLocalSounds(character)
+
     return sounds
 end
 
--- Create and animate a pillar
-local function createPillar(position)
-    local pillar = Instance.new("Part")
-    pillar.Anchored = true
-    pillar.CanCollide = false
-    pillar.Size = pillarSize
-    pillar.Material = Enum.Material.Neon
-    pillar.Color = Color3.fromHSV(hue, 0.6, 1)
-    pillar.CFrame = CFrame.new(position + Vector3.new(0, pillarSize.Y/2, 0))
-    pillar.Transparency = 0
-    pillar.CastShadow = false
-    pillar.Parent = pillarFolder
-
-    -- Animate height & color based on audio and fade out
-    spawn(function()
-        local startTime = tick()
-        local partScaleY = pillarSize.Y
-        while true do
-            local dt = RunService.Heartbeat:Wait()
-            local elapsed = tick() - startTime
-            if elapsed > pillarLifetime then
-                pillar:Destroy()
-                break
-            end
-
-            -- Audio loudness near pillar
-            local sounds = getNearbySounds()
-            local maxLoudness = 0
-            for _, sound in pairs(sounds) do
-                local loudness = sound.PlaybackLoudness or 0
-                if loudness > maxLoudness then maxLoudness = loudness end
-            end
-            local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
-
-            local targetHeight = 1 + normalized * 4 -- from 1x to 5x height scale
-            partScaleY = partScaleY + (targetHeight * pillarSize.Y - partScaleY) * 0.15
-            local currentSize = pillar.Size
-            pillar.Size = Vector3.new(currentSize.X, partScaleY, currentSize.Z)
-
-            local basePos = pillar.Position - Vector3.new(0, currentSize.Y/2, 0)
-            pillar.CFrame = CFrame.new(basePos + Vector3.new(0, partScaleY/2, 0))
-
-            -- Fade out
-            if elapsed > pillarLifetime - pillarFadeTime then
-                local fadeAlpha = (elapsed - (pillarLifetime - pillarFadeTime)) / pillarFadeTime
-                pillar.Transparency = fadeAlpha
-            end
-
-            -- Color cycle pastel rainbow
-            hue = (hue + dt * 0.5) % 1
-            pillar.Color = Color3.fromHSV(hue, 0.6, 1)
-        end
-    end)
-
-    return pillar
-end
-
--- Variables for crown wobble
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
-
 RunService.Heartbeat:Connect(function(dt)
-    if not character or not character.Parent then
-        character = player.Character or player.CharacterAdded:Wait()
-        head = character:WaitForChild("Head")
-        rootPart = character:WaitForChild("HumanoidRootPart")
-        leftLeg = character:WaitForChild("Left Leg")
-        rightLeg = character:WaitForChild("Right Leg")
-
-        -- Reset auras on new character
-        leftAura:Destroy()
-        rightAura:Destroy()
-        leftAura = createAuraEmitter(leftLeg)
-        rightAura = createAuraEmitter(rightLeg)
-        trailEmitter.Parent = rootPart
-    end
-
-    -- Update aura color cycling (pastel rainbow)
-    hue = (hue + dt * 0.3) % 1
-    local pastelColor = Color3.fromHSV(hue, 0.6, 1)
-    leftAura.Color = ColorSequence.new(pastelColor)
-    rightAura.Color = ColorSequence.new(pastelColor)
-
-    -- Update crown wobble and base CFrame
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+
     if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
         wobbleActive = true
         wobbleTime = 0
@@ -255,8 +178,10 @@ RunService.Heartbeat:Connect(function(dt)
     local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
-    -- Crown parts update & audio visualizer height
     local sounds = getNearbySounds()
+
+    local highlightTriggeredThisFrame = false
+
     for i, part in ipairs(parts) do
         local angle = (2 * math.pi / segmentCount) * i
         local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
@@ -280,18 +205,52 @@ RunService.Heartbeat:Connect(function(dt)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
         part.Orientation = Vector3.new(0, yawAngle, 0)
+
+        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
+            highlightTriggeredThisFrame = true
+        end
     end
 
-    -- Spawn pillars at feet trail interval
-    if tick() - lastPillarSpawn > pillarSpawnInterval then
-        if leftLeg then
-            local pos = leftLeg.Position - rootPart.CFrame.LookVector * 0.5
-            createPillar(pos)
+    -- Pillars spawn only if moving (speed > 1)
+    local speed = rootPart.Velocity.Magnitude
+    if speed > 1 and tick() - lastPillarSpawnTime > pillarSpawnInterval then
+        for i, part in ipairs(parts) do
+            local pos = part.Position
+            local loudness = 0
+            -- Find corresponding sound for this part (same logic as above)
+            local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
+            local sound = soundIndex and sounds[soundIndex] or nil
+            if sound then
+                loudness = sound.PlaybackLoudness or 0
+            end
+
+            local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
+            local height = 0.5 + normalized * (maxPartHeight - 0.5)
+
+            local color = Color3.fromHSV((i / segmentCount + tick()) % 1, 0.7, 1) -- pastel rainbow
+
+            createPillar(pos, height, color)
         end
-        if rightLeg then
-            local pos = rightLeg.Position - rootPart.CFrame.LookVector * 0.5
-            createPillar(pos)
+        lastPillarSpawnTime = tick()
+    end
+
+    if highlightTriggeredThisFrame then
+        highlightTime = 0
+        createHighlight()
+    end
+
+    if highlight then
+        highlightTime = highlightTime + dt
+        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
+        highlight.FillColor = Color3.fromHSV(hue, 1, 1)
+
+        if highlightTime < highlightFullyVisibleTime then
+            highlight.FillTransparency = 0
+        elseif highlightTime < highlightDuration then
+            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
+            highlight.FillTransparency = fadeProgress
+        else
+            removeHighlight()
         end
-        lastPillarSpawn = tick()
     end
 end)
