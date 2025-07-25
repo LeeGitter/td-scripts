@@ -25,7 +25,7 @@ crownFolder.Parent = workspace
 local parts = {}
 local partScales = {}
 
--- Create the visualizer parts
+-- Your original crown parts creation code (unchanged)
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
@@ -34,13 +34,13 @@ for i = 1, segmentCount do
     part.Material = Enum.Material.Neon
     part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
     part.Transparency = 0
-    part.Name = "CrownPart" .. i
+    part.Name = "CrownPart"..i
     part.Parent = crownFolder
     parts[i] = part
     partScales[i] = basePartSize.Y
 end
 
--- Smooth tilt and wobble variables
+-- Variables for smooth tilt and wobble
 local prevTiltX, prevTiltZ = 0, 0
 local tiltSmoothing = 0.1
 local tiltIntensity = 0.1
@@ -54,13 +54,14 @@ local wobbleActive = false
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Highlight settings
+-- Highlight vars
 local highlight = nil
 local highlightTime = 0
-local highlightDuration = 0.7
+local highlightDuration = 0.7  -- 0.2s fully visible + 0.5s fade out
 local highlightFullyVisibleTime = 0.2
 local rainbowCycleDuration = 0.5
 
+-- Create Highlight instance on avatar
 local function createHighlight()
     if highlight then return end
     highlight = Instance.new("Highlight")
@@ -100,14 +101,8 @@ local function getNearbySounds()
     for _, sound in pairs(workspace:GetDescendants()) do
         if sound:IsA("Sound") and sound.IsPlaying then
             local pos = getSoundPosition(sound)
-            local distance = (pos - head.Position).Magnitude
-            if distance <= soundDetectionRadius then
-                local isFloating = not sound:IsDescendantOf(workspace) or not sound.Parent:IsA("BasePart") and not sound.Parent:IsA("Model")
-                table.insert(sounds, {
-                    Instance = sound,
-                    Distance = distance,
-                    IsFloating = isFloating
-                })
+            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
+                table.insert(sounds, sound)
             end
         end
     end
@@ -115,11 +110,7 @@ local function getNearbySounds()
     local function addLocalSounds(root)
         for _, sound in pairs(root:GetDescendants()) do
             if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, {
-                    Instance = sound,
-                    Distance = 0,
-                    IsFloating = false
-                })
+                table.insert(sounds, sound)
             end
         end
     end
@@ -167,6 +158,7 @@ RunService.Heartbeat:Connect(function(dt)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
     local sounds = getNearbySounds()
+
     local highlightTriggeredThisFrame = false
 
     for i, part in ipairs(parts) do
@@ -174,15 +166,12 @@ RunService.Heartbeat:Connect(function(dt)
         local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        local soundData = #sounds > 0 and sounds[((i - 1) % #sounds) + 1] or nil
-        local sound = soundData and soundData.Instance or nil
+        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
+        local sound = soundIndex and sounds[soundIndex] or nil
 
         local loudness = 0
         if sound then
             loudness = sound.PlaybackLoudness or 0
-            if soundData.IsFloating then
-                loudness = loudness * 1.75 -- sensitivity boost for floating sounds
-            end
         end
 
         local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
@@ -190,6 +179,7 @@ RunService.Heartbeat:Connect(function(dt)
 
         partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
         part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
+
         part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
