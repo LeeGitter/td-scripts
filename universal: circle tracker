@@ -1,14 +1,23 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local PhysicsService = game:GetService("PhysicsService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local torso = character:WaitForChild("Torso")
 
 -- Settings
-local tailLength = 4
+local tailLength = 8
 local segmentLength = 1.5
 local tailOffset = Vector3.new(0, -0.5, 1.5)
+
+-- Setup collision group to prevent pushing
+local NO_COLLIDE_GROUP = "TailNoCollide"
+if not pcall(function() PhysicsService:CreateCollisionGroup(NO_COLLIDE_GROUP) end) then
+	-- group probably exists
+end
+PhysicsService:CollisionGroupSetCollidable(NO_COLLIDE_GROUP, "Default", false)
+PhysicsService:CollisionGroupSetCollidable(NO_COLLIDE_GROUP, NO_COLLIDE_GROUP, false)
 
 -- Cleanup old tail
 if character:FindFirstChild("DynamicTail") then
@@ -19,23 +28,31 @@ local tailModel = Instance.new("Model")
 tailModel.Name = "DynamicTail"
 tailModel.Parent = character
 
--- Create segments
-local segments = {}
+-- Root attachment
 local lastAttachment = Instance.new("Attachment")
 lastAttachment.Name = "RootAttachment"
 lastAttachment.Parent = torso
 lastAttachment.Position = tailOffset
 
+local segments = {}
 for i = 1, tailLength do
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.4, 0.4, segmentLength)
+	local thickness = 0.5 - (i - 1) * 0.03  -- slight taper
+	part.Size = Vector3.new(thickness, thickness, segmentLength)
 	part.Anchored = false
 	part.CanCollide = false
 	part.Massless = true
+	part.Transparency = 0
 	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV((i / tailLength), 1, 1)
+	part.Color = Color3.fromHSV(i / tailLength, 1, 1)
 	part.Name = "TailSegment" .. i
 	part.Parent = tailModel
+
+	-- Assign no-collision group
+	PhysicsService:SetPartCollisionGroup(part, NO_COLLIDE_GROUP)
+
+	-- Use zero density and friction so no push
+	part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
 
 	local att0 = Instance.new("Attachment")
 	att0.Position = Vector3.new(0, 0, -segmentLength / 2)
@@ -45,45 +62,69 @@ for i = 1, tailLength do
 	att1.Position = Vector3.new(0, 0, segmentLength / 2)
 	att1.Parent = part
 
-	local ball = Instance.new("BallSocketConstraint")
-	ball.Attachment0 = lastAttachment
-	ball.Attachment1 = att0
-	ball.LimitsEnabled = true
-	ball.TwistLimitsEnabled = true
-	ball.UpperAngle = 30
-	ball.TwistLowerAngle = -15
-	ball.TwistUpperAngle = 15
-	ball.Parent = part
+	local constraint = Instance.new("BallSocketConstraint")
+	constraint.Attachment0 = lastAttachment
+	constraint.Attachment1 = att0
+	constraint.LimitsEnabled = true
+	constraint.TwistLimitsEnabled = true
+	constraint.UpperAngle = 30
+	constraint.TwistLowerAngle = -20
+	constraint.TwistUpperAngle = 20
+	constraint.Parent = part
 
 	local align = Instance.new("AlignOrientation")
 	align.Attachment0 = att0
 	align.Attachment1 = lastAttachment
 	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	align.ReactionTorqueEnabled = true
-	align.Responsiveness = 10
-	align.MaxTorque = 10000
+	align.Responsiveness = 7
+	align.MaxTorque = 8000
 	align.Parent = part
 
-	table.insert(segments, {
-		Part = part,
-		Align = align,
-		Attachment = att0
-	})
+	part.CFrame = torso.CFrame * CFrame.new(tailOffset + Vector3.new(0, 0, segmentLength * (i - 1)))
 
+	table.insert(segments, part)
 	lastAttachment = att1
 end
 
--- Add wobble based on movement
-local prevVelocity = Vector3.zero
+-- Tail tip cube with wobble & spin
+local tipPart = Instance.new("Part")
+tipPart.Size = Vector3.new(1.2, 1.2, 1.2)
+tipPart.Anchored = false
+tipPart.CanCollide = false
+tipPart.Massless = true
+tipPart.Material = Enum.Material.ForceField
+tipPart.Color = Color3.new(1, 1, 1)
+tipPart.Name = "TailTip"
+tipPart.Parent = tailModel
+
+PhysicsService:SetPartCollisionGroup(tipPart, NO_COLLIDE_GROUP)
+tipPart.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+
+local tipAttach0 = Instance.new("Attachment", segments[#segments])
+tipAttach0.Position = Vector3.new(0, 0, segmentLength / 2)
+
+local tipAttach1 = Instance.new("Attachment", tipPart)
+tipAttach1.Position = Vector3.new(0, 0, -0.6)
+
+local tipConstraint = Instance.new("BallSocketConstraint")
+tipConstraint.Attachment0 = tipAttach0
+tipConstraint.Attachment1 = tipAttach1
+tipConstraint.LimitsEnabled = true
+tipConstraint.TwistLimitsEnabled = true
+tipConstraint.UpperAngle = 45
+tipConstraint.TwistLowerAngle = -30
+tipConstraint.TwistUpperAngle = 30
+tipConstraint.Parent = tipPart
+
+-- Animate tip rotation and wobble
 RunService.RenderStepped:Connect(function()
-	local velocity = torso.Velocity
-	local delta = (velocity - prevVelocity).Magnitude
-
-	for i, data in ipairs(segments) do
-		local align = data.Align
-		local strength = math.clamp(delta * 0.02, 0, 1)
-		align.Responsiveness = 5 + (strength * (tailLength - i + 1))
-	end
-
-	prevVelocity = velocity
+	-- Slowly spin the tip around all axes with a wobble effect
+	local wobbleAmount = 4
+	local wobbleSpeed = 3
+	tipPart.RotVelocity = Vector3.new(
+		math.sin(tick() * wobbleSpeed) * wobbleAmount,
+		math.cos(tick() * wobbleSpeed * 0.7) * wobbleAmount,
+		math.sin(tick() * wobbleSpeed * 1.3) * wobbleAmount
+	)
 end)
