@@ -4,11 +4,12 @@ local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 local torso = character:WaitForChild("Torso")
 local head = character:WaitForChild("Head")
 
 -------------------------------
--- Tail Configuration
+-- Tail Configuration (unchanged)
 -------------------------------
 local NUM_SEGMENTS = 16
 local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
@@ -109,7 +110,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -------------------------------
--- Crown Configuration
+-- Crown Configuration (unchanged)
 -------------------------------
 local segmentCount = 10
 local radius = 2
@@ -243,6 +244,112 @@ local function removeHighlight()
     end
 end
 
+-------------------------------
+-- Afterimage + Speed Boost Variables
+-------------------------------
+local ACTIVE_THRESHOLD = 0.4 -- 40% of max height
+local ACTIVE_TIME_REQUIRED = 4 -- seconds
+local afterimageFadeTime = 0.4
+
+local activeTimer = 0
+local afterimagesEnabled = false
+
+local afterimageFolder = Instance.new("Folder")
+afterimageFolder.Name = "Afterimages"
+afterimageFolder.Parent = workspace
+
+local afterimageCleanup = {}
+
+local function createAfterimage()
+    -- Create a transparent clone of the character parts with pastel rainbow colors, fading out over afterimageFadeTime
+    local clone = Instance.new("Model")
+    clone.Name = "AfterimageClone"
+    clone.Parent = afterimageFolder
+
+    for _, part in pairs(character:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            local clonedPart = part:Clone()
+            clonedPart.Anchored = true
+            clonedPart.CanCollide = false
+            clonedPart.Massless = true
+            clonedPart.Parent = clone
+
+            -- Pastel rainbow color based on time and part index
+            local hue = (tick() * 2 + #clone:GetChildren()) % 1
+            local pastelColor = Color3.fromHSV(hue, 0.6, 1)
+
+            clonedPart.Color = pastelColor
+            clonedPart.Material = Enum.Material.Neon
+            clonedPart.Transparency = 0.6
+
+            -- Match current CFrame
+            clonedPart.CFrame = part.CFrame
+        elseif part:IsA("Accessory") then
+            local accessoryClone = part:Clone()
+            accessoryClone.Parent = clone
+        end
+    end
+
+    -- Schedule fade and cleanup
+    local startTime = tick()
+    table.insert(afterimageCleanup, {
+        Model = clone,
+        StartTime = startTime
+    })
+end
+
+local function cleanupAfterimages()
+    local now = tick()
+    for i = #afterimageCleanup, 1, -1 do
+        local data = afterimageCleanup[i]
+        local elapsed = now - data.StartTime
+        local progress = elapsed / afterimageFadeTime
+        if progress >= 1 then
+            data.Model:Destroy()
+            table.remove(afterimageCleanup, i)
+        else
+            -- Fade out the parts
+            for _, part in pairs(data.Model:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.Transparency = 0.6 + progress * 0.4
+                end
+            end
+        end
+    end
+end
+
+-- Speed spoofing state
+local speedBoostMultiplier = 1.10
+local speedSpoofActive = false
+
+local function applySpeedBoost(dt)
+    if not speedSpoofActive then return end
+    -- Multiply humanoid WalkSpeed gently, clamp max speed to avoid runaway speed
+    local currentSpeed = humanoid.WalkSpeed
+    local newSpeed = math.min(currentSpeed * speedBoostMultiplier, 1000)
+    humanoid.WalkSpeed = newSpeed
+end
+
+local function resetSpeed()
+    -- To remove speed boost, just set WalkSpeed to default value 16 (or something you prefer)
+    -- But since you want to spoof speed without knowing base, instead reduce speed gradually to default 16
+    -- We'll slowly lerp speed down to 16 when boost ends
+    speedSpoofActive = false
+end
+
+local function slowSpeedReset(dt)
+    if speedSpoofActive then return end
+    if humanoid.WalkSpeed <= 16 then
+        humanoid.WalkSpeed = 16
+    else
+        humanoid.WalkSpeed = humanoid.WalkSpeed - 2 * dt * 60 -- smooth decrease (adjust speed here)
+        if humanoid.WalkSpeed < 16 then humanoid.WalkSpeed = 16 end
+    end
+end
+
+-------------------------------
+-- Main Heartbeat Loop
+-------------------------------
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
@@ -268,67 +375,4 @@ RunService.Heartbeat:Connect(function(dt)
 
     local wobbleProgress = wobbleTime / wobbleDuration
     local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
-
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
-    local sounds = getNearbySounds(dt)
-    local highlightTriggeredThisFrame = false
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local soundData = #sounds > 0 and sounds[((i - 1) % #sounds) + 1] or nil
-        local sound = soundData and soundData.Instance or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
-            if soundData.IsFloating then
-                loudness *= 2.5 -- Increased boost for floating/global sounds
-            end
-        end
-
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] += (targetHeight - partScales[i]) * 0.25 -- slightly faster lerp
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-
-        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
-            highlightTriggeredThisFrame = true
-        end
-    end
-
-    if highlightTriggeredThisFrame then
-        highlightTime = 0
-        createHighlight()
-    end
-
-    if highlight then
-        highlightTime += dt
-        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
-        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
-
-        if highlightTime < highlightFullyVisibleTime then
-            highlight.Transparency = 0
-        elseif highlightTime < highlightDuration then
-            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.Transparency = fadeProgress
-        else
-            removeHighlight()
-        end
-    end
-end)
+    local wobbleRotOffset =
