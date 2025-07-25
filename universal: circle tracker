@@ -7,19 +7,19 @@ local torso = character:WaitForChild("Torso")
 
 local segmentCount = 16
 
-local crownFolder = workspace:FindFirstChild("VisualizerTail")
-if crownFolder then crownFolder:Destroy() end
+local tailFolder = workspace:FindFirstChild("VisualizerTail")
+if tailFolder then tailFolder:Destroy() end
 
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerTail"
-crownFolder.Parent = workspace
+tailFolder = Instance.new("Folder")
+tailFolder.Name = "VisualizerTail"
+tailFolder.Parent = workspace
 
 local parts = {}
 
 local basePartThickness = 0.15
 local basePartLength = 2
 
--- Create tail parts
+-- Create parts
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Name = "TailPart"..i
@@ -28,28 +28,28 @@ for i = 1, segmentCount do
     part.Material = Enum.Material.Neon
     part.Transparency = 0
     part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Parent = crownFolder
+    part.Parent = tailFolder
     parts[i] = part
 end
 
--- Set sizes for tail segments 1-10
+-- Tail segments 1-10: long thin
 for i = 1, 10 do
     parts[i].Size = Vector3.new(basePartThickness, basePartThickness, basePartLength)
 end
 
--- Set sizes for square tip parts 11-14
+-- Square tip parts 11-14 (hollow square)
 local squareThickness = basePartThickness
 local squareLength = basePartLength * 1.2
 
-parts[11].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- top
-parts[12].Size = Vector3.new(squareThickness, squareThickness, squareLength)  -- right
-parts[13].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- bottom
-parts[14].Size = Vector3.new(squareThickness, squareThickness, squareLength)  -- left
+parts[11].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- top side
+parts[12].Size = Vector3.new(squareThickness, squareThickness, squareLength)  -- right side
+parts[13].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- bottom side
+parts[14].Size = Vector3.new(squareThickness, squareThickness, squareLength)  -- left side
 
--- Crossing parts 15 and 16 near tip
-parts[15].Size = Vector3.new(squareThickness * 0.5, squareThickness * 0.5, squareLength * 0.9)
+-- Spines replacing crossing parts 15 and 16 (aligned along tail length)
+parts[15].Size = Vector3.new(basePartThickness * 0.5, basePartThickness * 0.5, basePartLength * 1.1)
 parts[15].Color = Color3.new(1, 0, 0)
-parts[16].Size = Vector3.new(squareThickness * 0.5, squareThickness * 0.5, squareLength * 0.9)
+parts[16].Size = Vector3.new(basePartThickness * 0.5, basePartThickness * 0.5, basePartLength * 1.1)
 parts[16].Color = Color3.new(1, 0, 0)
 
 local wobbleTime = 0
@@ -59,48 +59,56 @@ RunService.Heartbeat:Connect(function(dt)
 
     local torsoPos = torso.Position
     local backward = -torso.CFrame.LookVector
+    local rightVec = torso.CFrame.RightVector
+    local upVec = Vector3.new(0, 1, 0)
 
-    -- Base waist position (torso position lowered by half torso height)
-    local basePos = torsoPos + Vector3.new(0, -torso.Size.Y/2, 0)
+    -- Tail starts 1.5 studs behind waist, waist is torso position lowered half torso height
+    local basePos = torsoPos + Vector3.new(0, -torso.Size.Y / 2, 0) + backward * 1.5
 
-    -- Tail segments 1-10
+    -- Tail segments 1-10 wobble
     for i = 1, 10 do
         local offsetLength = basePartLength * (i - 1)
         local swayX = math.sin(wobbleTime + i * 0.5) * 0.15
         local swayY = math.cos(wobbleTime * 1.5 + i * 0.8) * 0.05
         local verticalDrop = -0.1 * i
 
-        -- Calculate local wobble offset in world space:
-        -- We take torso's right and up vectors to apply swayX/Y properly
-        local rightVec = torso.CFrame.RightVector
-        local upVec = Vector3.new(0, 1, 0)
-
+        -- Wobble offset
         local wobbleOffset = rightVec * swayX + upVec * (swayY + verticalDrop)
 
-        -- Final world position for this segment:
-        local partPos = basePos + backward * offsetLength + wobbleOffset
+        -- Tail pitches up gradually near the end
+        local pitchAngle = math.rad(math.clamp(i / 10 * 30, 0, 30))  -- up to 30 degrees pitch upward
 
-        parts[i].CFrame = CFrame.new(partPos, partPos + backward)
+        -- Create a rotation pitching the tail up gradually
+        local pitchRotation = CFrame.Angles(-pitchAngle, 0, 0)
+
+        local partPos = basePos + backward * offsetLength + wobbleOffset
+        local partCFrame = CFrame.new(partPos) * CFrame.fromMatrix(Vector3.new(), rightVec, pitchRotation.LookVector, upVec)
+
+        -- To keep the tail facing backward but pitched upward
+        parts[i].CFrame = CFrame.new(partPos) * CFrame.Angles(-pitchAngle, 0, 0) * CFrame.new(0, 0, 0) * CFrame.Angles(0, math.pi, 0)
     end
 
-    -- Square tip parts 11-14, positioned after segment 10
+    -- Square tip base position after segment 10, with extra wobble
     local tipBasePos = basePos + backward * (basePartLength * 10) + Vector3.new(0, -0.1, 0)
+
+    -- More wobble for the square tip
+    local tipSwayX = math.sin(wobbleTime * 2) * 0.3
+    local tipSwayY = math.cos(wobbleTime * 3) * 0.15
+    local tipWobbleOffset = rightVec * tipSwayX + upVec * tipSwayY
+
+    -- Pitch angle max at tip (30 degrees up)
+    local tipPitchAngle = math.rad(30)
+    local tipPitchRotation = CFrame.Angles(-tipPitchAngle, 0, 0)
 
     local halfLen = squareLength / 2
 
-    -- top side (11): offset +X
-    parts[11].CFrame = CFrame.new(tipBasePos + torso.CFrame.RightVector * halfLen, tipBasePos + backward)
+    -- Position hollow square parts 11-14 relative to tip base pos + wobble + pitch rotation
+    parts[11].CFrame = CFrame.new(tipBasePos + tipWobbleOffset + rightVec * halfLen) * tipPitchRotation * CFrame.Angles(0, math.pi, 0) -- top
+    parts[12].CFrame = CFrame.new(tipBasePos + tipWobbleOffset + backward * halfLen) * tipPitchRotation * CFrame.Angles(0, math.pi / 2, math.pi) -- right
+    parts[13].CFrame = CFrame.new(tipBasePos + tipWobbleOffset - rightVec * halfLen) * tipPitchRotation * CFrame.Angles(0, math.pi, 0) -- bottom
+    parts[14].CFrame = CFrame.new(tipBasePos + tipWobbleOffset - backward * halfLen) * tipPitchRotation * CFrame.Angles(0, math.pi / 2, math.pi) -- left
 
-    -- right side (12): offset +Z, rotated 90°
-    parts[12].CFrame = CFrame.new(tipBasePos + backward * halfLen, tipBasePos + backward) * CFrame.Angles(0, math.rad(90), 0)
-
-    -- bottom side (13): offset -X
-    parts[13].CFrame = CFrame.new(tipBasePos - torso.CFrame.RightVector * halfLen, tipBasePos + backward)
-
-    -- left side (14): offset -Z, rotated 90°
-    parts[14].CFrame = CFrame.new(tipBasePos - backward * halfLen, tipBasePos + backward) * CFrame.Angles(0, math.rad(90), 0)
-
-    -- Crossing parts (15 and 16) near square center, angled
-    parts[15].CFrame = CFrame.new(tipBasePos, tipBasePos + backward) * CFrame.Angles(math.rad(45), 0, 0)
-    parts[16].CFrame = CFrame.new(tipBasePos, tipBasePos + backward) * CFrame.Angles(math.rad(-45), 0, 0)
+    -- Spines (15 and 16) aligned with tail length, attached at tip position + wobble + pitch
+    parts[15].CFrame = CFrame.new(tipBasePos + tipWobbleOffset) * tipPitchRotation
+    parts[16].CFrame = CFrame.new(tipBasePos + tipWobbleOffset) * tipPitchRotation * CFrame.Angles(0, math.pi / 2, 0)
 end)
