@@ -125,7 +125,7 @@ cube.Color = Color3.fromHSV(0, 0.5, 1)
 cube.Parent = tailModel
 
 local tipAttach = Instance.new("Attachment", segments[#segments])
-tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2 - 2) -- **Moved 2 studs back**
+tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2 - 5) -- moved back 5 studs
 
 local cubeAttach = Instance.new("Attachment", cube)
 cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
@@ -163,22 +163,22 @@ RunService.RenderStepped:Connect(function(dt)
 		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
 		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
 
-		-- Wobble position by modifying AlignPosition's attachment offsets (simulate smooth wobble)
+		-- Offset attachment positions to create wobble
 		local att0, att1 = attachments[i][1], attachments[i][2]
 		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
 	end
 
 	if cube then
-		-- Spin cube continuously (by rotating CFrame each frame)
+		-- Idle spin of cube
 		cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(3), math.rad(2))
 
-		-- Wobble cube position slightly independently
+		-- More intense wobble on cube
 		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude
 		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude
 
 		cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2) + Vector3.new(wobbleX, wobbleY, 0)
 
-		-- Cycle pastel hue slowly
+		-- Pastel color cycling on cube
 		cubeHue = (cubeHue + dt * 0.1) % 1
 		cube.Color = Color3.fromHSV(cubeHue, 0.5, 1)
 	end
