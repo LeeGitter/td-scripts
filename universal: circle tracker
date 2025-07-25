@@ -1,76 +1,125 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 
-local sound = head:FindFirstChildWhichIsA("Sound")
-if not sound then
-    warn("No sound found in head!")
-    return
-end
+-- Crown settings
+local crownRadius = 2 -- Smaller radius
+local crownHeight = 1 -- 1 stud above head
+local numSegments = 12
+local maxY = 3
 
--- Create rainbow highlight
+-- UI Container
+local crown = Instance.new("Folder")
+crown.Name = "Crown"
+crown.Parent = workspace
+
+-- Highlight settings
 local highlight = Instance.new("Highlight")
-highlight.Adornee = character
-highlight.Enabled = false
+highlight.FillColor = Color3.fromRGB(255, 0, 0)
 highlight.FillTransparency = 1
 highlight.OutlineTransparency = 1
 highlight.Parent = character
 
--- Tween to fade out
-local function triggerHighlight()
-    highlight.Enabled = true
-    highlight.FillColor = Color3.fromHSV(tick() % 5 / 5, 1, 1)
-    highlight.OutlineColor = highlight.FillColor
-    highlight.FillTransparency = 0
-    highlight.OutlineTransparency = 0
+-- For rainbow tween
+local TweenService = game:GetService("TweenService")
+local rainbowColors = {
+	Color3.fromRGB(255, 0, 0),
+	Color3.fromRGB(255, 128, 0),
+	Color3.fromRGB(255, 255, 0),
+	Color3.fromRGB(0, 255, 0),
+	Color3.fromRGB(0, 255, 255),
+	Color3.fromRGB(0, 0, 255),
+	Color3.fromRGB(128, 0, 255),
+}
 
-    task.delay(0.2, function()
-        local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-        TweenService:Create(highlight, tweenInfo, {
-            FillTransparency = 1,
-            OutlineTransparency = 1
-        }):Play()
-
-        task.delay(0.8, function()
-            highlight.Enabled = false
-        end)
-    end)
+-- Create UI crown pieces
+local pieces = {}
+for i = 1, numSegments do
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.Size = Vector3.new(0.2, 0.2, 0.2)
+	part.Shape = Enum.PartType.Ball
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromRGB(255, 255, 255)
+	part.Name = "CrownPart"
+	part.Parent = crown
+	pieces[i] = {
+		Part = part,
+		Offset = math.rad((i / numSegments) * 360),
+		Height = 0,
+		TargetHeight = 0
+	}
 end
 
--- Peak detection and triggering
-local peakLoudness = 0
-local peakCooldown = 0
-local checkInterval = 0.1
-local timeSinceLastCheck = 0
+-- Audio analysis
+local sound = SoundService:FindFirstChildWhichIsA("Sound", true)
+local volumeSamples = {}
+local peakVolume = 0
 
-RunService.Heartbeat:Connect(function(dt)
-    if not sound.IsPlaying then return end
+task.spawn(function()
+	while true do
+		local vol = sound and sound.IsPlaying and math.abs(sound.PlaybackLoudness or 0) or 0
+		table.insert(volumeSamples, vol)
+		if #volumeSamples > 60 then
+			table.remove(volumeSamples, 1)
+		end
+		peakVolume = math.max(unpack(volumeSamples))
+		task.wait(1)
+	end
+end)
 
-    timeSinceLastCheck += dt
-    if timeSinceLastCheck >= checkInterval then
-        timeSinceLastCheck = 0
-        local loudness = sound.PlaybackLoudness
+local lastCFrame = head.CFrame
 
-        -- Store new peak every second
-        peakCooldown += checkInterval
-        if loudness > peakLoudness then
-            peakLoudness = loudness
-        end
+-- Rainbow highlight logic
+local function triggerHighlight()
+	highlight.FillTransparency = 0
+	highlight.OutlineTransparency = 0
+	local tween = TweenService:Create(highlight, TweenInfo.new(0.8), {
+		FillTransparency = 1,
+		OutlineTransparency = 1
+	})
 
-        if peakCooldown >= 1 then
-            peakCooldown = 0
-            peakLoudness = math.clamp(peakLoudness, 10, 500) -- prevent 0/low thresholds
-        end
+	-- Rainbow cycle
+	local i = 1
+	local rainbowConnection
+	rainbowConnection = RunService.RenderStepped:Connect(function()
+		if i > #rainbowColors then
+			rainbowConnection:Disconnect()
+			return
+		end
+		highlight.FillColor = rainbowColors[i]
+		i += 1
+	end)
 
-        -- Trigger highlight if loudness reaches peak
-        if loudness >= peakLoudness - 5 then
-            triggerHighlight()
-            peakLoudness = 0 -- Reset for next second
-            peakCooldown = 0
-        end
-    end
+	tween:Play()
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	local headCF = head.CFrame
+	local delta = (headCF.Position - lastCFrame.Position).magnitude
+	lastCFrame = headCF
+
+	for i, data in ipairs(pieces) do
+		local angle = data.Offset + tick()
+		local wobble = math.clamp(delta * 2, 0, 1)
+		local targetY = math.min(maxY, 0.5 + math.sin(tick() * 6 + i) * wobble * 1.5)
+
+		-- Smooth height transition
+		data.Height = data.Height + (targetY - data.Height) * dt * 10
+
+		-- Trigger highlight if volume spike hits previous peak and segment reached max height
+		local vol = sound and sound.IsPlaying and math.abs(sound.PlaybackLoudness or 0) or 0
+		if math.abs(data.Height - maxY) < 0.1 and vol >= peakVolume * 0.95 then
+			triggerHighlight()
+		end
+
+		-- Update position
+		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * crownRadius
+		data.Part.Position = head.Position + Vector3.new(0, crownHeight + data.Height, 0) + offset
+	end
 end)
