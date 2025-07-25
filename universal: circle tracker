@@ -1,206 +1,76 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local soundDetectionRadius = 60
-local maxLoudnessExpected = 1000
-local maxPartHeight = 3
-
--- Clear existing crown folder if any
-local crownFolder = workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then
-    crownFolder:Destroy()
-end
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerCrown"
-crownFolder.Parent = workspace
-
-local parts = {}
-local partScales = {}
-
-for i = 1, segmentCount do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = basePartSize
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Transparency = 0
-    part.Name = "CrownPart"..i
-    part.Parent = crownFolder
-    parts[i] = part
-    partScales[i] = basePartSize.Y
+local sound = head:FindFirstChildWhichIsA("Sound")
+if not sound then
+    warn("No sound found in head!")
+    return
 end
 
--- Wobble variables
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
+-- Create rainbow highlight
+local highlight = Instance.new("Highlight")
+highlight.Adornee = character
+highlight.Enabled = false
+highlight.FillTransparency = 1
+highlight.OutlineTransparency = 1
+highlight.Parent = character
 
--- Rainbow glow effect
-local highlight = nil
-local glowTimer = 0
-local glowActive = false
-local colorStepTime = 0.05
-local timeSinceColorChange = 0
+-- Tween to fade out
+local function triggerHighlight()
+    highlight.Enabled = true
+    highlight.FillColor = Color3.fromHSV(tick() % 5 / 5, 1, 1)
+    highlight.OutlineColor = highlight.FillColor
+    highlight.FillTransparency = 0
+    highlight.OutlineTransparency = 0
 
-local function triggerGlow()
-    if highlight then highlight:Destroy() end
-    highlight = Instance.new("Highlight")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 1
-    glowTimer = 0
-    timeSinceColorChange = 0
-    glowActive = true
+    task.delay(0.2, function()
+        local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        TweenService:Create(highlight, tweenInfo, {
+            FillTransparency = 1,
+            OutlineTransparency = 1
+        }):Play()
+
+        task.delay(0.8, function()
+            highlight.Enabled = false
+        end)
+    end)
 end
 
-local function getSoundPosition(sound)
-    if sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent:IsA("Model") then
-        if sound.Parent:FindFirstChild("HumanoidRootPart") then
-            return sound.Parent.HumanoidRootPart.Position
-        end
-        for _, descendant in pairs(sound.Parent:GetDescendants()) do
-            if descendant:IsA("BasePart") then
-                return descendant.Position
-            end
-        end
-    end
-    return head.Position
-end
-
-local function getNearbySounds()
-    local sounds = {}
-
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    local function addLocalSounds(root)
-        for _, sound in pairs(root:GetDescendants()) do
-            if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    addLocalSounds(player:WaitForChild("PlayerGui"))
-    addLocalSounds(character)
-
-    return sounds
-end
+-- Peak detection and triggering
+local peakLoudness = 0
+local peakCooldown = 0
+local checkInterval = 0.1
+local timeSinceLastCheck = 0
 
 RunService.Heartbeat:Connect(function(dt)
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+    if not sound.IsPlaying then return end
 
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch = pitch
-    lastRoll = roll
+    timeSinceLastCheck += dt
+    if timeSinceLastCheck >= checkInterval then
+        timeSinceLastCheck = 0
+        local loudness = sound.PlaybackLoudness
 
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
-
-    if wobbleActive then
-        wobbleTime = wobbleTime + dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
-        end
-    end
-
-    local wobbleProgress = wobbleTime / wobbleDuration
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
-
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
-    local sounds = getNearbySounds()
-    local triggeredGlow = false
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
-        local sound = soundIndex and sounds[soundIndex] or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
+        -- Store new peak every second
+        peakCooldown += checkInterval
+        if loudness > peakLoudness then
+            peakLoudness = loudness
         end
 
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-
-        if not triggeredGlow and partScales[i] >= maxPartHeight - 0.1 then
-            triggeredGlow = true
-        end
-    end
-
-    if triggeredGlow and not glowActive then
-        triggerGlow()
-    end
-
-    if glowActive then
-        glowTimer += dt
-        timeSinceColorChange += dt
-
-        if highlight then
-            if timeSinceColorChange >= colorStepTime then
-                timeSinceColorChange = 0
-                local hue = (tick() % 1)
-                highlight.FillColor = Color3.fromHSV(hue, 1, 1)
-            end
+        if peakCooldown >= 1 then
+            peakCooldown = 0
+            peakLoudness = math.clamp(peakLoudness, 10, 500) -- prevent 0/low thresholds
         end
 
-        if glowTimer >= 0.2 then
-            if highlight then
-                highlight:Destroy()
-                highlight = nil
-            end
-            glowActive = false
+        -- Trigger highlight if loudness reaches peak
+        if loudness >= peakLoudness - 5 then
+            triggerHighlight()
+            peakLoudness = 0 -- Reset for next second
+            peakCooldown = 0
         end
     end
 end)
