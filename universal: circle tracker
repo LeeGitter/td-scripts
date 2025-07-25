@@ -1,96 +1,85 @@
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
+local head = character:WaitForChild("Head")
 
-local NUM_PARTS = 10
-local RADIUS = 1.5  -- smaller radius for crown size
-local MAX_HEIGHT = 5
-local BASE_HEIGHT = 0.5
-local SENSITIVITY = 0.015 -- less sensitive scaling
+local crownParts = {}
+local lastNearTime = tick()
+local crownRadius = 2
+local crownHeight = 0.5
+local numParts = 12
 
-local FLOAT_HEIGHT = 2 -- studs above head
-
-local parts = {}
-
--- Create parts once
-for i = 1, NUM_PARTS do
-    local part = Instance.new("Part")
-    part.Name = "VisualizerCrownPart"..i
-    part.Anchored = true
-    part.CanCollide = false
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromRGB(255, 0, 255) -- start magenta
-    part.Size = Vector3.new(0.2, BASE_HEIGHT, 0.2) -- smaller parts for crown
-    part.Parent = Workspace
-    parts[i] = part
+-- Create visualizer crown
+for i = 1, numParts do
+	local angle = (2 * math.pi / numParts) * i
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.Size = Vector3.new(0.3, 0.3, 0.3)
+	part.Shape = Enum.PartType.Ball
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromHSV(i / numParts, 1, 1)
+	part.Parent = workspace
+	crownParts[i] = part
 end
 
-local lastHeadPos = nil
+-- Get nearby sounds
+local function getNearbySounds()
+	local sounds = {}
+	for _, s in ipairs(workspace:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying and (s.Position - hrp.Position).Magnitude < 50 then
+			table.insert(sounds, s)
+		end
+	end
+	for _, s in ipairs(SoundService:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying then
+			table.insert(sounds, s)
+		end
+	end
+	return sounds
+end
 
+-- Update loop
 RunService.RenderStepped:Connect(function(dt)
-    local character = player.Character
-    if not character then return end
+	if not hrp or not hrp.Parent then return end
 
-    local head = character:FindFirstChild("Head")
-    if not head then return end
+	local sounds = getNearbySounds()
+	if #sounds > 0 then
+		lastNearTime = tick()
+	end
 
-    local currentHeadPos = head.Position
+	local now = tick()
+	if (hrp.Position - head.Position).Magnitude > 20 and now - lastNearTime > 10 then
+		for _, p in ipairs(crownParts) do p:Destroy() end
+		crownParts = {}
+		script:Destroy()
+		return
+	end
 
-    -- Calculate head movement vector
-    local headMovement = Vector3.new(0,0,0)
-    if lastHeadPos then
-        headMovement = currentHeadPos - lastHeadPos
-    end
-    lastHeadPos = currentHeadPos
+	local hrpCFrame = hrp.CFrame
+	local tiltX = -hrpCFrame.RightVector.Y * 20
+	local tiltZ = -hrpCFrame.LookVector.Y * 20
 
-    local crownCenter = currentHeadPos + Vector3.new(0, FLOAT_HEIGHT, 0)
+	for i, part in ipairs(crownParts) do
+		local angle = (2 * math.pi / numParts) * i
+		local x = math.cos(angle) * crownRadius
+		local z = math.sin(angle) * crownRadius
+		local offset = Vector3.new(x, crownHeight, z)
 
-    -- Position parts in a circle around crownCenter
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / NUM_PARTS) * i
-        local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * RADIUS
+		-- Apply tilt
+		local tiltOffset = CFrame.Angles(math.rad(tiltX), 0, math.rad(tiltZ)):VectorToWorldSpace(offset)
+		local worldPos = head.Position + tiltOffset
+		part.Position = worldPos
 
-        -- Apply opposite head movement scaled down for parallax effect
-        local parallaxOffset = -headMovement * 3
+		-- Get some sound data
+		local sound = sounds[i % #sounds + 1]
+		local volume = sound and sound.PlaybackLoudness or 0
+		local scale = 0.3 + math.clamp(volume / 500, 0, 0.5)
 
-        local partPos = crownCenter + offset + parallaxOffset
-
-        -- Calculate height based on nearby sounds specific to this part
-        local maxLoudness = 0
-        for _, sound in ipairs(Workspace:GetDescendants()) do
-            if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
-                local dist = (sound.Parent.Position - partPos).Magnitude
-                if dist <= 15 then
-                    local loud = sound.PlaybackLoudness or 0
-                    if loud > maxLoudness then
-                        maxLoudness = loud
-                    end
-                end
-            end
-        end
-
-        -- Calculate height scaled and clamped
-        local targetHeight = BASE_HEIGHT + maxLoudness * SENSITIVITY
-        targetHeight = math.clamp(targetHeight, BASE_HEIGHT, MAX_HEIGHT)
-
-        local currentY = part.Size.Y
-        -- Smoothly interpolate size change
-        local newY = currentY + (targetHeight - currentY) * 0.1
-
-        -- Update part size and position
-        part.Size = Vector3.new(part.Size.X, newY, part.Size.Z)
-        -- Position Y so base of part is always FLOAT_HEIGHT above head, never sinking
-        part.Position = Vector3.new(partPos.X, crownCenter.Y - (BASE_HEIGHT/2) + (newY - BASE_HEIGHT)/2, partPos.Z)
-
-        -- Color: lerp from magenta to rainbow as it grows
-        local t = (newY - BASE_HEIGHT) / (MAX_HEIGHT - BASE_HEIGHT)
-        local randomColor = Color3.fromHSV(((i * 0.1) + tick()) % 1, 1, 1)
-        part.Color = Color3.new(
-            1 * (1 - t) + randomColor.R * t,
-            0 * (1 - t) + randomColor.G * t,
-            1 * (1 - t) + randomColor.B * t
-        )
-    end
+		part.Size = part.Size:Lerp(Vector3.new(scale, scale, scale), 0.2)
+	end
 end)
