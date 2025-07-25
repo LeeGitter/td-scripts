@@ -5,27 +5,24 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Settings
-local wingSize = Vector3.new(3, 3, 0.1) -- Flat thin part for decal
-local flapSpeedMultiplier = 5 -- flap speed scaling with movement speed
+local wingSize = Vector3.new(3, 3, 0.1)
+local flapSpeedMultiplier = 5
 local afterimageLifetime = 0.5
 local afterimageFadeTime = 0.5
 local afterimageSpawnInterval = 0.05
 local wingImageId = "rbxassetid://75171109405668"
 
--- Create wing part with decal
 local function createWing()
     local wing = Instance.new("Part")
     wing.Name = "Wing"
     wing.Size = wingSize
-    wing.Anchored = false
+    wing.Anchored = true  -- **ANCHOR THE WINGS**
     wing.CanCollide = false
     wing.Transparency = 0
     wing.Material = Enum.Material.Neon
     wing.CastShadow = false
     wing.Parent = character
 
-    -- Set surface to smooth (optional)
     wing.TopSurface = Enum.SurfaceType.Smooth
     wing.BottomSurface = Enum.SurfaceType.Smooth
     wing.FrontSurface = Enum.SurfaceType.Smooth
@@ -33,7 +30,6 @@ local function createWing()
     wing.LeftSurface = Enum.SurfaceType.Smooth
     wing.RightSurface = Enum.SurfaceType.Smooth
 
-    -- Create decal on front face
     local decal = Instance.new("Decal")
     decal.Face = Enum.NormalId.Front
     decal.Texture = wingImageId
@@ -46,27 +42,9 @@ end
 local leftWing = createWing()
 local rightWing = createWing()
 
--- Weld wings to rootPart
-local function weldWing(wing, offset, flipY)
-    wing.CFrame = rootPart.CFrame * offset
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = rootPart
-    weld.Part1 = wing
-    weld.Parent = wing
-
-    if flipY then
-        wing.CFrame = wing.CFrame * CFrame.Angles(0, math.rad(180), 0)
-    end
-end
-
-weldWing(leftWing, CFrame.new(-2, 0, 0), false)
-weldWing(rightWing, CFrame.new(2, 0, 0), true)
-
--- Flap animation variables
 local flapAngle = 0
 local lastAfterimageTime = 0
 
--- Afterimage system
 local function createAfterimage(wing)
     local clone = wing:Clone()
     clone.Anchored = true
@@ -75,24 +53,16 @@ local function createAfterimage(wing)
     clone.Material = Enum.Material.Neon
     clone.CastShadow = false
 
-    -- Remove weld from clone
-    for _, child in pairs(clone:GetChildren()) do
-        if child:IsA("WeldConstraint") then
-            child:Destroy()
-        end
-    end
-
-    -- Start rainbow cycle
     local hue = 0
-    local colorCycleSpeed = 10 -- cycles per second
+    local colorCycleSpeed = 10
 
     spawn(function()
         local startTime = tick()
         while tick() - startTime < afterimageLifetime do
-            hue = (hue + colorCycleSpeed * RunService.Heartbeat:Wait()) % 1
+            local dt = RunService.Heartbeat:Wait()
+            hue = (hue + colorCycleSpeed * dt) % 1
             clone.Color = Color3.fromHSV(hue, 1, 1)
 
-            -- Fade out near end
             local elapsed = tick() - startTime
             if elapsed > afterimageLifetime - afterimageFadeTime then
                 clone.Transparency = math.clamp((elapsed - (afterimageLifetime - afterimageFadeTime)) / afterimageFadeTime, 0, 1)
@@ -104,16 +74,13 @@ end
 
 RunService.Heartbeat:Connect(function(dt)
     local speed = rootPart.Velocity.Magnitude
-
-    -- Flap angle based on speed
     flapAngle = flapAngle + dt * flapSpeedMultiplier * speed
     local flapOffset = math.sin(flapAngle) * math.rad(20)
 
-    -- Update wing positions with flap rotation around Z axis
+    -- Position wings behind the HumanoidRootPart, flap rotation on Z axis
     leftWing.CFrame = rootPart.CFrame * CFrame.new(-2, 0, -1) * CFrame.Angles(0, 0, flapOffset)
     rightWing.CFrame = rootPart.CFrame * CFrame.new(2, 0, -1) * CFrame.Angles(0, math.rad(180), -flapOffset)
 
-    -- Spawn afterimages only when moving
     if speed > 1 then
         if tick() - lastAfterimageTime > afterimageSpawnInterval then
             createAfterimage(leftWing)
