@@ -1,75 +1,62 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local leftFoot = character:WaitForChild("LeftFoot")
+local rightFoot = character:WaitForChild("RightFoot")
+local leftHand = character:WaitForChild("LeftHand")
+local rightHand = character:WaitForChild("RightHand")
 
--- Wait for character and necessary parts
-local function getCharacterParts()
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    local head = character:WaitForChild("Head")
-    return character, humanoidRootPart, head
-end
-
-local character, humanoidRootPart, head = getCharacterParts()
-
--- Re-fetch parts on respawn
-player.CharacterAdded:Connect(function(char)
-    character = char
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    head = character:WaitForChild("Head")
-end)
-
--- Crown setup
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local maxLoudnessExpected = 1000
-local maxPartHeight = 5
-
--- Create folder for crown parts
-local crownFolder = workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then
-    crownFolder:Destroy()
-end
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerCrown"
-crownFolder.Parent = workspace
-
-local crownParts = {}
-local crownPartScales = {}
-
-for i = 1, segmentCount do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = basePartSize
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Transparency = 0
-    part.Name = "CrownPart"..i
-    part.Parent = crownFolder
-    crownParts[i] = part
-    crownPartScales[i] = basePartSize.Y
-end
-
--- Pillars setup
-local pillarsFolder = workspace:FindFirstChild("FootPillars")
-if pillarsFolder then pillarsFolder:Destroy() end
-pillarsFolder = Instance.new("Folder", workspace)
-pillarsFolder.Name = "FootPillars"
-
-local pillarBaseSize = Vector3.new(0.2, 2, 0.2)
+-- Settings for pillars
 local pillarSpawnInterval = 0.5
 local pillarLifetime = 10
-local lastPillarSpawn = 0
-local pillars = {}
+local basePillarSize = Vector3.new(0.3, 4, 0.3)
+local maxPillarHeight = 8
 
--- Get all playing sounds from workspace, player GUI, and character
+-- Pillar container
+local pillarFolder = workspace:FindFirstChild("LocalPillars")
+if pillarFolder then
+    pillarFolder:Destroy()
+end
+pillarFolder = Instance.new("Folder")
+pillarFolder.Name = "LocalPillars"
+pillarFolder.Parent = workspace
+
+-- Create spark particles on hands and feet
+local function createSparkParticle(parent)
+    local particle = Instance.new("ParticleEmitter")
+    particle.Texture = "rbxassetid://243660364" -- Rainbow spark texture (can be changed)
+    particle.Rate = 30
+    particle.Lifetime = NumberRange.new(0.5, 1)
+    particle.Speed = NumberRange.new(0, 0)
+    particle.Size = NumberSequence.new(0.5)
+    particle.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 0.7, 1)),
+        ColorSequenceKeypoint.new(1, Color3.fromHSV(0.7, 0.8, 1))
+    }
+    particle.LightEmission = 1
+    particle.Parent = parent
+    return particle
+end
+
+-- Attach spark particles to hands and feet
+local sparkEmitters = {}
+for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
+    if limb then
+        sparkEmitters[limb.Name] = createSparkParticle(limb)
+    end
+end
+
+-- Pillar parts list & scales
+local pillars = {}
+local pillarScales = {}
+
+-- Get sounds from workspace, PlayerGui, character, SoundService
 local function getAllPlayingSounds()
     local sounds = {}
-
     local function addSoundsFrom(parent)
         for _, obj in pairs(parent:GetDescendants()) do
             if obj:IsA("Sound") and obj.IsPlaying then
@@ -77,7 +64,6 @@ local function getAllPlayingSounds()
             end
         end
     end
-
     addSoundsFrom(workspace)
     if player:FindFirstChild("PlayerGui") then
         addSoundsFrom(player.PlayerGui)
@@ -85,158 +71,111 @@ local function getAllPlayingSounds()
     if character then
         addSoundsFrom(character)
     end
-
+    addSoundsFrom(SoundService)
     return sounds
 end
 
--- Create a new pillar part at a position
+-- Create a pillar at position on the floor, with initial height, anchored, no collisions
 local function createPillar(position)
     local pillar = Instance.new("Part")
     pillar.Anchored = true
     pillar.CanCollide = false
+    pillar.Size = basePillarSize
     pillar.Material = Enum.Material.Neon
-    pillar.Color = Color3.fromHSV(math.random(), 0.6, 1) -- pastel rainbow
-    pillar.Size = pillarBaseSize
-    pillar.CFrame = CFrame.new(position.X, position.Y + pillarBaseSize.Y / 2, position.Z)
-    pillar.Parent = pillarsFolder
+    pillar.CastShadow = false
+    pillar.Transparency = 0
+    pillar.Position = position + Vector3.new(0, basePillarSize.Y/2, 0) -- place on floor
+    pillar.Parent = pillarFolder
 
-    return {
-        part = pillar,
-        spawnTime = tick()
-    }
+    return pillar
 end
 
--- Variables for crown wobble effect
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
+-- Time trackers
+local lastPillarSpawn = 0
 
 RunService.Heartbeat:Connect(function(dt)
-    -- Validate character parts
+    -- Refresh character references if respawned
     if not character or not character.Parent then
-        character, humanoidRootPart, head = getCharacterParts()
-        return
-    end
+        character = player.Character or player.CharacterAdded:Wait()
+        humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        leftFoot = character:WaitForChild("LeftFoot")
+        rightFoot = character:WaitForChild("RightFoot")
+        leftHand = character:WaitForChild("LeftHand")
+        rightHand = character:WaitForChild("RightHand")
 
-    -- Crown visualizer update
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
-
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch = pitch
-    lastRoll = roll
-
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
-
-    if wobbleActive then
-        wobbleTime = wobbleTime + dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
+        -- Reattach spark particles
+        for _, emitter in pairs(sparkEmitters) do
+            if emitter then
+                emitter:Destroy()
+            end
+        end
+        sparkEmitters = {}
+        for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
+            if limb then
+                sparkEmitters[limb.Name] = createSparkParticle(limb)
+            end
         end
     end
 
-    local wobbleProgress = wobbleTime / wobbleDuration
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
+    -- Pillar spawning every 0.5 seconds if player is moving
+    local speed = humanoidRootPart.Velocity.Magnitude
+    if speed > 1 and tick() - lastPillarSpawn >= pillarSpawnInterval then
+        lastPillarSpawn = tick()
+
+        -- Spawn two pillars per foot, offset slightly sideways
+        local footPositions = {
+            leftFoot.Position,
+            rightFoot.Position
+        }
+        for _, footPos in pairs(footPositions) do
+            -- Left offset pillar
+            local offsetLeft = Vector3.new(-0.2, 0, 0)
+            local pillar1 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetLeft)
+            table.insert(pillars, pillar1)
+            table.insert(pillarScales, basePillarSize.Y)
+
+            -- Right offset pillar
+            local offsetRight = Vector3.new(0.2, 0, 0)
+            local pillar2 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetRight)
+            table.insert(pillars, pillar2)
+            table.insert(pillarScales, basePillarSize.Y)
+        end
     end
 
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
+    -- Scale pillars based on sounds from all sources
     local sounds = getAllPlayingSounds()
-    local totalLoudness = 0
-    for _, sound in pairs(sounds) do
-        totalLoudness = totalLoudness + (sound.PlaybackLoudness or 0)
-    end
-
-    for i, part in ipairs(crownParts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
-        local sound = soundIndex and sounds[soundIndex] or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
-        end
-
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        crownPartScales[i] = crownPartScales[i] + (targetHeight - crownPartScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, crownPartScales[i], basePartSize.Z)
-
-        part.Position = worldPos + Vector3.new(0, crownPartScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-    end
-
-    -- Pillars spawning and scaling
-    if humanoidRootPart.Velocity.Magnitude > 1 then
-        lastPillarSpawn = lastPillarSpawn + dt
-        if lastPillarSpawn >= pillarSpawnInterval then
-            lastPillarSpawn = 0
-
-            local footY = humanoidRootPart.Position.Y - 3
-            -- offsets for two pillars per foot
-            local leftFootOffsets = {Vector3.new(-0.5, footY, 0.5), Vector3.new(-0.7, footY, 0)}
-            local rightFootOffsets = {Vector3.new(0.5, footY, 0.5), Vector3.new(0.7, footY, 0)}
-
-            for _, offset in pairs(leftFootOffsets) do
-                table.insert(pillars, createPillar(humanoidRootPart.Position + offset))
+    for i, pillar in ipairs(pillars) do
+        if pillar and pillar.Parent then
+            local sound = sounds[((i-1) % #sounds) + 1]
+            local loudness = 0
+            if sound then
+                loudness = sound.PlaybackLoudness or 0
             end
-            for _, offset in pairs(rightFootOffsets) do
-                table.insert(pillars, createPillar(humanoidRootPart.Position + offset))
-            end
+            local normalized = math.clamp(loudness / 1000, 0, 1)
+            local targetHeight = 1 + normalized * maxPillarHeight
+            pillarScales[i] = pillarScales[i] + (targetHeight - pillarScales[i]) * 0.25
+            pillar.Size = Vector3.new(basePillarSize.X, pillarScales[i], basePillarSize.Z)
+
+            -- Update pillar Y position to keep base on floor (y=0)
+            pillar.Position = Vector3.new(pillar.Position.X, pillar.Size.Y / 2, pillar.Position.Z)
         end
     end
 
-    local normalizedLoudness = math.clamp(totalLoudness / maxLoudnessExpected, 0, 1)
-    local targetHeight = 2 + normalizedLoudness * 8 -- pillars height between 2 and 10
-
+    -- Clean up old pillars after lifetime
     for i = #pillars, 1, -1 do
-        local data = pillars[i]
-        local part = data.part
-        local age = tick() - data.spawnTime
-
-        if age >= pillarLifetime or not part.Parent then
-            part:Destroy()
-            table.remove(pillars, i)
+        local pillar = pillars[i]
+        if pillar and pillar.Parent then
+            local age = tick() - pillar:GetAttribute("SpawnTime") or 0
+            if not pillar:GetAttribute("SpawnTime") then
+                pillar:SetAttribute("SpawnTime", tick())
+            elseif age > pillarLifetime then
+                pillar:Destroy()
+                table.remove(pillars, i)
+                table.remove(pillarScales, i)
+            end
         else
-            local alpha = 1 - (age / pillarLifetime)
-            part.Transparency = 1 - (alpha * 0.8) -- fade out
-
-            -- Smooth height lerp to targetHeight
-            local currentSizeY = part.Size.Y
-            local newSizeY = currentSizeY + (targetHeight - currentSizeY) * dt * 10
-            part.Size = Vector3.new(pillarBaseSize.X, newSizeY, pillarBaseSize.Z)
-
-            -- Keep base at foot level
-            local pos = part.Position
-            part.CFrame = CFrame.new(pos.X, humanoidRootPart.Position.Y - 3 + newSizeY / 2, pos.Z)
+            table.remove(pillars, i)
+            table.remove(pillarScales, i)
         end
     end
 end)
