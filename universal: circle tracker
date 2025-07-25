@@ -1,157 +1,173 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart")
 
--- Mesh IDs (replace if needed)
-local RING_MESH_ID = "rbxassetid://3270017"        -- Torus ring
-local SEGMENT_MESH_ID = "rbxassetid://9856898"     -- Pie slice segment
+local detectionRadius = 50
 
--- === GUI ===
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-gui.Name = "RadarGUI"
+-- Cleanup
+local existing = workspace:FindFirstChild("AuraParts")
+if existing then existing:Destroy() end
+local auraFolder = Instance.new("Folder", workspace)
+auraFolder.Name = "AuraParts"
 
-local nameLabel = Instance.new("TextLabel", gui)
-nameLabel.Size = UDim2.new(0, 300, 0, 40)
-nameLabel.Position = UDim2.new(0.5, -150, 0, 10)
-nameLabel.BackgroundTransparency = 1
-nameLabel.Text = player.Name
-nameLabel.TextScaled = true
-nameLabel.Font = Enum.Font.GothamBold
-nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-
-local avatarImage = Instance.new("ImageLabel", gui)
-avatarImage.Size = UDim2.new(0, 60, 0, 60)
-avatarImage.Position = UDim2.new(0.5, -30, 0, 50)
-avatarImage.BackgroundTransparency = 1
-avatarImage.Image = ("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png"):format(player.UserId)
-Instance.new("UICorner", avatarImage).CornerRadius = UDim.new(1, 0)
-
--- === CIRCLE SEGMENTS ===
-local segmentColors = {
-	Color3.fromRGB(200, 200, 255), -- FL
-	Color3.fromRGB(200, 255, 200), -- FR
-	Color3.fromRGB(255, 200, 200), -- BL
-	Color3.fromRGB(255, 255, 200), -- BR
-}
-
-local segmentParts = {}
-for i = 1, 4 do
-	local part = Instance.new("MeshPart")
-	part.Size = Vector3.new(10, 0.1, 10)
-	part.MeshId = SEGMENT_MESH_ID
+-- Create circle base and wedge sections
+local function createWedge(angleStart, angleEnd, color)
+	local part = Instance.new("Part")
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = segmentColors[i]
-	part.Transparency = 0.6
-	part.Name = "Segment_" .. i
-	part.Parent = workspace
-	table.insert(segmentParts, part)
+	part.Color = color
+	part.Transparency = 0.7
+	part.Size = Vector3.new(0.1, 0.1, 0.1) -- Small size, will use Mesh for shape
+	part.Name = "WedgeSection"
+
+	local wedgeMesh = Instance.new("SpecialMesh", part)
+	wedgeMesh.MeshType = Enum.MeshType.FileMesh
+	wedgeMesh.MeshId = "rbxassetid://5598318443" -- Rounded wedge mesh
+	wedgeMesh.Scale = Vector3.new(50, 0.2, 50)
+	wedgeMesh.Offset = Vector3.new(0, 0, 0)
+	part.Parent = auraFolder
+
+	return part
 end
 
--- === RINGS ===
-local rings = {}
-local transparencies = {0.9, 0.5, 0.2}
-for i = 1, 3 do
-	local ring = Instance.new("MeshPart")
-	ring.Size = Vector3.new(14, 0.5, 14)
-	ring.MeshId = RING_MESH_ID
+local sectionColors = {
+	Color3.fromRGB(200, 200, 255),
+	Color3.fromRGB(200, 255, 200),
+	Color3.fromRGB(255, 200, 200),
+	Color3.fromRGB(255, 255, 200),
+}
+
+local wedgeSections = {}
+for i = 1, 4 do
+	local wedge = createWedge((i - 1) * 90, i * 90, sectionColors[i])
+	table.insert(wedgeSections, wedge)
+end
+
+-- Create 3 hovering rings
+local function createRing(yOffset, transparency)
+	local ring = Instance.new("Part")
 	ring.Anchored = true
 	ring.CanCollide = false
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.5, 1, 50)
 	ring.Material = Enum.Material.Neon
-	ring.Transparency = transparencies[i]
 	ring.Color = Color3.fromRGB(255, 255, 255)
-	ring.Name = "AuraRing_" .. i
-	ring.Parent = workspace
-	table.insert(rings, ring)
+	ring.Transparency = transparency
+	ring.Name = "HoverRing"
+	ring.Orientation = Vector3.new(0, 0, 90)
+	ring.Parent = auraFolder
+	ring.Position = HRP.Position + Vector3.new(0, yOffset, 0)
+	return ring
 end
 
--- === Rainbowify Nearby Players ===
-local function addBillboard(plr)
-	if not plr.Character then return end
-	local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-	if not hrp or hrp:FindFirstChild("PlayerNameTag") then return end
+local rings = {
+	createRing(2, 0.8), -- top faint
+	createRing(1.5, 0.5), -- middle
+	createRing(1, 0), -- bottom
+}
 
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(0, 200, 0, 50)
-	bb.StudsOffset = Vector3.new(0, 3, 0)
-	bb.AlwaysOnTop = true
-	bb.Name = "PlayerNameTag"
-	bb.Parent = hrp
+-- UI for username and avatar
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = Instance.new("ScreenGui", playerGui)
+screenGui.Name = "AuraUI"
+screenGui.ResetOnSpawn = false
 
-	local label = Instance.new("TextLabel", bb)
+local usernameLabel = Instance.new("TextLabel", screenGui)
+usernameLabel.Size = UDim2.new(0, 300, 0, 40)
+usernameLabel.Position = UDim2.new(0.5, -150, 0, 10)
+usernameLabel.BackgroundTransparency = 1
+usernameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+usernameLabel.TextStrokeTransparency = 0
+usernameLabel.TextScaled = true
+usernameLabel.Font = Enum.Font.GothamBold
+usernameLabel.Text = LocalPlayer.Name
+
+local avatarImage = Instance.new("ImageLabel", screenGui)
+avatarImage.Size = UDim2.new(0, 64, 0, 64)
+avatarImage.Position = UDim2.new(0.5, -32, 0, 50)
+avatarImage.BackgroundTransparency = 1
+avatarImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LocalPlayer.UserId .. "&width=420&height=420&format=png"
+
+-- Rounded avatar mask
+local uicorner = Instance.new("UICorner", avatarImage)
+uicorner.CornerRadius = UDim.new(1, 0)
+
+-- Username Billboard for detected players
+local function createBillboard(player)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 200, 0, 30)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
+	billboard.AlwaysOnTop = true
+
+	local label = Instance.new("TextLabel", billboard)
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.BackgroundTransparency = 1
-	label.Text = plr.Name
+	label.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
 	label.TextScaled = true
 	label.Font = Enum.Font.GothamBold
-	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Text = player.Name
+
+	return billboard
 end
 
-local hue = 0
+local billboardMap = {}
 
+-- Update loop
 RunService.RenderStepped:Connect(function()
-	local cf = hrp.CFrame
-	local pos = hrp.Position
+	if not HRP or not HRP.Parent then return end
+	local pos = HRP.Position
+	local camLook = Camera.CFrame.LookVector
 
-	-- Update rings
-	hue = (hue + 0.001) % 1
-	local rainbowColor = Color3.fromHSV(hue, 0.5, 1)
+	-- Place and rotate wedges
+	for i, wedge in ipairs(wedgeSections) do
+		local angle = math.rad((i - 1) * 90 + 45)
+		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * 5
+		wedge.Position = pos + Vector3.new(0, 0.2, 0)
+		wedge.CFrame = CFrame.new(wedge.Position) * CFrame.Angles(0, math.rad((i - 1) * 90), 0)
+	end
 
+	-- Place rings and shift hue
 	for i, ring in ipairs(rings) do
-		ring.Position = pos + Vector3.new(0, 1 + i * 0.75, 0)
-		ring.Orientation = Vector3.new(90, 0, 0)
-		ring.Color = rainbowColor
+		ring.Position = pos + Vector3.new(0, ring.Position.Y - ring.Position.Y % 0.05, 0)
+		local hue = (tick() * 0.1 + i * 0.1) % 1
+		ring.Color = Color3.fromHSV(hue, 0.2, 1)
 	end
 
-	-- Update segments
-	local offsets = {
-		Vector3.new(-1, 0, 1),  -- FL
-		Vector3.new(1, 0, 1),   -- FR
-		Vector3.new(-1, 0, -1), -- BL
-		Vector3.new(1, 0, -1),  -- BR
-	}
-	for i, segment in ipairs(segmentParts) do
-		local offset = cf:VectorToWorldSpace(offsets[i] * 5)
-		segment.Position = pos + offset
-		segment.Orientation = Vector3.new(0, math.deg(math.atan2(offset.Z, offset.X)), 0)
-		segment.Transparency = 0.6
-	end
+	-- Detection
+	local nearby = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local dist = (player.Character.HumanoidRootPart.Position - pos).Magnitude
+			if dist <= detectionRadius then
+				local rel = (player.Character.HumanoidRootPart.Position - pos).Unit
+				local dot = camLook:Dot(rel)
+				local right = camLook:Cross(Vector3.yAxis).Unit:Dot(rel)
 
-	-- Detect players and highlight segments
-	for _, other in ipairs(Players:GetPlayers()) do
-		if other ~= player and other.Character and other.Character:FindFirstChild("HumanoidRootPart") then
-			local otherHRP = other.Character.HumanoidRootPart
-			local dir = (otherHRP.Position - pos).Unit
-			local dotF = cf.LookVector:Dot(dir)
-			local dotR = cf.RightVector:Dot(dir)
+				-- Section highlights
+				local left = right < -0.3
+				local rightS = right > 0.3
+				local front = dot > 0.3
+				local back = dot < -0.3
 
-			local lit = {}
+				wedgeSections[1].Transparency = (left or front) and 0.3 or 0.7
+				wedgeSections[2].Transparency = (rightS or front) and 0.3 or 0.7
+				wedgeSections[3].Transparency = (left or back) and 0.3 or 0.7
+				wedgeSections[4].Transparency = (rightS or back) and 0.3 or 0.7
 
-			if dotF > 0.5 and dotR < 0 then lit[1] = true end -- FL
-			if dotF > 0.5 and dotR > 0 then lit[2] = true end -- FR
-			if dotF < -0.5 and dotR < 0 then lit[3] = true end -- BL
-			if dotF < -0.5 and dotR > 0 then lit[4] = true end -- BR
-			if dotR < -0.5 and math.abs(dotF) < 0.3 then lit[1], lit[3] = true, true end
-			if dotR > 0.5 and math.abs(dotF) < 0.3 then lit[2], lit[4] = true, true end
-			if dotF > 0.5 and math.abs(dotR) < 0.3 then lit[1], lit[2] = true, true end
-			if dotF < -0.5 and math.abs(dotR) < 0.3 then lit[3], lit[4] = true, true end
-
-			for idx, segment in ipairs(segmentParts) do
-				if lit[idx] then
-					segment.Transparency = 0.1
+				-- Rainbow + name tag
+				if not billboardMap[player] then
+					local bb = createBillboard(player)
+					bb.Parent = player.Character:FindFirstChild("Head")
+					billboardMap[player] = bb
 				end
-			end
 
-			addBillboard(other)
-
-			for _, p in ipairs(other.Character:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.Material = Enum.Material.Neon
-					p.Color = rainbowColor
-				end
+				local hue = tick() % 5 / 5
+				player.Character:FindFirstChild("HumanoidRootPart").Color = Color3.fromHSV(hue, 1, 1)
 			end
 		end
 	end
