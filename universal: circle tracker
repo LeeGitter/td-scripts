@@ -7,18 +7,22 @@ local torso = character:WaitForChild("Torso")
 
 -- Tail Settings
 local NUM_SEGMENTS = 16
-local BASE_SIZE = Vector3.new(0.5, 0.5, 0.5)
+local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
 local LENGTH_PER_SEGMENT = 0.7
 
--- Base offset: **lower** near waist/back (Y negative), Z back positive
-local BASE_OFFSET = Vector3.new(0, -1.2, 1.5)
+-- Base offset: low on waist/back (Y negative), Z back positive
+local BASE_OFFSET = Vector3.new(0, -1.5, 1.5)
 
--- How much the tail tip rises relative to base (total elevation gain)
-local TIP_ELEVATION = 2.5
+-- Elevation increase for tail tip relative to base
+local TIP_ELEVATION = 3.0
 
 local BUILD_DELAY = 0.1
 
 local segments = {}
+local attachments = {}
+local ballSockets = {}
+local alignOrientations = {}
+
 local tailRootAttachment = nil
 local cube = nil
 local cubeHue = 0
@@ -34,58 +38,80 @@ tailRootAttachment.Name = "TailRoot"
 tailRootAttachment.Position = BASE_OFFSET
 tailRootAttachment.Parent = torso
 
--- Create one tail segment, attaching to previous attachment
+-- Create tail segment parts WITHOUT physics enabled (anchored) initially
 local function createSegment(index, parentAttachment)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
-	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, LENGTH_PER_SEGMENT)
+	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, 0)
 	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
+	part.Anchored = true  -- initially anchored to hold shape
 	part.CanCollide = false
-	part.Anchored = false
 	part.Massless = true
 	part.CastShadow = false
 	part.Parent = workspace
 
-	-- Calculate color rainbow gradient along tail
-	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
+	local att0 = Instance.new("Attachment", part)
+	att0.Name = "Attachment0"
+	att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
 	local att1 = Instance.new("Attachment", part)
-	local att2 = Instance.new("Attachment", parentAttachment.Parent)
+	att1.Name = "Attachment1"
+	att1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
 
-	att1.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
-	att2.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
-
-	local ballSocket = Instance.new("BallSocketConstraint")
-	ballSocket.Attachment0 = att2
-	ballSocket.Attachment1 = att1
-	ballSocket.LimitsEnabled = true
-	ballSocket.TwistLimitsEnabled = true
-	ballSocket.UpperAngle = 25 -- Allow more bending
-	ballSocket.TwistLowerAngle = -15
-	ballSocket.TwistUpperAngle = 15
-	ballSocket.Parent = part
-
-	return part, att1
+	return part, att0, att1
 end
 
--- Coroutine to build tail gradually
+-- Build tail anchored, hold fixed shape, then enable physics and constraints for wobble
 coroutine.wrap(function()
 	local lastAttachment = tailRootAttachment
 
 	for i = 1, NUM_SEGMENTS do
-		local segment, newAttachment = createSegment(i, lastAttachment)
-		table.insert(segments, segment)
-		lastAttachment = newAttachment
+		local part, att0, att1 = createSegment(i, lastAttachment)
+		segments[i] = part
+		attachments[i] = {att0, att1}
 
-		-- Calculate elevation for this segment: linearly interpolate from base offset Y to base + TIP_ELEVATION
+		-- Position segments in a line backward and linearly rising Y for curve
 		local yOffset = BASE_OFFSET.Y + (TIP_ELEVATION * (i - 1) / (NUM_SEGMENTS - 1))
-		-- Position segments in a straight line backward on Z and rising on Y
-		segment.CFrame = torso.CFrame * CFrame.new(0, yOffset, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+		part.CFrame = torso.CFrame * CFrame.new(0, yOffset, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
 
+		-- Keep anchored during build phase
+		part.Anchored = true
+
+		lastAttachment = att1
 		wait(BUILD_DELAY)
 	end
 
-	-- Create spinning pastel cube at tip of tail
+	-- Now un-anchor all parts and add BallSocketConstraints + AlignOrientation to enable physics wobble
+	for i = 1, NUM_SEGMENTS do
+		local part = segments[i]
+		part.Anchored = false
+
+		-- Add BallSocketConstraint connecting current segment to previous
+		local ballSocket = Instance.new("BallSocketConstraint")
+		ballSocket.Attachment0 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
+		ballSocket.Attachment1 = attachments[i][1]
+		ballSocket.LimitsEnabled = true
+		ballSocket.TwistLimitsEnabled = true
+		ballSocket.UpperAngle = 25
+		ballSocket.TwistLowerAngle = -15
+		ballSocket.TwistUpperAngle = 15
+		ballSocket.Parent = part
+		ballSockets[i] = ballSocket
+
+		-- Add AlignOrientation for smooth alignment between attachments
+		local alignOri = Instance.new("AlignOrientation")
+		alignOri.Attachment0 = attachments[i][1]
+		alignOri.Attachment1 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
+		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		alignOri.ReactionTorqueEnabled = true
+		alignOri.Responsiveness = 10
+		alignOri.MaxTorque = 10000
+		alignOri.Parent = part
+		alignOrientations[i] = alignOri
+	end
+
+	-- Create the spinning pastel cube tip
 	cube = Instance.new("Part")
 	cube.Shape = Enum.PartType.Block
 	cube.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -114,8 +140,7 @@ local lastPos = torso.Position
 RunService.RenderStepped:Connect(function()
 	if #segments == 0 then return end
 
-	local moveVec = (torso.Position - lastPos)
-	lastPos = torso.Position
+	local moveVec = torso.Velocity -- smoother movement delta
 
 	for i, part in ipairs(segments) do
 		local phase = tick() * 2 + i
