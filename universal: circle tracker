@@ -13,40 +13,46 @@ local LENGTH_PER_SEGMENT = 0.7
 local BASE_OFFSET = Vector3.new(0, -1.5, 1.5) -- Base offset low on waist/back
 local MAX_PITCH_ANGLE = math.rad(30)          -- Max upward pitch angle at tail tip
 
-local BUILD_DELAY = 0.1
-
-local segments = {}
-local attachments = {}
-local ballSockets = {}
-local alignOrientations = {}
-
-local tailRootAttachment = nil
-local cube = nil
-local cubeHue = 0
+local BUILD_DELAY = 0.05
 
 -- Cleanup old tail
-if character:FindFirstChild("TailRoot") then
-	character.TailRoot:Destroy()
+if character:FindFirstChild("DynamicTailModel") then
+	character.DynamicTailModel:Destroy()
 end
 
+-- Create Model to hold tail parts
+local tailModel = Instance.new("Model")
+tailModel.Name = "DynamicTailModel"
+tailModel.Parent = character
+
 -- Create root attachment on torso at base offset
-tailRootAttachment = Instance.new("Attachment")
-tailRootAttachment.Name = "TailRoot"
+local tailRootAttachment = Instance.new("Attachment")
+tailRootAttachment.Name = "TailRootAttachment"
 tailRootAttachment.Position = BASE_OFFSET
 tailRootAttachment.Parent = torso
 
--- Create tail segment parts WITHOUT physics enabled initially
+local segments = {}
+local attachments = {}
+
 local function createSegment(index)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
-	part.Size = BASE_SIZE + Vector3.new(index * 0.05, index * 0.05, 0)
+
+	-- Size grows slightly toward tip
+	local sizeMultiplier = 1 + (index / NUM_SEGMENTS) * 1.5
+	part.Size = Vector3.new(BASE_SIZE.X * sizeMultiplier, BASE_SIZE.Y * sizeMultiplier, LENGTH_PER_SEGMENT)
+
 	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
-	part.Anchored = true  -- initially anchored
+	part.Anchored = false
 	part.CanCollide = false
 	part.Massless = true
 	part.CastShadow = false
-	part.Parent = workspace
+	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
+
+	-- Zero friction, elasticity etc. to prevent physics pushing
+	part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+
+	part.Parent = tailModel
 
 	local att0 = Instance.new("Attachment", part)
 	att0.Name = "Attachment0"
@@ -59,102 +65,120 @@ local function createSegment(index)
 	return part, att0, att1
 end
 
--- Build tail anchored, with upward curve applied by rotating each segment slightly more pitch upward
-coroutine.wrap(function()
-	local lastAttachment = tailRootAttachment
+-- Build tail anchored with upward curve by rotation
+for i = 1, NUM_SEGMENTS do
+	local part, att0, att1 = createSegment(i)
+	segments[i] = part
+	attachments[i] = {att0, att1}
 
-	for i = 1, NUM_SEGMENTS do
-		local part, att0, att1 = createSegment(i)
-		segments[i] = part
-		attachments[i] = {att0, att1}
+	local t = (i - 1) / (NUM_SEGMENTS - 1)
+	local pitchAngle = MAX_PITCH_ANGLE * t
 
-		-- Normalized position along tail [0..1]
-		local t = (i - 1) / (NUM_SEGMENTS - 1)
+	local basePos = Vector3.new(0, BASE_OFFSET.Y, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+	local cframe = torso.CFrame * CFrame.new(basePos) * CFrame.Angles(pitchAngle, 0, 0)
 
-		-- Calculate pitch angle increasing from 0 to MAX_PITCH_ANGLE along tail
-		local pitchAngle = MAX_PITCH_ANGLE * t
+	part.CFrame = cframe
+	part.Anchored = true
 
-		-- Base position behind torso
-		local basePos = Vector3.new(0, BASE_OFFSET.Y, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
+	wait(BUILD_DELAY)
+end
 
-		-- Compose CFrame: torso CFrame * position * pitch rotation upward
-		local cframe = torso.CFrame * CFrame.new(basePos) * CFrame.Angles(pitchAngle, 0, 0)
+-- After build: unanchor parts and setup AlignPosition and AlignOrientation constraints for smooth following without physics push
 
-		part.CFrame = cframe
-		part.Anchored = true
+for i = 1, NUM_SEGMENTS do
+	local part = segments[i]
+	part.Anchored = false
 
-		lastAttachment = att1
-		wait(BUILD_DELAY)
-	end
+	local att0, att1 = attachments[i][1], attachments[i][2]
 
-	-- Enable physics and constraints after building
-	for i = 1, NUM_SEGMENTS do
-		local part = segments[i]
-		part.Anchored = false
+	local attachA = (i == 1) and tailRootAttachment or attachments[i - 1][2]
+	local attachB = att0
 
-		local ballSocket = Instance.new("BallSocketConstraint")
-		ballSocket.Attachment0 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
-		ballSocket.Attachment1 = attachments[i][1]
-		ballSocket.LimitsEnabled = true
-		ballSocket.TwistLimitsEnabled = true
-		ballSocket.UpperAngle = 25
-		ballSocket.TwistLowerAngle = -15
-		ballSocket.TwistUpperAngle = 15
-		ballSocket.Parent = part
-		ballSockets[i] = ballSocket
+	-- AlignPosition to follow previous attachment position smoothly
+	local alignPos = Instance.new("AlignPosition")
+	alignPos.Attachment0 = attachB
+	alignPos.Attachment1 = attachA
+	alignPos.MaxForce = 10000
+	alignPos.Responsiveness = 50
+	alignPos.RigidityEnabled = false
+	alignPos.Parent = part
 
-		local alignOri = Instance.new("AlignOrientation")
-		alignOri.Attachment0 = attachments[i][1]
-		alignOri.Attachment1 = (i == 1) and tailRootAttachment or attachments[i - 1][2]
-		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		alignOri.ReactionTorqueEnabled = true
-		alignOri.Responsiveness = 10
-		alignOri.MaxTorque = 10000
-		alignOri.Parent = part
-		alignOrientations[i] = alignOri
-	end
+	-- AlignOrientation to smoothly match previous attachment orientation
+	local alignOri = Instance.new("AlignOrientation")
+	alignOri.Attachment0 = attachB
+	alignOri.Attachment1 = attachA
+	alignOri.MaxTorque = 10000
+	alignOri.Responsiveness = 50
+	alignOri.Parent = part
+end
 
-	-- Create spinning pastel cube at tip
-	cube = Instance.new("Part")
-	cube.Shape = Enum.PartType.Block
-	cube.Size = Vector3.new(1.5, 1.5, 1.5)
-	cube.Material = Enum.Material.Neon
-	cube.CanCollide = false
-	cube.Anchored = false
-	cube.Massless = true
-	cube.CastShadow = false
-	cube.Parent = workspace
+-- Create spinning pastel cube at tail tip
 
-	local attachTail = Instance.new("Attachment", segments[#segments])
-	attachTail.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
+local cube = Instance.new("Part")
+cube.Name = "TailTipCube"
+cube.Size = Vector3.new(1.5, 1.5, 1.5)
+cube.Material = Enum.Material.Neon
+cube.Anchored = false
+cube.CanCollide = false
+cube.Massless = true
+cube.CastShadow = false
+cube.Color = Color3.fromHSV(0, 0.5, 1)
+cube.Parent = tailModel
 
-	local attachCube = Instance.new("Attachment", cube)
-	attachCube.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
+local tipAttach = Instance.new("Attachment", segments[#segments])
+tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
-	local hinge = Instance.new("HingeConstraint")
-	hinge.Attachment0 = attachTail
-	hinge.Attachment1 = attachCube
-	hinge.Parent = cube
-	hinge.MotorMaxTorque = math.huge
-	hinge.AngularVelocity = 5
-end)()
+local cubeAttach = Instance.new("Attachment", cube)
+cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2)
 
-local lastPos = torso.Position
-RunService.RenderStepped:Connect(function()
+local alignPosCube = Instance.new("AlignPosition")
+alignPosCube.Attachment0 = cubeAttach
+alignPosCube.Attachment1 = tipAttach
+alignPosCube.MaxForce = 10000
+alignPosCube.Responsiveness = 50
+alignPosCube.RigidityEnabled = false
+alignPosCube.Parent = cube
+
+local alignOriCube = Instance.new("AlignOrientation")
+alignOriCube.Attachment0 = cubeAttach
+alignOriCube.Attachment1 = tipAttach
+alignOriCube.MaxTorque = 10000
+alignOriCube.Responsiveness = 50
+alignOriCube.Parent = cube
+
+-- Tail wobble parameters
+local wobbleSpeed = 2
+local wobbleMagnitude = 0.05
+local cubeWobbleSpeed = 4
+local cubeWobbleMagnitude = 0.12
+local cubeHue = 0
+
+RunService.RenderStepped:Connect(function(dt)
 	if #segments == 0 then return end
 
-	local moveVec = torso.Velocity
+	local velocity = torso.Velocity.Magnitude
+	local time = tick()
 
 	for i, part in ipairs(segments) do
-		local phase = tick() * 2 + i
-		local sway = math.sin(phase) * (moveVec.Magnitude * 5)
-		local offset = Vector3.new(sway * 0.05, 0, 0)
-		part.AssemblyLinearVelocity = offset
+		local phase = time * wobbleSpeed + i
+		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
+		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
+
+		-- Apply small oscillations by setting AssemblyLinearVelocity (non-physical offset)
+		part.AssemblyLinearVelocity = Vector3.new(swayX, swayY, 0)
 	end
 
 	if cube then
-		cubeHue = (cubeHue + 0.005) % 1
-		cube.Color = Color3.fromHSV(cubeHue, 0.4, 1)
-		cube.RotVelocity = Vector3.new(2, 4, 1)
+		-- Spin cube continuously
+		cube.RotVelocity = Vector3.new(0, 3, 2)
+
+		-- Wobble cube position slightly independently
+		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude
+		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude
+		cube.AssemblyLinearVelocity = Vector3.new(wobbleX, wobbleY, 0)
+
+		-- Cycle pastel hue slowly
+		cubeHue = (cubeHue + dt * 0.1) % 1
+		cube.Color = Color3.fromHSV(cubeHue, 0.5, 1)
 	end
 end)
