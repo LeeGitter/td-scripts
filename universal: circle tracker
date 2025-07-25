@@ -226,3 +226,76 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 end)
+--=== TAIL ADDON START ===--
+local tailParts = {}
+local tailLength = 17
+local tailFolder = Instance.new("Folder")
+tailFolder.Name = "VisualizerTail"
+tailFolder.Parent = workspace
+
+local tipOffset = Vector3.new(0, 0, -5)
+local lastPositions = {}
+local baseTailSize = Vector3.new(0.5, 0.5, 0.5)
+
+-- Create tail segments
+for i = 1, tailLength do
+	local seg = Instance.new("Part")
+	seg.Anchored = true
+	seg.CanCollide = false
+	seg.Size = baseTailSize * (0.4 + 0.6 * (i / tailLength))
+	seg.Material = Enum.Material.Neon
+	seg.Color = Color3.fromHSV((i / tailLength), 0.6, 1)
+	seg.Transparency = 0
+	seg.Shape = Enum.PartType.Block
+	seg.Name = "TailSegment_"..i
+	seg.Parent = tailFolder
+	tailParts[i] = seg
+	lastPositions[i] = head.Position
+end
+
+-- Create pastel cube at the tip
+local pastelCube = Instance.new("Part")
+pastelCube.Anchored = true
+pastelCube.CanCollide = false
+pastelCube.Size = Vector3.new(1, 1, 1)
+pastelCube.Material = Enum.Material.Neon
+pastelCube.Color = Color3.fromHSV(0, 0.6, 1)
+pastelCube.Shape = Enum.PartType.Block
+pastelCube.Name = "PastelCube"
+pastelCube.Parent = tailFolder
+
+local pastelHue = 0
+local tipRotation = 0
+
+RunService.Heartbeat:Connect(function(dt)
+	local rootPos = head.Position - Vector3.new(0, 2.5, 0) -- lower tail base
+	lastPositions[1] = rootPos
+
+	-- Smooth follow movement
+	for i = 2, tailLength do
+		local current = lastPositions[i]
+		local target = lastPositions[i - 1]
+		local direction = (target - current)
+		local distance = direction.Magnitude
+		local moveDir = direction.Unit * math.min(distance, 0.6 + (i / tailLength) * 0.8)
+		lastPositions[i] = current + moveDir
+	end
+
+	-- Position segments
+	for i, seg in ipairs(tailParts) do
+		local pos = lastPositions[i]
+		local nextPos = lastPositions[i + 1] or pos
+		seg.CFrame = CFrame.new(pos, nextPos)
+	end
+
+	-- Update pastel cube (trails 5 studs behind tip)
+	local tipPos = lastPositions[tailLength]
+	local tipDir = (tipPos - lastPositions[tailLength - 1]).Unit
+	local offsetPos = tipPos + tipDir * -5
+
+	tipRotation += dt * 2
+	pastelHue = (pastelHue + dt * 0.2) % 1
+	pastelCube.Color = Color3.fromHSV(pastelHue, 0.7, 1)
+	pastelCube.CFrame = CFrame.new(offsetPos) * CFrame.Angles(0, tipRotation, 0)
+end)
+--=== TAIL ADDON END ===--
