@@ -55,15 +55,15 @@ local wobbleActive = false
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Highlight (Roblox Highlight instance)
-local highlight = Instance.new("Highlight")
-highlight.Adornee = character
-highlight.Parent = character
-highlight.DepthMode = Enum.HighlightDepthMode.Occluded -- So you can see it through walls
-highlight.FillTransparency = 1 -- start fully invisible fill
-highlight.OutlineTransparency = 1 -- start fully invisible outline
+-- Create the PointLight attached to the head
+local pointLight = Instance.new("PointLight")
+pointLight.Parent = head
+pointLight.Range = 15
+pointLight.Brightness = 0
+pointLight.Shadows = false
+pointLight.Color = Color3.new(1, 1, 1) -- will override with rainbow colors
 
-local rainbowCycleDuration = 0.05 -- VERY fast cycle through colors
+local rainbowCycleDuration = 0.05 -- Very fast rainbow cycle
 
 local function getSoundPosition(sound)
     if sound.Parent:IsA("BasePart") then
@@ -175,31 +175,29 @@ RunService.Heartbeat:Connect(function(dt)
         part.Orientation = Vector3.new(0, yawAngle, 0)
     end
 
-    -- Update highlight color cycling (fast rainbow)
+    -- Update PointLight color cycling (fast rainbow)
     local hue = (tick() % rainbowCycleDuration) / rainbowCycleDuration
-    highlight.FillColor = Color3.fromHSV(hue, 1, 1)
-    highlight.OutlineColor = highlight.FillColor
+    pointLight.Color = Color3.fromHSV(hue, 1, 1)
 
-    -- Adjust visibility based on loudness:
-    -- At zero loudness: fully transparent (1)
-    -- At half loudness: barely visible (about 0.9 transparency)
-    -- At max loudness: bright (about 0.2 transparency)
+    -- Adjust brightness based on loudness:
+    -- At zero loudness: brightness = 0 (off)
+    -- At half loudness: brightness = 0.3 (barely visible)
+    -- At max loudness: brightness = 1.5 (bright)
     local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
 
-    local transparencyAtZero = 1
-    local transparencyAtHalf = 0.9
-    local transparencyAtMax = 0.2
+    local brightnessAtZero = 0
+    local brightnessAtHalf = 0.3
+    local brightnessAtMax = 1.5
 
-    local transparency
+    local brightness
 
     if normalized < 0.5 then
-        -- interpolate between transparencyAtZero and transparencyAtHalf
-        transparency = transparencyAtZero - (normalized / 0.5) * (transparencyAtZero - transparencyAtHalf)
+        -- interpolate between brightnessAtZero and brightnessAtHalf
+        brightness = brightnessAtZero + (normalized / 0.5) * (brightnessAtHalf - brightnessAtZero)
     else
-        -- interpolate between transparencyAtHalf and transparencyAtMax
-        transparency = transparencyAtHalf - ((normalized - 0.5) / 0.5) * (transparencyAtHalf - transparencyAtMax)
+        -- interpolate between brightnessAtHalf and brightnessAtMax
+        brightness = brightnessAtHalf + ((normalized - 0.5) / 0.5) * (brightnessAtMax - brightnessAtHalf)
     end
 
-    highlight.FillTransparency = transparency
-    highlight.OutlineTransparency = transparency
+    pointLight.Brightness = brightness
 end)
