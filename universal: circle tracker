@@ -1,120 +1,137 @@
+-- LocalScript inside StarterPlayerScripts
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
 
--- Tail config
-local tailParts = {}
+-- CONFIGURABLES
 local tailLength = 16
-local partDistance = 1.25
-local buildDelay = 0.05
+local segmentDistance = 1.2
+local wobbleAmplitude = 0.2
+local wobbleSpeed = 8
+local boredDelay = 4
 
--- White cube config
-local whiteCubeOffset = Vector3.new(0, 0, -6)
-local whiteCube = nil
-local idleTime = 0
-local tailBuilt = false
+-- STORAGE
+local tailParts = {}
+local bored = false
+local lastMove = tick()
+local rootVelocity = Vector3.zero
 
--- Utility: Creates a tail segment
-local function createTailPart(index)
+-- HELPER: Create tail segment
+local function createSegment(index)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.8, 0.8, 0.8)
+	part.Size = Vector3.new(0.6, 0.6, 0.6)
 	part.Shape = Enum.PartType.Ball
 	part.Material = Enum.Material.SmoothPlastic
-	part.Color = Color3.fromRGB(80, 170, 255)
-	part.CanCollide = false
+	part.Color = Color3.fromRGB(255 - index*5, 100 + index*10, 255)
 	part.Anchored = true
-	part.Transparency = 0
-	part.Name = "TailPart_" .. index
+	part.CanCollide = false
+	part.CastShadow = false
+	part.Name = "TailSegment_" .. index
 	part.Parent = workspace
 	return part
 end
 
--- Creates the white cube tip
-local function createWhiteCube()
-	local part = Instance.new("Part")
-	part.Size = Vector3.new(1.4, 1.4, 1.4)
-	part.Shape = Enum.PartType.Block
-	part.Material = Enum.Material.SmoothPlastic
-	part.Anchored = true
-	part.CanCollide = false
-	part.BrickColor = BrickColor.White()
-	part.Name = "TailCube"
-	part.Parent = workspace
-
-	local glow = Instance.new("PointLight")
-	glow.Color = Color3.new(1, 1, 1)
-	glow.Brightness = 2
-	glow.Range = 6
-	glow.Parent = part
-
-	return part
+-- CREATE TAIL
+for i = 1, tailLength do
+	tailParts[i] = createSegment(i)
 end
 
--- Build the tail slowly
-task.spawn(function()
-	for i = 1, tailLength do
-		local part = createTailPart(i)
-		table.insert(tailParts, part)
-		task.wait(buildDelay)
-	end
+-- CUBE TIP
+local tipCube
+local cubeOffset = CFrame.new(0, 0, -10)
 
-	tailBuilt = true
+-- MAKE ROTATING GLOWY CUBE
+local function makeTipCube()
+	tipCube = Instance.new("Part")
+	tipCube.Name = "TailCube"
+	tipCube.Size = Vector3.new(1.25, 1.25, 1.25)
+	tipCube.Shape = Enum.PartType.Block
+	tipCube.Color = Color3.new(1, 1, 1)
+	tipCube.Material = Enum.Material.Neon
+	tipCube.Anchored = true
+	tipCube.CanCollide = false
+	tipCube.CastShadow = false
+	tipCube.Parent = workspace
 
-	-- Spawn white cube after tail is done
-	whiteCube = createWhiteCube()
-end)
+	local light = Instance.new("PointLight", tipCube)
+	light.Color = Color3.new(1, 1, 1)
+	light.Range = 8
+	light.Brightness = 2
 
--- Update loop
-RunService.RenderStepped:Connect(function(dt)
-	if not tailBuilt then return end
+	return tipCube
+end
 
-	local speed = (hrp.Velocity * Vector3.new(1, 0, 1)).Magnitude
-	if speed < 1 then
-		idleTime += dt
-	else
-		idleTime = 0
-	end
+-- COLOR SHIFT FUNCTION
+local function colorShift(t)
+	local h = (tick() * 0.1 + t) % 1
+	return Color3.fromHSV(h, 1, 1)
+end
 
-	-- Tail positioning
+-- BORED ANIMATIONS
+local boredState = 0
+local function applyBoredAnimation()
+	if not bored then return end
+	local t = tick()
+
 	for i, part in ipairs(tailParts) do
-		local t = i / tailLength
-		local offset = Vector3.new(0, math.sin(t * math.pi) * 2, -i * partDistance)
-		local baseCF = hrp.CFrame * CFrame.new(0, -1, 0)
-		local finalPos = baseCF.Position + baseCF.LookVector * offset.Z + baseCF.UpVector * offset.Y
+		local offset = Vector3.new(
+			math.sin(t * 1.5 + i) * 1.2,
+			math.cos(t * 1.5 + i) * 0.8,
+			math.sin(t * 0.5 + i) * 1.2
+		)
+		local targetPos = root.Position - root.CFrame.LookVector * (i * segmentDistance) + offset
+		part.CFrame = CFrame.new(targetPos)
+	end
 
-		-- Less wobble on sharp turns
-		local wobble = Vector3.new(
-			math.sin(tick() * 3 + i) * 0.1,
-			math.sin(tick() * 4 + i) * 0.1,
+	if tipCube then
+		local tip = tailParts[#tailParts]
+		tipCube.CFrame = tip.CFrame:ToWorldSpace(cubeOffset) * CFrame.Angles(0, tick() * 2, 0)
+		tipCube.Color = colorShift(tick())
+	end
+end
+
+-- MAIN LOOP
+RunService.RenderStepped:Connect(function(dt)
+	local moving = root.Velocity.Magnitude > 1
+
+	if moving then
+		lastMove = tick()
+		bored = false
+	else
+		if tick() - lastMove > boredDelay then
+			bored = true
+		end
+	end
+
+	if bored then
+		applyBoredAnimation()
+		return
+	end
+
+	local t = tick()
+	local basePos = root.Position - Vector3.new(0, 1.5, 0)
+	local lastPos = basePos
+
+	for i, part in ipairs(tailParts) do
+		local offset = Vector3.new(
+			math.sin(t * wobbleSpeed + i) * wobbleAmplitude,
+			math.cos(t * wobbleSpeed + i) * wobbleAmplitude,
 			0
 		)
 
-		if idleTime > 4 then
-			local randomStyle = math.sin(tick() * 2 + i) * 2
-			wobble += Vector3.new(0, math.sin(tick() * 6 + i) * 0.3 + randomStyle * 0.1, 0)
-		end
-
-		part.Position = finalPos + wobble
+		local targetPos = lastPos - root.CFrame.LookVector * segmentDistance + offset
+		part.CFrame = CFrame.new(targetPos)
+		lastPos = targetPos
 	end
 
-	-- White cube positioning
-	if whiteCube and tailParts[#tailParts] then
-		local tip = tailParts[#tailParts]
-		local tipCF = CFrame.new(tip.Position, hrp.Position)
-		local cubeOffset = tipCF:VectorToWorldSpace(whiteCubeOffset)
-		whiteCube.Position = tip.Position + cubeOffset
-
-		-- Color shift
-		local h = (tick() * 0.2) % 1
-		local s = 0.5
-		local v = 1
-		whiteCube.Color = Color3.fromHSV(h, s, v)
-
-		-- Rotation
-		whiteCube.Orientation += Vector3.new(1, 2, 1.5)
+	if not tipCube then
+		tipCube = makeTipCube()
 	end
+
+	local finalSegment = tailParts[#tailParts]
+	tipCube.CFrame = finalSegment.CFrame:ToWorldSpace(cubeOffset) * CFrame.Angles(0, tick() * 3, 0)
+	tipCube.Color = colorShift(tick())
 end)
