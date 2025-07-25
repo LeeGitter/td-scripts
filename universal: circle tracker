@@ -6,12 +6,12 @@ local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 
 local segmentCount = 10
-local radius = 2
-local heightOffset = 3
+local radius = 1       -- smaller radius here
+local heightOffset = 1 -- lowered crown here
 local basePartSize = Vector3.new(0.3, 0.5, 0.3)
 local soundDetectionRadius = 60
 local maxLoudnessExpected = 1000
-local maxPartHeight = 5
+local maxPartHeight = 3  -- max height now 3 studs
 
 -- Clear existing crown folder if any
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
