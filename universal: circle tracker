@@ -2,77 +2,90 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Wing asset info
+-- Configuration
 local wingImageId = "rbxassetid://75171109405668"
-local flapSpeedMultiplier = 1.5
+local flapSpeedMultiplier = 3
 local afterimageDuration = 0.5
 local afterimageInterval = 0.1
-local wingOffset = Vector3.new(0.5, 1, -1)
+local wingOffset = Vector3.new(0.8, 1.5, -1.2)
 
--- Create the wings
-local function createWing(isLeft)
-	local wing = Instance.new("BillboardGui")
-	wing.Name = isLeft and "LeftWing" or "RightWing"
-	wing.Size = UDim2.new(2, 0, 2, 0)
-	wing.StudsOffset = wingOffset * Vector3.new(isLeft and -1 or 1, 1, 1)
-	wing.AlwaysOnTop = true
-	wing.Adornee = humanoidRootPart
-	wing.Parent = character
+-- Creates one wing BillboardGui
+local function createWing(adornPart, isLeft)
+	local wingGui = Instance.new("BillboardGui")
+	wingGui.Name = isLeft and "LeftWing" or "RightWing"
+	wingGui.Size = UDim2.new(2, 0, 2, 0)
+	wingGui.StudsOffset = wingOffset * Vector3.new(isLeft and -1 or 1, 1, 1)
+	wingGui.AlwaysOnTop = true
+	wingGui.Adornee = adornPart
+	wingGui.Parent = adornPart
 
-	local image = Instance.new("ImageLabel")
-	image.BackgroundTransparency = 1
-	image.Size = UDim2.new(1, 0, 1, 0)
-	image.Image = wingImageId
-	image.ImageColor3 = Color3.new(1, 1, 1)
-	image.ImageTransparency = 0
-	image.Parent = wing
+	local img = Instance.new("ImageLabel")
+	img.BackgroundTransparency = 1
+	img.Size = UDim2.new(1, 0, 1, 0)
+	img.Image = wingImageId
+	img.ImageColor3 = Color3.new(1, 1, 1)
+	img.ImageTransparency = 0
+	img.Rotation = 0
+	img.Parent = wingGui
 
-	return wing
+	return wingGui
 end
 
-local leftWing = createWing(true)
-local rightWing = createWing(false)
+-- Spawns wings + effects
+local function setupWings(character)
+	local hrp = character:WaitForChild("HumanoidRootPart")
+	local leftWing = createWing(hrp, true)
+	local rightWing = createWing(hrp, false)
 
--- Rainbow afterimage system
-local function createAfterimage(w)
-	local clone = w:Clone()
-	clone.Parent = w.Parent
-	local image = clone:FindFirstChildWhichIsA("ImageLabel")
-	if image then
-		local hue = tick() % 5 / 5
-		image.ImageColor3 = Color3.fromHSV(hue, 1, 1)
-		image.ImageTransparency = 0.3
+	local lastPos = hrp.Position
+	local timeSinceAfterimage = 0
+
+	local function createAfterimage(originalWing)
+		local clone = originalWing:Clone()
+		clone.Parent = originalWing.Parent
+		local img = clone:FindFirstChildOfClass("ImageLabel")
+		if img then
+			local hue = tick() % 5 / 5
+			img.ImageColor3 = Color3.fromHSV(hue, 1, 1)
+			img.ImageTransparency = 0.4
+		end
+		game:GetService("Debris"):AddItem(clone, afterimageDuration)
 	end
 
-	task.delay(afterimageDuration, function()
-		clone:Destroy()
+	local conn
+	conn = RunService.RenderStepped:Connect(function(dt)
+		if not hrp or not hrp.Parent then conn:Disconnect() return end
+
+		local currentPos = hrp.Position
+		local speed = (currentPos - lastPos).Magnitude / dt
+		lastPos = currentPos
+
+		local flapAngle = math.sin(tick() * flapSpeedMultiplier + speed * 0.1) * 20
+
+		for _, wing in ipairs({leftWing, rightWing}) do
+			local img = wing:FindFirstChildOfClass("ImageLabel")
+			if img then
+				img.Rotation = (wing.Name == "LeftWing" and -1 or 1) * flapAngle
+			end
+		end
+
+		timeSinceAfterimage += dt
+		if timeSinceAfterimage >= afterimageInterval and speed > 2 then
+			createAfterimage(leftWing)
+			createAfterimage(rightWing)
+			timeSinceAfterimage = 0
+		end
 	end)
 end
 
--- Wing flapping based on movement
-local lastPos = humanoidRootPart.Position
-local timeSinceAfterimage = 0
-RunService.RenderStepped:Connect(function(dt)
-	local currentPos = humanoidRootPart.Position
-	local speed = (currentPos - lastPos).Magnitude / dt
-	lastPos = currentPos
+-- Handles respawn
+local function onCharacterAdded(char)
+	task.wait(0.1)
+	setupWings(char)
+end
 
-	local flapAngle = math.sin(tick() * flapSpeedMultiplier + speed * 0.1) * 15
-
-	for _, wing in pairs({leftWing, rightWing}) do
-		local gui = wing:FindFirstChildWhichIsA("ImageLabel")
-		if gui then
-			gui.Rotation = (wing.Name == "LeftWing" and -1 or 1) * flapAngle
-		end
-	end
-
-	timeSinceAfterimage += dt
-	if timeSinceAfterimage >= afterimageInterval and speed > 2 then
-		createAfterimage(leftWing)
-		createAfterimage(rightWing)
-		timeSinceAfterimage = 0
-	end
-end)
+if player.Character then
+	onCharacterAdded(player.Character)
+end
+player.CharacterAdded:Connect(onCharacterAdded)
