@@ -1,13 +1,15 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
+
 local character = player.Character or player.CharacterAdded:Wait()
 local root = character:WaitForChild("HumanoidRootPart")
 
--- Create neon pillar dust attached to feet
+-- Print to confirm script runs
+print("Rainbow dust trail script started")
+
 local function createDustPart(name, offset)
     local attachment = Instance.new("Attachment")
     attachment.Name = name .. "Attachment"
@@ -18,7 +20,7 @@ local function createDustPart(name, offset)
     dust.Name = name .. "Dust"
     dust.Anchored = false
     dust.CanCollide = false
-    dust.Size = Vector3.new(0.1, 1, 0.1)  -- Thin tall pillar
+    dust.Size = Vector3.new(0.1, 1, 0.1)
     dust.Material = Enum.Material.Neon
     dust.Transparency = 0.3
     dust.CastShadow = false
@@ -40,36 +42,18 @@ local function createDustPart(name, offset)
 
     dust.Parent = workspace
 
+    print(name.." dust created")
+
     return dust
 end
 
 local leftDust = createDustPart("Left", Vector3.new(-0.5, -2.3, 0))
 local rightDust = createDustPart("Right", Vector3.new(0.5, -2.3, 0))
 
--- Rainbow color cycle tracker
 local hue = 0
 local function nextRainbowColor(dt)
     hue = (hue + dt * 1.5) % 1
     return Color3.fromHSV(hue, 0.8, 1)
-end
-
--- Function to get normalized audio volume [0,1]
-local function getAudioVolume()
-    -- Find playing sounds near player
-    local sounds = {}
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            if (sound.Parent.Position - root.Position).Magnitude <= 60 then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-    local maxLoudness = 0
-    for _, sound in pairs(sounds) do
-        maxLoudness = math.max(maxLoudness, sound.PlaybackLoudness or 0)
-    end
-    local normalized = math.clamp(maxLoudness / 1000, 0, 1)
-    return normalized
 end
 
 local lastTrailTime = 0
@@ -80,6 +64,7 @@ RunService.Heartbeat:Connect(function(dt)
     if not character or not character.Parent then
         character = player.Character or player.CharacterAdded:Wait()
         root = character:WaitForChild("HumanoidRootPart")
+        print("Character respawned, references updated")
     end
 
     -- Update dust colors smoothly
@@ -88,33 +73,29 @@ RunService.Heartbeat:Connect(function(dt)
     rightDust.Color = dustColor
 
     local speed = root.Velocity.Magnitude
-    local volume = getAudioVolume()
 
-    -- Spawn trail if moving fast enough and interval passed
     if speed > 1 and tick() - lastTrailTime > trailSpawnInterval then
         lastTrailTime = tick()
         for _, dustPart in pairs({leftDust, rightDust}) do
             local trailPart = Instance.new("Part")
-            trailPart.Size = Vector3.new(0.1, 1, 0.1) -- same thin pillar shape
+            trailPart.Size = Vector3.new(0.1, 1, 0.1)
             trailPart.Anchored = true
             trailPart.CanCollide = false
             trailPart.Material = Enum.Material.Neon
-            trailPart.Color = nextRainbowColor(0) -- immediate color
+            trailPart.Color = nextRainbowColor(0)
             trailPart.Transparency = 0.3
             trailPart.CastShadow = false
-            trailPart.CFrame = CFrame.new(dustPart.Position)
+            trailPart.CFrame = dustPart.CFrame
 
-            -- Audio scale effect (height changes)
-            local scaleY = 1 + volume * 2
             local tweenInfo = TweenInfo.new(trailFadeTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
             local goal = {
-                Size = Vector3.new(0.1, scaleY, 0.1),
                 Transparency = 1
             }
             TweenService:Create(trailPart, tweenInfo, goal):Play()
 
             trailPart.Parent = workspace
             game.Debris:AddItem(trailPart, trailFadeTime)
+            print("Trail part spawned")
         end
     end
 end)
