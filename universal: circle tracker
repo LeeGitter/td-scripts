@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
+local camera = Workspace.CurrentCamera
 
 -- Config
 local NUM_PARTS = 10
@@ -20,9 +21,16 @@ local DESPAWN_DISTANCE = 20
 local DESPAWN_TIME = 10 -- seconds outside distance before despawn
 local HEIGHT_LERP_SPEED = 5 -- higher = faster height changes
 
-local COLOR_START = Color3.fromRGB(255, 0, 255)  -- magenta
-local COLOR_END = Color3.fromRGB(0, 255, 100)    -- teal-greenish
+local BASE_COLOR = Color3.fromRGB(255, 0, 255)  -- magenta base color
 
+-- FOV and vignette config
+local BASE_FOV = 70
+local MAX_FOV_INCREASE = 20
+local FOV_LERP_SPEED = 10
+local VIGNETTE_DURATION = 0.2
+local LOUDNESS_THRESHOLD = 150 -- loudness threshold to trigger effects
+
+-- Helper functions
 local function lerpColor(a, b, t)
     return Color3.new(
         a.R + (b.R - a.R) * t,
@@ -35,10 +43,15 @@ local function lerp(a, b, t)
     return a + (b - a) * t
 end
 
--- Create parts and track their out-of-range timers and current heights
+local function randomColor()
+    return Color3.fromHSV(math.random(), 0.8, 1)
+end
+
+-- Create parts and track their out-of-range timers, current heights, and max colors
 local parts = {}
 local outsideTimers = {}
 local currentHeights = {}
+local maxColors = {}
 
 for i = 1, NUM_PARTS do
     local part = Instance.new("Part")
@@ -50,15 +63,26 @@ for i = 1, NUM_PARTS do
     part.Parent = workspace
     parts[i] = part
     outsideTimers[i] = 0
-    currentHeights[i] = BASE_SIZE.Y -- start at base height
+    currentHeights[i] = BASE_SIZE.Y
+    maxColors[i] = randomColor()
 end
 
+-- Setup vignette effect
+local vignette = Instance.new("ColorCorrectionEffect")
+vignette.Parent = camera
+vignette.Enabled = false
+vignette.Saturation = 1
+
+local vignetteTimer = 0
+local vignetteActive = false
+
 local angle = 0
+local currentFOV = BASE_FOV
+camera.FieldOfView = BASE_FOV
 
 RunService.RenderStepped:Connect(function(dt)
     local half = math.floor(NUM_PARTS / 2)
 
-    -- Buckets for close and distributed far sounds (except last part)
     local closeBuckets = {}
     local farBuckets = {}
     for i = 1, half do
@@ -66,7 +90,6 @@ RunService.RenderStepped:Connect(function(dt)
         farBuckets[i] = 0
     end
 
-    -- Get all playing sounds attached to BaseParts
     local sounds = {}
     for _, sound in ipairs(Workspace:GetDescendants()) do
         if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
@@ -74,12 +97,16 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Separate sounds by distance
     local closeSounds = {}
     local farSounds = {}
+    local maxLoudness = 0
+
     for _, sound in ipairs(sounds) do
         local pos = sound.Parent.Position
         local dist = (pos - hrp.Position).Magnitude
+        local loudness = sound.PlaybackLoudness or 0
+        maxLoudness = math.max(maxLoudness, loudness)
+
         if dist <= CLOSE_RADIUS then
             table.insert(closeSounds, sound)
         else
@@ -87,21 +114,17 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Sum loudness for last part (all far sounds combined)
     local farSoundsTotalLoudness = 0
     for _, sound in ipairs(farSounds) do
         farSoundsTotalLoudness = farSoundsTotalLoudness + (sound.PlaybackLoudness or 0)
     end
 
-    -- Distribute close sounds evenly among first half parts
     for i, sound in ipairs(closeSounds) do
         local loudness = sound.PlaybackLoudness or 0
         local index = ((i - 1) % half) + 1
         closeBuckets[index] = closeBuckets[index] + loudness
     end
 
-    -- Distribute far sounds evenly among first (half - 1) parts of the far group
-    -- We'll reserve the last part (NUM_PARTS) for total far loudness visualization
     local farGroupParts = half - 1
     for i, sound in ipairs(farSounds) do
         local loudness = sound.PlaybackLoudness or 0
@@ -111,7 +134,6 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Update parts and check distance for despawn timer
     local partsToRemove = {}
 
     for i = 1, #parts do
@@ -119,22 +141,16 @@ RunService.RenderStepped:Connect(function(dt)
         local bucketIndex = ((i - 1) % half) + 1
 
         if i <= half then
-            -- First half parts: close sounds buckets
             targetHeight = math.clamp(BASE_SIZE.Y + closeBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
         elseif i < NUM_PARTS then
-            -- Far group except last part: distributed farBuckets
             targetHeight = math.clamp(BASE_SIZE.Y + farBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
         else
-            -- Last part (NUM_PARTS): reacts to total far sounds loudness (server-wide outside noises)
             targetHeight = math.clamp(BASE_SIZE.Y + farSoundsTotalLoudness * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
         end
 
-        -- Smoothly lerp current height toward target
         currentHeights[i] = lerp(currentHeights[i], targetHeight, math.clamp(dt * HEIGHT_LERP_SPEED, 0, 1))
-
         local height = currentHeights[i]
 
-        -- Calculate position with gap offset
         local partAngle = angle + (2 * math.pi * (i - 1) / NUM_PARTS)
         local gapOffset = (height - BASE_SIZE.Y) * HORIZONTAL_GAP
         local x = hrp.Position.X + math.cos(partAngle) * (ORBIT_RADIUS + gapOffset)
@@ -146,10 +162,10 @@ RunService.RenderStepped:Connect(function(dt)
         part.Size = Vector3.new(BASE_SIZE.X, height, BASE_SIZE.Z)
         part.CFrame = CFrame.new(part.Position)
 
+        -- Color lerp from base magenta to randomized maxColor based on height
         local t = (height - BASE_SIZE.Y) / (MAX_HEIGHT - BASE_SIZE.Y)
-        part.Color = lerpColor(COLOR_START, COLOR_END, t)
+        part.Color = lerpColor(BASE_COLOR, maxColors[i], t)
 
-        -- Check distance to player for despawn
         local distToPlayer = (part.Position - hrp.Position).Magnitude
         if distToPlayer > DESPAWN_DISTANCE then
             outsideTimers[i] = outsideTimers[i] + dt
@@ -161,14 +177,41 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Remove parts safely after loop
     for i = #partsToRemove, 1, -1 do
         local index = partsToRemove[i]
         parts[index]:Destroy()
         table.remove(parts, index)
         table.remove(outsideTimers, index)
         table.remove(currentHeights, index)
+        table.remove(maxColors, index)
     end
 
     angle = (angle + ORBIT_SPEED * dt) % (2 * math.pi)
+
+    -- FOV and vignette effects
+    -- Increase FOV proportional to loudness above threshold
+    local loudnessExcess = math.clamp(maxLoudness - LOUDNESS_THRESHOLD, 0, LOUDNESS_THRESHOLD)
+    local targetFOV = BASE_FOV + (loudnessExcess / LOUDNESS_THRESHOLD) * MAX_FOV_INCREASE
+    currentFOV = lerp(currentFOV, targetFOV, dt * FOV_LERP_SPEED)
+    camera.FieldOfView = currentFOV
+
+    -- Trigger vignette on loud sounds
+    if maxLoudness > LOUDNESS_THRESHOLD then
+        vignette.Enabled = true
+        vignetteTimer = VIGNETTE_DURATION
+        vignetteActive = true
+    end
+
+    if vignetteActive then
+        vignetteTimer = vignetteTimer - dt
+        if vignetteTimer <= 0 then
+            vignette.Enabled = false
+            vignetteActive = false
+        else
+            -- Cycle through rainbow colors on saturation and tint
+            local hue = (tick() * 5) % 1 -- cycle hue quickly
+            vignette.TintColor = Color3.fromHSV(hue, 1, 1)
+            vignette.Saturation = 1
+        end
+    end
 end)
