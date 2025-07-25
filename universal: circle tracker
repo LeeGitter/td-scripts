@@ -12,18 +12,22 @@ local afterimageFadeTime = 0.5
 local afterimageSpawnInterval = 0.05
 local wingImageId = "rbxassetid://75171109405668"
 
+local wingsFolder = workspace:FindFirstChild("LocalWingsFolder")
+if wingsFolder then wingsFolder:Destroy() end
+wingsFolder = Instance.new("Folder", workspace)
+wingsFolder.Name = "LocalWingsFolder"
+
 local function createWing()
     local wing = Instance.new("Part")
     wing.Name = "Wing"
     wing.Size = wingSize
-    wing.Anchored = true  -- Important: anchored, no physics interaction
+    wing.Anchored = true
     wing.CanCollide = false
     wing.Transparency = 0
     wing.Material = Enum.Material.Neon
     wing.CastShadow = false
-    wing.Parent = character
+    wing.Parent = wingsFolder
 
-    -- Smooth surfaces for clean visuals
     wing.TopSurface = Enum.SurfaceType.Smooth
     wing.BottomSurface = Enum.SurfaceType.Smooth
     wing.FrontSurface = Enum.SurfaceType.Smooth
@@ -48,11 +52,11 @@ local lastAfterimageTime = 0
 
 local function createAfterimage(wing)
     local clone = wing:Clone()
+    clone.Parent = wingsFolder
     clone.Anchored = true
     clone.CanCollide = false
-    clone.Parent = workspace
-    clone.Material = Enum.Material.Neon
     clone.CastShadow = false
+    clone.Material = Enum.Material.Neon
 
     local hue = 0
     local colorCycleSpeed = 10
@@ -74,24 +78,24 @@ local function createAfterimage(wing)
 end
 
 RunService.Heartbeat:Connect(function(dt)
+    -- Update character ref in case of respawn
+    if not character or not character.Parent then
+        character = player.Character or player.CharacterAdded:Wait()
+        rootPart = character:WaitForChild("HumanoidRootPart")
+    end
+
     local speed = rootPart.Velocity.Magnitude
     flapAngle = flapAngle + dt * flapSpeedMultiplier * speed
     local flapOffset = math.sin(flapAngle) * math.rad(20)
 
-    -- Position wings behind the HumanoidRootPart, flap rotation on Z axis
-    -- Correct offset: wings are behind rootPart, slightly to left and right on X axis, no rotation on rootPart (keep wings independent)
     local rootCFrame = rootPart.CFrame
 
-    -- Left wing: offset to left (-X), behind (-Z), flap rotation around Z axis
     leftWing.CFrame = rootCFrame * CFrame.new(-2, 0, -1) * CFrame.Angles(0, 0, flapOffset)
-    -- Right wing: offset to right (+X), behind (-Z), flipped 180 on Y and flap rotation opposite on Z
     rightWing.CFrame = rootCFrame * CFrame.new(2, 0, -1) * CFrame.Angles(0, math.rad(180), -flapOffset)
 
-    if speed > 1 then
-        if tick() - lastAfterimageTime > afterimageSpawnInterval then
-            createAfterimage(leftWing)
-            createAfterimage(rightWing)
-            lastAfterimageTime = tick()
-        end
+    if speed > 1 and tick() - lastAfterimageTime > afterimageSpawnInterval then
+        createAfterimage(leftWing)
+        createAfterimage(rightWing)
+        lastAfterimageTime = tick()
     end
 end)
