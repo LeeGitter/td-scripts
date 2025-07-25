@@ -1,88 +1,49 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local torso = character:WaitForChild("Torso")
+-- Assuming lastTailPart is your final tail segment
+local lastTailPart = tailParts[#tailParts] -- Replace tailParts with your actual tail array/table name
 
--- CONFIGURATION
-local tailLength = 16
-local partSize = Vector3.new(0.5, 0.5, 1.2)
-local baseOffset = Vector3.new(0, -1, -0.5) -- offset from torso
-local tailParts = {}
-
--- Build tail
-for i = 1, tailLength do
-	local part = Instance.new("Part")
-	part.Size = partSize
-	part.Material = Enum.Material.SmoothPlastic
-	part.Color = Color3.fromRGB(255, 255, 255)
-	part.CanCollide = false
-	part.Anchored = false
-	part.Massless = true
-	part.Name = "TailPart"
-	part.CastShadow = false
-	part.Transparency = 0
-	part.Parent = character
-
-	local weld = Instance.new("Motor6D")
-	weld.Part0 = i == 1 and torso or tailParts[i-1]
-	weld.Part1 = part
-	weld.C0 = CFrame.new(0, 0, -partSize.Z) * CFrame.Angles(math.rad(7), 0, 0) -- slight upward curve
-	weld.C1 = CFrame.new(0, 0, 0)
-	weld.Parent = weld.Part0
-
-	table.insert(tailParts, part)
-end
-
--- Add pastel spinning cube behind the tip
 local cube = Instance.new("Part")
-cube.Shape = Enum.PartType.Block
 cube.Size = Vector3.new(1, 1, 1)
+cube.Shape = Enum.PartType.Block
+cube.Color = Color3.new(1, 1, 1)
+cube.Material = Enum.Material.Neon
 cube.Anchored = false
 cube.CanCollide = false
 cube.Massless = true
-cube.Color = Color3.fromRGB(255, 255, 255)
-cube.Material = Enum.Material.SmoothPlastic
-cube.CastShadow = false
-cube.Name = "TailCube"
-cube.Parent = character
+cube.Name = "PastelCube"
+cube.Parent = workspace
 
-local cubeAttachment = Instance.new("Attachment", tailParts[#tailParts])
-cubeAttachment.Position = Vector3.new(0, 0, -2.5) -- positioned further *behind* the tail tip
+-- Offset from the tip (forward a bit)
+local offset = Vector3.new(0, 0, -1.5)
+local att0 = Instance.new("Attachment", lastTailPart)
+local att1 = Instance.new("Attachment", cube)
 
-local cubeAlignPos = Instance.new("AlignPosition")
-cubeAlignPos.Attachment0 = cubeAttachment
-cubeAlignPos.RigidityEnabled = false
-cubeAlignPos.MaxForce = 10000
-cubeAlignPos.Responsiveness = 10
-cubeAlignPos.Parent = cube
+-- Flexible joint with different wiggle
+local alignPos = Instance.new("AlignPosition", cube)
+alignPos.Attachment0 = att1
+alignPos.Attachment1 = att0
+alignPos.RigidityEnabled = false
+alignPos.Responsiveness = 15
+alignPos.MaxForce = math.huge
+alignPos.ApplyAtCenterOfMass = true
 
-local cubeAlignOri = Instance.new("AlignOrientation")
-cubeAlignOri.Attachment0 = cubeAttachment
-cubeAlignOri.RigidityEnabled = false
-cubeAlignOri.MaxTorque = 10000
-cubeAlignOri.Responsiveness = 10
-cubeAlignOri.Parent = cube
+local alignOri = Instance.new("AlignOrientation", cube)
+alignOri.Attachment0 = att1
+alignOri.Attachment1 = att0
+alignOri.RigidityEnabled = false
+alignOri.Responsiveness = 10
+alignOri.MaxTorque = math.huge
+alignOri.PrimaryAxisOnly = false
 
--- Spin + color + wobble
-local angle = 0
-local t = 0
+-- Offset attachment
+att0.Position = offset
+
+-- Spin
 RunService.RenderStepped:Connect(function(dt)
-	t += dt
-	angle += dt * 4 -- spin speed
-
-	-- Wiggle tail parts
-	for i, part in ipairs(tailParts) do
-		local motor = part:FindFirstChildWhichIsA("Motor6D")
-		if motor then
-			local sway = math.sin(t * 5 + i) * math.rad(5)
-			motor.C0 = CFrame.new(0, 0, -partSize.Z) * CFrame.Angles(math.rad(7 + i), sway, 0)
-		end
-	end
-
-	-- Spin and wobble the cube
-	cube.CFrame = cube.CFrame * CFrame.Angles(math.rad(2), math.rad(4), math.rad(3))
-	local r = math.abs(math.sin(t * 1.5)) * 0.25 + 0.75
-	cube.Color = Color3.fromHSV((t * 0.2) % 1, 0.3, 1)
+	cube.Orientation = cube.Orientation + Vector3.new(0, 300 * dt, 0)
+	
+	-- Color shift
+	local hue = tick() % 5 / 5
+	cube.Color = Color3.fromHSV(hue, 0.6, 1)
 end)
