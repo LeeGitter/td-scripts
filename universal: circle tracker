@@ -3,16 +3,19 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
+
+-- Wait for character and HRP properly
 local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
+
 local camera = Workspace.CurrentCamera
 
 -- Visualizer config
 local NUM_PARTS = 10
-local RADIUS = 3  -- smaller circle radius
+local RADIUS = 3
 local MAX_HEIGHT = 5
 local BASE_HEIGHT = 0.5
-local SENSITIVITY = 0.03 -- very low sensitivity
+local SENSITIVITY = 0.03 -- less sensitive
 
 -- FOV + vignette config
 local BASE_FOV = 70
@@ -31,14 +34,16 @@ colorCorrection.Parent = camera
 colorCorrection.Enabled = true
 colorCorrection.TintColor = Color3.new(1, 1, 1)
 
--- Create visualizer parts
+-- Create parts table
 local parts = {}
+
 for i = 1, NUM_PARTS do
     local part = Instance.new("Part")
+    part.Name = "VisualizerPart"..i
     part.Anchored = true
     part.CanCollide = false
     part.Material = Enum.Material.Neon
-    part.Color = Color3.fromRGB(255, 0, 255) -- start magenta
+    part.Color = Color3.fromRGB(255, 0, 255) -- magenta start
     part.Size = Vector3.new(0.3, BASE_HEIGHT, 0.3)
     part.Parent = Workspace
     parts[i] = part
@@ -47,16 +52,17 @@ end
 local timeSinceBop = math.huge
 local bopActive = false
 
--- Function to start the bop effect
 local function startBop()
     if bopActive then return end
     bopActive = true
     timeSinceBop = 0
 end
 
--- Update loop
 RunService.RenderStepped:Connect(function(dt)
-    if not character or not hrp then return end
+    -- Confirm character and HRP (handle respawn)
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+    character = player.Character
+    hrp = character.HumanoidRootPart
 
     local position = hrp.Position
 
@@ -65,11 +71,10 @@ RunService.RenderStepped:Connect(function(dt)
         local angle = (2 * math.pi / NUM_PARTS) * i
         local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * RADIUS
         local partPos = position + offset
-        -- Keep part on floor (Y = player's Y - base height/2)
-        part.Position = Vector3.new(partPos.X, position.Y - (BASE_HEIGHT/2), partPos.Z)
+        part.Position = Vector3.new(partPos.X, position.Y - (part.Size.Y / 2), partPos.Z)
     end
 
-    -- Detect loudness per part (each part checks sounds near its position)
+    -- Detect loudness near each part
     local loudnessValues = {}
 
     for i, part in ipairs(parts) do
@@ -77,7 +82,7 @@ RunService.RenderStepped:Connect(function(dt)
         for _, sound in ipairs(Workspace:GetDescendants()) do
             if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
                 local dist = (sound.Parent.Position - part.Position).Magnitude
-                if dist <= 15 then  -- detect sounds within 15 studs of part
+                if dist <= 15 then
                     maxLoudness = math.max(maxLoudness, sound.PlaybackLoudness or 0)
                 end
             end
@@ -85,7 +90,7 @@ RunService.RenderStepped:Connect(function(dt)
         loudnessValues[i] = maxLoudness
     end
 
-    -- Find highest loudness & which part it is
+    -- Find highest loudness & index
     local highestLoudness = 0
     local highestIndex = 1
     for i, loud in ipairs(loudnessValues) do
@@ -95,26 +100,19 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- Update parts height & color (less sensitive, scaled softly)
+    -- Update parts scale & color smoothly
     for i, part in ipairs(parts) do
         local targetHeight = BASE_HEIGHT + loudnessValues[i] * SENSITIVITY
-        if targetHeight > MAX_HEIGHT then
-            targetHeight = MAX_HEIGHT
-        elseif targetHeight < BASE_HEIGHT then
-            targetHeight = BASE_HEIGHT
-        end
+        targetHeight = math.clamp(targetHeight, BASE_HEIGHT, MAX_HEIGHT)
 
-        -- Smooth height change
         local currentY = part.Size.Y
-        local newY = currentY + (targetHeight - currentY) * 0.1 -- smoothing factor
+        local newY = currentY + (targetHeight - currentY) * 0.1
 
         part.Size = Vector3.new(part.Size.X, newY, part.Size.Z)
-        -- Adjust position so part sits on floor
         part.Position = Vector3.new(part.Position.X, position.Y - (newY / 2), part.Position.Z)
 
-        -- Color lerp from magenta to a random color when height approaches max
         local t = (newY - BASE_HEIGHT) / (MAX_HEIGHT - BASE_HEIGHT)
-        local randomColor = Color3.fromHSV(((i*0.1) + tick()) % 1, 1, 1)
+        local randomColor = Color3.fromHSV(((i * 0.1) + tick()) % 1, 1, 1)
         part.Color = Color3.new(
             1 * (1 - t) + randomColor.R * t,
             0 * (1 - t) + randomColor.G * t,
@@ -122,12 +120,12 @@ RunService.RenderStepped:Connect(function(dt)
         )
     end
 
-    -- Trigger FOV + vignette bop if the highest loudness part hits max height
+    -- Trigger FOV + vignette bop if highest loudness part hits max height
     if loudnessValues[highestIndex] * SENSITIVITY >= MAX_HEIGHT - BASE_HEIGHT then
         startBop()
     end
 
-    -- Update bop effect if active
+    -- Handle bop effect
     if bopActive then
         timeSinceBop = timeSinceBop + dt
         local progress = timeSinceBop / BOP_DURATION
@@ -138,14 +136,11 @@ RunService.RenderStepped:Connect(function(dt)
             colorCorrection.TintColor = Color3.new(1, 1, 1)
             camera.FieldOfView = BASE_FOV
         else
-            -- FOV bopping (smooth sine)
             local fovOffset = math.sin(progress * math.pi) * MAX_FOV_INCREASE
             camera.FieldOfView = BASE_FOV + fovOffset
 
-            -- Vignette pulsing (same sine)
             vignette.Intensity = math.sin(progress * math.pi) * VIGNETTE_INTENSITY_MAX
 
-            -- Rainbow tint cycling fast
             local hue = (tick() * 4) % 1
             colorCorrection.TintColor = Color3.fromHSV(hue, 1, 1)
         end
