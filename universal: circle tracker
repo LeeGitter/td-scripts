@@ -10,22 +10,18 @@ local NUM_SEGMENTS = 16
 local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
 local LENGTH_PER_SEGMENT = 0.7
 
-local BASE_OFFSET = Vector3.new(0, -1.5, 1.5) -- Base offset low on waist/back
-local MAX_PITCH_ANGLE = math.rad(30)          -- Max upward pitch angle at tail tip
-
+local BASE_OFFSET = Vector3.new(0, -1.5, 1.5)
+local MAX_PITCH_ANGLE = math.rad(30)
 local BUILD_DELAY = 0.05
 
--- Cleanup old tail
 if character:FindFirstChild("DynamicTailModel") then
 	character.DynamicTailModel:Destroy()
 end
 
--- Create Model to hold tail parts
 local tailModel = Instance.new("Model")
 tailModel.Name = "DynamicTailModel"
 tailModel.Parent = character
 
--- Create root attachment on torso at base offset
 local tailRootAttachment = Instance.new("Attachment")
 tailRootAttachment.Name = "TailRootAttachment"
 tailRootAttachment.Position = BASE_OFFSET
@@ -37,21 +33,15 @@ local attachments = {}
 local function createSegment(index)
 	local part = Instance.new("Part")
 	part.Name = "TailSegment_" .. index
-
-	-- Size grows slightly toward tip
 	local sizeMultiplier = 1 + (index / NUM_SEGMENTS) * 1.5
 	part.Size = Vector3.new(BASE_SIZE.X * sizeMultiplier, BASE_SIZE.Y * sizeMultiplier, LENGTH_PER_SEGMENT)
-
 	part.Material = Enum.Material.Neon
 	part.Anchored = false
-	part.CanCollide = false      -- No collision
+	part.CanCollide = false
 	part.Massless = true
 	part.CastShadow = false
 	part.Color = Color3.fromHSV((index / NUM_SEGMENTS) % 1, 1, 1)
-
-	-- Zero friction, elasticity etc. to prevent physics pushing
 	part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
-
 	part.Parent = tailModel
 
 	local att0 = Instance.new("Attachment", part)
@@ -65,7 +55,6 @@ local function createSegment(index)
 	return part, att0, att1
 end
 
--- Build tail anchored with upward curve by rotation
 for i = 1, NUM_SEGMENTS do
 	local part, att0, att1 = createSegment(i)
 	segments[i] = part
@@ -73,27 +62,22 @@ for i = 1, NUM_SEGMENTS do
 
 	local t = (i - 1) / (NUM_SEGMENTS - 1)
 	local pitchAngle = MAX_PITCH_ANGLE * t
-
 	local basePos = Vector3.new(0, BASE_OFFSET.Y, -BASE_OFFSET.Z - LENGTH_PER_SEGMENT * (i - 1))
 	local cframe = torso.CFrame * CFrame.new(basePos) * CFrame.Angles(pitchAngle, 0, 0)
 
 	part.CFrame = cframe
 	part.Anchored = true
-
 	wait(BUILD_DELAY)
 end
 
--- After build: unanchor parts and setup AlignPosition and AlignOrientation constraints for smooth following without physics push
 for i = 1, NUM_SEGMENTS do
 	local part = segments[i]
 	part.Anchored = false
 
 	local att0, att1 = attachments[i][1], attachments[i][2]
-
 	local attachA = (i == 1) and tailRootAttachment or attachments[i - 1][2]
 	local attachB = att0
 
-	-- AlignPosition to follow previous attachment position smoothly
 	local alignPos = Instance.new("AlignPosition")
 	alignPos.Attachment0 = attachB
 	alignPos.Attachment1 = attachA
@@ -102,7 +86,6 @@ for i = 1, NUM_SEGMENTS do
 	alignPos.RigidityEnabled = false
 	alignPos.Parent = part
 
-	-- AlignOrientation to smoothly match previous attachment orientation
 	local alignOri = Instance.new("AlignOrientation")
 	alignOri.Attachment0 = attachB
 	alignOri.Attachment1 = attachA
@@ -111,31 +94,30 @@ for i = 1, NUM_SEGMENTS do
 	alignOri.Parent = part
 end
 
--- Create white glowing pastel cube as the 17th segment of tail
+-- 🌟 White pastel spinning cube (17th "segment")
 local cube = Instance.new("Part")
 cube.Name = "TailTipCube"
 cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
 cube.Anchored = false
-cube.CanCollide = false       -- No collision
+cube.CanCollide = false
 cube.Massless = true
 cube.CastShadow = false
-cube.Color = Color3.new(1, 1, 1)  -- White base color
+cube.Color = Color3.new(1, 1, 1)
+cube.Transparency = 0.1
 cube.Parent = tailModel
 
--- Attachments for cube (used only for local wobble offset)
 local cubeAttach0 = Instance.new("Attachment", cube)
 cubeAttach0.Name = "Attachment0"
-cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2)  -- Back face of cube
+cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2)
 
--- Tail wobble parameters
 local wobbleSpeed = 2
 local wobbleMagnitude = 0.05
 local cubeWobbleSpeed = 4
 local cubeWobbleMagnitude = 0.12
 local cubeHue = 0
 
-local OFFSET_BACK = 5 -- studs behind tail tip
+local OFFSET_BACK = 5 -- studs behind tip
 
 RunService.RenderStepped:Connect(function(dt)
 	if #segments == 0 then return end
@@ -148,7 +130,6 @@ RunService.RenderStepped:Connect(function(dt)
 		local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
 		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
 
-		-- Offset attachment positions to create wobble
 		local att0, att1 = attachments[i][1], attachments[i][2]
 		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
 	end
@@ -157,19 +138,16 @@ RunService.RenderStepped:Connect(function(dt)
 		local tipPart = segments[#segments]
 		local tipCFrame = tipPart.CFrame
 
-		-- Position cube behind tail tip along local Z axis
-		local desiredCFrame = tipCFrame * CFrame.new(0, 0, -LENGTH_PER_SEGMENT / -2 - OFFSET_BACK)
+		-- 🎯 Force cube 5 studs behind tail tip
+		local offsetCFrame = tipCFrame * CFrame.new(0, 0, -OFFSET_BACK)
+		cube.CFrame = offsetCFrame * CFrame.Angles(0, math.rad(20) * time, math.rad(10) * time)
 
-		-- Passive slow spin on the cube (degrees per second)
-		local spinSpeed = math.rad(20)
-		cube.CFrame = desiredCFrame * CFrame.Angles(0, spinSpeed * time, spinSpeed * 0.5 * time)
-
-		-- More intense wobble on cube (local offset)
+		-- Extra wobble
 		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude
 		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude
 		cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2) + Vector3.new(wobbleX, wobbleY, 0)
 
-		-- Pastel color cycling on cube
+		-- Rainbow pastel color
 		cubeHue = (cubeHue + dt * 0.1) % 1
 		cube.Color = Color3.fromHSV(cubeHue, 0.5, 1)
 	end
