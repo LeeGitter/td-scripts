@@ -117,7 +117,7 @@ local cubeWobbleSpeed = 4
 local cubeWobbleMagnitude = 0.12
 local cubeHue = 0
 
-local OFFSET_BACK = 5 -- studs behind tip
+local OFFSET_BACK = 10 -- studs behind tip
 
 RunService.RenderStepped:Connect(function(dt)
 	if #segments == 0 then return end
