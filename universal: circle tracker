@@ -1,217 +1,151 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
+local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local soundDetectionRadius = 60
-local maxLoudnessExpected = 1000
-local maxPartHeight = 5
+local soundDetectionRadius = 100
+local totalParts = 6
+local localPartCount = 3
+local globalPartCount = totalParts - localPartCount
+local radius = 12
 
--- Clear existing crown folder if any
-local crownFolder = workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then
-    crownFolder:Destroy()
-end
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerCrown"
-crownFolder.Parent = workspace
+local partHeight = 2
+local baseSize = Vector3.new(1, partHeight, 1)
 
 local parts = {}
-local partScales = {}
 
-for i = 1, segmentCount do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = basePartSize
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Transparency = 0
-    part.Name = "CrownPart"..i
-    part.Parent = crownFolder
-    parts[i] = part
-    partScales[i] = basePartSize.Y
+local function createPart(color)
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.Size = baseSize
+	part.Shape = Enum.PartType.Cylinder
+	part.Material = Enum.Material.Neon
+	part.Color = color
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Parent = workspace
+	return part
 end
 
--- Smooth tilt + wobble
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
+for i = 1, totalParts do
+	local color = i <= localPartCount and Color3.fromRGB(50, 200, 255) or Color3.fromRGB(255, 50, 100)
+	table.insert(parts, createPart(color))
+end
 
--- Highlight
-local highlight = nil
-local highlightTime = 0
-local highlightDuration = 1.0
-local highlightFullyVisibleTime = 0.2
-local rainbowCycleDuration = 0.5
-
--- Get 3D position of sound
+-- Helper to determine position of 3D sounds
 local function getSoundPosition(sound)
-    if sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent:IsA("Model") then
-        local hrp = sound.Parent:FindFirstChild("HumanoidRootPart")
-        if hrp then return hrp.Position end
-        for _, d in pairs(sound.Parent:GetDescendants()) do
-            if d:IsA("BasePart") then return d.Position end
-        end
-    end
-    return head.Position
+	if sound:IsDescendantOf(workspace) and sound.Parent:IsA("BasePart") then
+		return sound.Parent.Position
+	elseif sound:IsDescendantOf(workspace) and sound.Parent:IsA("Model") then
+		local model = sound.Parent
+		if model.PrimaryPart then
+			return model.PrimaryPart.Position
+		else
+			local total = Vector3.zero
+			local count = 0
+			for _, p in ipairs(model:GetDescendants()) do
+				if p:IsA("BasePart") then
+					total += p.Position
+					count += 1
+				end
+			end
+			return count > 0 and total / count or Vector3.zero
+		end
+	end
+	return Vector3.zero
 end
 
--- Detect all nearby sounds and flag floating/global ones
+-- Scan for playing sounds
 local function getNearbySounds()
-    local sounds = {}
+	local sounds = {}
 
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if (pos - head.Position).Magnitude <= soundDetectionRadius then
-                local isFloating = not sound.Parent:IsA("BasePart") and not sound.Parent:IsA("Model")
-                table.insert(sounds, {
-                    Instance = sound,
-                    IsFloating = isFloating
-                })
-            end
-        end
-    end
+	-- Global/world sounds
+	for _, sound in ipairs(workspace:GetDescendants()) do
+		if sound:IsA("Sound") and sound.IsPlaying then
+			local pos = getSoundPosition(sound)
+			local dist = (pos - head.Position).Magnitude
+			if dist <= soundDetectionRadius then
+				local isFloating = not sound.Parent:IsA("BasePart") and not sound.Parent:IsA("Model")
+				table.insert(sounds, {
+					Instance = sound,
+					Distance = dist,
+					IsFloating = isFloating,
+					IsLocal = false
+				})
+			end
+		end
+	end
 
-    local function addLocalSounds(root)
-        for _, sound in pairs(root:GetDescendants()) do
-            if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, {
-                    Instance = sound,
-                    IsFloating = false
-                })
-            end
-        end
-    end
+	-- Local sounds from character and PlayerGui
+	local function addLocal(root)
+		for _, sound in ipairs(root:GetDescendants()) do
+			if sound:IsA("Sound") and sound.IsPlaying then
+				table.insert(sounds, {
+					Instance = sound,
+					Distance = 0,
+					IsFloating = false,
+					IsLocal = true
+				})
+			end
+		end
+	end
 
-    addLocalSounds(player:WaitForChild("PlayerGui"))
-    addLocalSounds(character)
+	addLocal(character)
+	addLocal(player:WaitForChild("PlayerGui"))
 
-    return sounds
+	return sounds
 end
 
--- Highlight setup
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("SelectionBox")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.LineThickness = 0.05
-    highlight.Transparency = 0
-    highlight.Color3 = Color3.new(1,1,1)
-    highlight.SurfaceTransparency = 0.8
+-- Assign sounds to part indices
+local function assignSoundsToParts(sounds)
+	local assigned = table.create(totalParts)
+	for _, s in ipairs(sounds) do
+		local targetIndex
+		if s.IsLocal then
+			targetIndex = math.random(1, localPartCount)
+		else
+			targetIndex = math.random(localPartCount + 1, totalParts)
+		end
+		assigned[targetIndex] = assigned[targetIndex] or s
+	end
+	return assigned
 end
 
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
+-- More sensitive easing
+local function getAdjustedLoudness(raw, isFloating)
+	raw = raw or 0
+	local sensitivityBoost = isFloating and 3 or 2
+	local normalized = math.clamp(raw / 150, 0, 1)  -- 150 can be adjusted
+	return (normalized ^ 0.5) * sensitivityBoost
 end
 
--- Main visualizer update
-RunService.Heartbeat:Connect(function(dt)
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+-- Main render loop
+RunService.Heartbeat:Connect(function()
+	local sounds = getNearbySounds()
+	local soundMap = assignSoundsToParts(sounds)
 
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch, lastRoll = pitch, roll
+	local cameraCF = workspace.CurrentCamera.CFrame
+	local right = cameraCF.RightVector
+	local forward = cameraCF.LookVector
 
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX += (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ += (targetTiltZ - prevTiltZ) * tiltSmoothing
+	for i, part in ipairs(parts) do
+		local angle = (math.pi * 2 / totalParts) * (i - 1)
+		local offset = (right * math.cos(angle) + forward * math.sin(angle)) * radius
+		local position = head.Position + Vector3.new(0, 4, 0) + offset
 
-    if wobbleActive then
-        wobbleTime += dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
-        end
-    end
+		local soundData = soundMap[i]
+		local loudness = 0
 
-    local wobbleProgress = wobbleTime / wobbleDuration
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
+		if soundData and soundData.Instance then
+			local s = soundData.Instance
+			loudness = getAdjustedLoudness(s.PlaybackLoudness, soundData.IsFloating)
+		end
 
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
-    local sounds = getNearbySounds()
-    local highlightTriggeredThisFrame = false
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local soundData = #sounds > 0 and sounds[((i - 1) % #sounds) + 1] or nil
-        local sound = soundData and soundData.Instance or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
-            if soundData.IsFloating then
-                loudness *= 1.75 -- Boost global/floating sounds
-            end
-        end
-
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] += (targetHeight - partScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-
-        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
-            highlightTriggeredThisFrame = true
-        end
-    end
-
-    if highlightTriggeredThisFrame then
-        highlightTime = 0
-        createHighlight()
-    end
-
-    if highlight then
-        highlightTime += dt
-        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
-        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
-
-        if highlightTime < highlightFullyVisibleTime then
-            highlight.Transparency = 0
-        elseif highlightTime < highlightDuration then
-            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.Transparency = fadeProgress
-        else
-            removeHighlight()
-        end
-    end
+		local scale = math.clamp(loudness * 2, 0.2, 6)
+		part.Size = Vector3.new(scale, partHeight, scale)
+		part.CFrame = CFrame.new(position, position + Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	end
 end)
