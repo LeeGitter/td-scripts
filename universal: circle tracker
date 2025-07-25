@@ -111,36 +111,36 @@ for i = 1, NUM_SEGMENTS do
 	alignOri.Parent = part
 end
 
--- Create white glowing pastel cube as 17th segment of tail
+-- Create the white spinning cube as the 17th tail part, offset 1 stud behind the tip
 
 local cube = Instance.new("Part")
-cube.Name = "TailTipCube"
+cube.Name = "TailSegment_17"
 cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
 cube.Anchored = false
 cube.CanCollide = false       -- No collision
 cube.Massless = true
 cube.CastShadow = false
-cube.Color = Color3.new(1,1,1)  -- White base color
+cube.Color = Color3.new(1, 1, 1) -- White
 cube.Parent = tailModel
 
--- Attachments for cube
-local cubeAttach0 = Instance.new("Attachment", cube)
-cubeAttach0.Name = "Attachment0"
-cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2)  -- Back face of cube
+-- Attachments on the cube
+local cubeAtt0 = Instance.new("Attachment", cube)
+cubeAtt0.Name = "Attachment0"
+cubeAtt0.Position = Vector3.new(0, 0, -cube.Size.Z / 2)  -- Back face of the cube
 
-local cubeAttach1 = Instance.new("Attachment", cube)
-cubeAttach1.Name = "Attachment1"
-cubeAttach1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2 - 2) -- Offset 2 studs behind tail tip
+local cubeAtt1 = Instance.new("Attachment", cube)
+cubeAtt1.Name = "Attachment1"
+cubeAtt1.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2 - 1)  -- Offset 1 stud further back
 
--- Attach on tail tip segment
+-- Attachment on the last tail segment's tip
 local tipAttach = Instance.new("Attachment", segments[#segments])
 tipAttach.Name = "AttachmentTip"
 tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
--- Align constraints between cube and tail tip
+-- Setup AlignPosition and AlignOrientation constraints to link cube to tail tip
 local alignPosCube = Instance.new("AlignPosition")
-alignPosCube.Attachment0 = cubeAttach0
+alignPosCube.Attachment0 = cubeAtt0
 alignPosCube.Attachment1 = tipAttach
 alignPosCube.MaxForce = 10000
 alignPosCube.Responsiveness = 50
@@ -148,11 +148,15 @@ alignPosCube.RigidityEnabled = false
 alignPosCube.Parent = cube
 
 local alignOriCube = Instance.new("AlignOrientation")
-alignOriCube.Attachment0 = cubeAttach0
+alignOriCube.Attachment0 = cubeAtt0
 alignOriCube.Attachment1 = tipAttach
 alignOriCube.MaxTorque = 10000
 alignOriCube.Responsiveness = 50
 alignOriCube.Parent = cube
+
+-- Add cube as the 17th segment for wobble logic
+table.insert(segments, cube)
+table.insert(attachments, {cubeAtt0, cubeAtt1})
 
 -- Tail wobble parameters
 local wobbleSpeed = 2
@@ -174,23 +178,23 @@ RunService.RenderStepped:Connect(function(dt)
 
 		-- Offset attachment positions to create wobble
 		local att0, att1 = attachments[i][1], attachments[i][2]
-		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
-	end
 
-	if cube then
-		-- Passive slow spin on the cube (degrees per second)
-		local spinSpeed = math.rad(20)
-		cube.CFrame = cube.CFrame * CFrame.Angles(0, spinSpeed * dt, spinSpeed * 0.5 * dt)
+		-- For the last part (cube), wobble differently
+		if i == #segments then
+			local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude * 2
+			local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude * 2
+			att0.Position = Vector3.new(0, 0, -cube.Size.Z / 2) + Vector3.new(wobbleX, wobbleY, 0)
 
-		-- More intense wobble on cube
-		local wobbleX = math.sin(time * cubeWobbleSpeed) * cubeWobbleMagnitude * 2
-		local wobbleY = math.cos(time * cubeWobbleSpeed * 1.3) * cubeWobbleMagnitude * 2
+			-- Spin the cube constantly
+			segments[i].CFrame = segments[i].CFrame * CFrame.Angles(0, math.rad(3), math.rad(2))
 
-		cubeAttach0.Position = Vector3.new(0, 0, -cube.Size.Z / 2) + Vector3.new(wobbleX, wobbleY, 0)
-
-		-- Pastel color cycling on cube (blended with white)
-		cubeHue = (cubeHue + dt * 0.12) % 1
-		local pastelColor = Color3.fromHSV(cubeHue, 0.5, 1)
-		cube.Color = Color3.new(1,1,1):Lerp(pastelColor, 0.5)
+			-- Pastel color cycling on cube (but white tint preserved)
+			cubeHue = (cubeHue + dt * 0.12) % 1
+			local pastelColor = Color3.fromHSV(cubeHue, 0.5, 1)
+			segments[i].Color = Color3.new(1,1,1):Lerp(pastelColor, 0.5)
+		else
+			-- Normal tail segments wobble less on sudden movement
+			att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
+		end
 	end
 end)
