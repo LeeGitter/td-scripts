@@ -8,42 +8,41 @@ local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local head = character:WaitForChild("Head")
 local leftFoot = character:WaitForChild("LeftFoot")
 local rightFoot = character:WaitForChild("RightFoot")
-local leftHand = character:FindFirstChild("LeftHand")
-local rightHand = character:FindFirstChild("RightHand")
+local leftHand = character:WaitForChild("LeftHand")
+local rightHand = character:WaitForChild("RightHand")
 
--- Configuration
+-- Crown settings
 local segmentCount = 10
-local crownRadius = 2
-local crownHeightOffset = 3
-local crownBaseSize = Vector3.new(0.3, 0.5, 0.3)
+local radius = 2
+local heightOffset = 3
+local basePartSize = Vector3.new(0.3, 0.5, 0.3)
 local maxLoudnessExpected = 1000
-local maxCrownHeight = 5
+local maxPartHeight = 5
 
+-- Pillar settings
 local pillarSpawnInterval = 0.5
 local pillarLifetime = 10
 local basePillarSize = Vector3.new(0.3, 4, 0.3)
 local maxPillarHeight = 8
 
-local trailSpacing = 1
-local trailPartSize = Vector3.new(0.15, 0.2, 0.15) -- very thin parts
-
--- Cleanup old folders
-for _, folderName in ipairs({"VisualizerCrown", "LocalPillars", "LocalTrail"}) do
-    local folder = workspace:FindFirstChild(folderName)
-    if folder then folder:Destroy() end
+-- Pillar container
+local pillarFolder = workspace:FindFirstChild("LocalPillars")
+if pillarFolder then
+    pillarFolder:Destroy()
 end
-
--- Create folders
-local crownFolder = Instance.new("Folder", workspace)
-crownFolder.Name = "VisualizerCrown"
-
-local pillarFolder = Instance.new("Folder", workspace)
+pillarFolder = Instance.new("Folder")
 pillarFolder.Name = "LocalPillars"
+pillarFolder.Parent = workspace
 
-local trailFolder = Instance.new("Folder", workspace)
-trailFolder.Name = "LocalTrail"
+-- Crown container
+local crownFolder = workspace:FindFirstChild("VisualizerCrown")
+if crownFolder then
+    crownFolder:Destroy()
+end
+crownFolder = Instance.new("Folder")
+crownFolder.Name = "VisualizerCrown"
+crownFolder.Parent = workspace
 
--- Crown parts and scale state
 local crownParts = {}
 local crownPartScales = {}
 
@@ -51,23 +50,23 @@ for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
     part.CanCollide = false
-    part.Size = crownBaseSize
+    part.Size = basePartSize
     part.Material = Enum.Material.Neon
     part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
     part.Transparency = 0
     part.Name = "CrownPart" .. i
     part.Parent = crownFolder
     crownParts[i] = part
-    crownPartScales[i] = crownBaseSize.Y
+    crownPartScales[i] = basePartSize.Y
 end
 
--- Spark particle creator (powerful)
+-- Spark particle creator (more powerful)
 local function createSparkParticle(parent)
     local particle = Instance.new("ParticleEmitter")
-    particle.Texture = "rbxassetid://243660364"
-    particle.Rate = 80
-    particle.Lifetime = NumberRange.new(0.7, 1.2)
-    particle.Speed = NumberRange.new(0.5, 1.5)
+    particle.Texture = "rbxassetid://243660364" -- Rainbow spark texture
+    particle.Rate = 80  -- Higher rate for more particles
+    particle.Lifetime = NumberRange.new(0.7, 1.2) -- Slightly longer lifetime
+    particle.Speed = NumberRange.new(0.5, 1.5) -- Faster movement
     particle.Size = NumberSequence.new{
         NumberSequenceKeypoint.new(0, 0.8),
         NumberSequenceKeypoint.new(1, 0)
@@ -91,12 +90,7 @@ for _, limb in pairs({leftHand, rightHand, leftFoot, rightFoot}) do
     end
 end
 
--- Trail data
-local trailParts = {}
-local lastTrailPosLeft = nil
-local lastTrailPosRight = nil
-
--- Pillars and scales
+-- Pillars list & scales
 local pillars = {}
 local pillarScales = {}
 
@@ -104,8 +98,9 @@ local pillarScales = {}
 local function getUnparentedSounds()
     local sounds = {}
 
-    local function addSoundsFrom(root)
-        for _, obj in pairs(root:GetDescendants()) do
+    -- Check workspace, PlayerGui, character, SoundService
+    local function addSoundsFrom(parent)
+        for _, obj in pairs(parent:GetDescendants()) do
             if obj:IsA("Sound") and obj.IsPlaying and not obj.Parent:IsA("BasePart") then
                 table.insert(sounds, obj)
             end
@@ -113,27 +108,18 @@ local function getUnparentedSounds()
     end
 
     addSoundsFrom(workspace)
-    if player:FindFirstChild("PlayerGui") then addSoundsFrom(player.PlayerGui) end
-    if character then addSoundsFrom(character) end
+    if player:FindFirstChild("PlayerGui") then
+        addSoundsFrom(player.PlayerGui)
+    end
+    if character then
+        addSoundsFrom(character)
+    end
     addSoundsFrom(SoundService)
 
     return sounds
 end
 
--- Create trail part on ground at position
-local function createTrailPart(position)
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = trailPartSize
-    part.Transparency = 1
-    part.Position = Vector3.new(position.X, trailPartSize.Y / 2, position.Z)
-    part.Parent = trailFolder
-    createSparkParticle(part)
-    return part
-end
-
--- Create pillar at ground level
+-- Create a pillar on floor (Y=0) at position with initial size
 local function createPillar(position)
     local pillar = Instance.new("Part")
     pillar.Anchored = true
@@ -142,31 +128,28 @@ local function createPillar(position)
     pillar.Material = Enum.Material.Neon
     pillar.CastShadow = false
     pillar.Transparency = 0
-    pillar.Position = position + Vector3.new(0, basePillarSize.Y / 2, 0)
+    pillar.Position = position + Vector3.new(0, basePillarSize.Y / 2, 0) -- floor level
     pillar.Parent = pillarFolder
+
+    -- Store spawn time for lifetime cleanup
     pillar:SetAttribute("SpawnTime", tick())
     return pillar
 end
 
-local lastPillarSpawnTime = 0
-
--- For crown wobble
-local prevTiltX, prevTiltZ = 0, 0
-local wobbleTime = 0
-local wobbleActive = false
-local lastPitch, lastRoll = 0, 0
+local lastPillarSpawn = 0
 
 RunService.Heartbeat:Connect(function(dt)
+    -- Refresh character if respawned
     if not character or not character.Parent then
         character = player.Character or player.CharacterAdded:Wait()
         humanoidRootPart = character:WaitForChild("HumanoidRootPart")
         head = character:WaitForChild("Head")
         leftFoot = character:WaitForChild("LeftFoot")
         rightFoot = character:WaitForChild("RightFoot")
-        leftHand = character:FindFirstChild("LeftHand")
-        rightHand = character:FindFirstChild("RightHand")
+        leftHand = character:WaitForChild("LeftHand")
+        rightHand = character:WaitForChild("RightHand")
 
-        -- Reattach spark emitters
+        -- Reattach spark particles
         for _, emitter in pairs(sparkEmitters) do
             if emitter then
                 emitter:Destroy()
@@ -178,85 +161,51 @@ RunService.Heartbeat:Connect(function(dt)
                 sparkEmitters[limb.Name] = createSparkParticle(limb)
             end
         end
-
-        -- Clear trail and pillars
-        for _, part in pairs(trailParts) do
-            if part and part.Parent then part:Destroy() end
-        end
-        trailParts = {}
-
-        for _, pillar in pairs(pillars) do
-            if pillar and pillar.Parent then pillar:Destroy() end
-        end
-        pillars = {}
-        pillarScales = {}
-        lastTrailPosLeft = nil
-        lastTrailPosRight = nil
     end
 
-    -- Trail creation under feet while walking
-    local function addTrailIfFarEnough(lastPos, currentPos)
-        if not lastPos or (lastPos - currentPos).Magnitude >= trailSpacing then
-            local newPart = createTrailPart(currentPos)
-            table.insert(trailParts, newPart)
-            return currentPos
-        end
-        return lastPos
-    end
+    local speed = humanoidRootPart.Velocity.Magnitude
 
-    if leftFoot and rightFoot then
-        lastTrailPosLeft = addTrailIfFarEnough(lastTrailPosLeft, leftFoot.Position)
-        lastTrailPosRight = addTrailIfFarEnough(lastTrailPosRight, rightFoot.Position)
-    end
+    -- Spawn pillars every 0.5 sec if moving
+    if speed > 1 and tick() - lastPillarSpawn >= pillarSpawnInterval then
+        lastPillarSpawn = tick()
 
-    -- Spawn pillars every 0.5s above trail parts, two pillars per trail part offset left/right
-    if tick() - lastPillarSpawnTime >= pillarSpawnInterval then
-        lastPillarSpawnTime = tick()
+        local footPositions = {leftFoot.Position, rightFoot.Position}
+        for _, footPos in pairs(footPositions) do
+            local offsetLeft = Vector3.new(-0.2, 0, 0)
+            local offsetRight = Vector3.new(0.2, 0, 0)
 
-        for _, trailPart in pairs(trailParts) do
-            local basePos = trailPart.Position
-            local offsetLeft = Vector3.new(-0.15, 0, 0)
-            local offsetRight = Vector3.new(0.15, 0, 0)
-
-            local pillar1 = createPillar(Vector3.new(basePos.X, 0, basePos.Z) + offsetLeft)
-            local pillar2 = createPillar(Vector3.new(basePos.X, 0, basePos.Z) + offsetRight)
-
+            local pillar1 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetLeft)
             table.insert(pillars, pillar1)
             table.insert(pillarScales, basePillarSize.Y)
+
+            local pillar2 = createPillar(Vector3.new(footPos.X, 0, footPos.Z) + offsetRight)
             table.insert(pillars, pillar2)
             table.insert(pillarScales, basePillarSize.Y)
         end
     end
 
-    -- Remove old pillars (older than pillarLifetime)
-    for i = #pillars, 1, -1 do
-        local pillar = pillars[i]
-        if pillar and pillar.Parent then
-            local age = tick() - pillar:GetAttribute("SpawnTime")
-            if age > pillarLifetime then
-                pillar:Destroy()
-                table.remove(pillars, i)
-                table.remove(pillarScales, i)
-            end
-        else
-            table.remove(pillars, i)
-            table.remove(pillarScales, i)
-        end
-    end
-
-    -- Get all unparented sounds
+    -- Get ONLY sounds NOT parented to BaseParts
     local sounds = getUnparentedSounds()
     local soundCount = #sounds
-    if soundCount == 0 then soundCount = 1 end
+    if soundCount == 0 then
+        soundCount = 1 -- avoid division by zero
+    end
 
-    -- Crown wobble and scaling
-    local wobbleDuration = 0.5
+    -- Update crown parts scaling & position
+    local prevTiltX, prevTiltZ = 0, 0
     local tiltSmoothing = 0.1
     local tiltIntensity = 0.1
+
+    local wobbleDuration = 0.5
+    local wobbleTime = 0
     local wobbleAmplitudePos = 0.2
     local wobbleAmplitudeRot = 0.09
+    local wobbleActive = false
+
+    local lastPitch, lastRoll = 0, 0
     local wobbleTriggerThreshold = 0.05
 
+    -- Update crown tilt and wobble
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
 
@@ -290,45 +239,67 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, crownHeightOffset, 0) * tiltRotation
+    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
-    -- Update crown parts
+    local highlightTriggeredThisFrame = false
+
     for i, part in ipairs(crownParts) do
         local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * crownRadius, 0, math.sin(angle) * crownRadius)
+        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        local sound = sounds[((i - 1) % soundCount) + 1]
+        local sound = sounds[((i - 1) % #sounds) + 1]
         local loudness = 0
         if sound then
             loudness = sound.PlaybackLoudness or 0
         end
+
         local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxCrownHeight - 0.5)
+        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
 
-        crownPartScales[i] = crownPartScales[i] + (targetHeight - crownPartScales[i]) * 0.15
-        part.Size = Vector3.new(crownBaseSize.X, crownPartScales[i], crownBaseSize.Z)
-
+        crownPartScales[i] = crownPartScales[i] + (targetHeight - crownPartScales[i]) * 0.25
+        part.Size = Vector3.new(basePartSize.X, crownPartScales[i], basePartSize.Z)
         part.Position = worldPos + Vector3.new(0, crownPartScales[i] / 2, 0)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
         part.Orientation = Vector3.new(0, yawAngle, 0)
+
+        if not highlightTriggeredThisFrame and crownPartScales[i] >= maxPartHeight - 0.1 then
+            highlightTriggeredThisFrame = true
+        end
     end
 
-    -- Update pillar scaling
+    -- Update pillars scaling and position
     for i, pillar in ipairs(pillars) do
         if pillar and pillar.Parent then
-            local sound = sounds[((i - 1) % soundCount) + 1]
+            local sound = sounds[((i - 1) % #sounds) + 1]
             local loudness = 0
             if sound then
                 loudness = sound.PlaybackLoudness or 0
             end
             local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-            local targetHeight = basePillarSize.Y + normalized * maxPillarHeight
+            local targetHeight = 1 + normalized * maxPillarHeight
             pillarScales[i] = pillarScales[i] + (targetHeight - pillarScales[i]) * 0.25
-
             pillar.Size = Vector3.new(basePillarSize.X, pillarScales[i], basePillarSize.Z)
+
+            -- Keep pillar on floor
             pillar.Position = Vector3.new(pillar.Position.X, pillar.Size.Y / 2, pillar.Position.Z)
+        end
+    end
+
+    -- Cleanup old pillars after lifetime
+    for i = #pillars, 1, -1 do
+        local pillar = pillars[i]
+        if pillar and pillar.Parent then
+            local age = tick() - pillar:GetAttribute("SpawnTime")
+            if age > pillarLifetime then
+                pillar:Destroy()
+                table.remove(pillars, i)
+                table.remove(pillarScales, i)
+            end
+        else
+            table.remove(pillars, i)
+            table.remove(pillarScales, i)
         end
     end
 end)
