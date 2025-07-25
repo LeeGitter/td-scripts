@@ -1,95 +1,79 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
 
--- Tail configuration
-local tailLength = 16
-local segmentDistance = 1
 local tailParts = {}
+local segmentCount = 16
+local tailLength = 0.6
 
--- Create a folder for organization
-local tailFolder = Instance.new("Folder")
-tailFolder.Name = "TailParts"
-tailFolder.Parent = workspace
-
--- Build tail parts
-for i = 1, tailLength do
+-- Create tail parts
+for i = 1, segmentCount do
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.6 + (i * 0.1), 0.6 + (i * 0.1), 0.6 + (i * 0.1))
-	part.Material = Enum.Material.Neon
-	part.Anchored = true
-	part.CanCollide = false
-	part.Color = Color3.fromHSV((i / tailLength), 1, 1)
+	part.Size = Vector3.new(0.4 + i * 0.1, 0.4 + i * 0.1, 0.4 + i * 0.1)
 	part.Shape = Enum.PartType.Block
-	part.Parent = tailFolder
-	tailParts[#tailParts + 1] = part
+	part.Material = Enum.Material.Neon
+	part.Anchored = false
+	part.CanCollide = false
+	part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
+	part.CFrame = hrp.CFrame * CFrame.new(0, -1, -i * tailLength)
+	part.Parent = workspace
+	tailParts[i] = part
+
+	if i > 1 then
+		local constraint = Instance.new("BallSocketConstraint")
+		constraint.Attachment0 = Instance.new("Attachment", tailParts[i - 1])
+		constraint.Attachment1 = Instance.new("Attachment", part)
+		constraint.Parent = part
+	end
 end
 
--- Create glowing white tip
-local tipPart = Instance.new("Part")
-tipPart.Size = Vector3.new(1.5, 1.5, 1.5)
-tipPart.Shape = Enum.PartType.Ball
-tipPart.Material = Enum.Material.Neon
-tipPart.Anchored = true
-tipPart.CanCollide = false
-tipPart.Color = Color3.new(1, 1, 1)
-tipPart.Parent = tailFolder
+-- WHITE PASTEL SPINNER PART
+local pastel = Instance.new("Part")
+pastel.Shape = Enum.PartType.Block
+pastel.Size = Vector3.new(1.2, 1.2, 1.2)
+pastel.Material = Enum.Material.Neon
+pastel.Anchored = false
+pastel.CanCollide = false
+pastel.Color = Color3.fromRGB(255, 255, 255)
+pastel.Parent = workspace
 
--- Trail color rotation
-local hue = 0
+local pastelAttachment = Instance.new("Attachment", tailParts[#tailParts])
+local pastelFollowAttachment = Instance.new("Attachment", pastel)
 
--- Wobble and movement
-local velocity = Vector3.zero
-local lastPosition = rootPart.Position
-local idleTimer = 0
+local alignPos = Instance.new("AlignPosition")
+alignPos.Attachment0 = pastelFollowAttachment
+alignPos.Attachment1 = pastelAttachment
+alignPos.Position = Vector3.new(0, 0, 5) -- offset it behind the tip
+alignPos.Responsiveness = 50
+alignPos.RigidityEnabled = true
+alignPos.Parent = pastel
 
+-- Rotate pastel cube passively
 RunService.RenderStepped:Connect(function(dt)
-	local currentPosition = rootPart.Position
-	local moveDir = (currentPosition - lastPosition) / dt
-	velocity = velocity:Lerp(moveDir, 0.1)
-	lastPosition = currentPosition
+	pastel.CFrame = pastel.CFrame * CFrame.Angles(0, math.rad(60 * dt), 0)
+	local h = (tick() * 0.25) % 1
+	pastel.Color = Color3.fromHSV(h, 0.7, 1)
+end)
 
-	local speed = velocity.Magnitude
-	local isIdle = speed < 1
-	if isIdle then
-		idleTimer += dt
-	else
-		idleTimer = 0
-	end
-
-	-- Color update
-	hue = (hue + dt * 0.2) % 1
-	for i, part in ipairs(tailParts) do
-		part.Color = Color3.fromHSV((hue + i * 0.03) % 1, 1, 1)
-	end
-
-	local basePos = rootPart.Position - Vector3.new(0, 2, 0)
-	local forward = rootPart.CFrame.LookVector
-	local up = rootPart.CFrame.UpVector
-	local right = rootPart.CFrame.RightVector
+-- WOBBLE BEHAVIOR
+local velocity = Vector3.zero
+RunService.Heartbeat:Connect(function(dt)
+	local currentPos = hrp.Position
+	local moveVec = (hrp.Velocity).Magnitude
 
 	for i, part in ipairs(tailParts) do
-		local offset = forward * -segmentDistance * i
-		local wobble = math.sin(tick() * 3 + i) * right * 0.4 + math.cos(tick() * 3 + i) * up * 0.4
-		if idleTimer > 4 then
-			local mode = math.floor(tick()) % 3
-			if mode == 0 then
-				wobble = Vector3.new(math.sin(tick() * 5 + i), math.cos(tick() * 5 + i * 0.2), 0) * 2
-			elseif mode == 1 then
-				wobble = Vector3.new(0, math.sin(tick() * 8 + i) * 1.5, math.cos(tick() * 8 + i * 0.2)) * 1.5
-			else
-				wobble = Vector3.new(math.sin(tick() * 8 + i), 0, math.cos(tick() * 8 + i * 0.2)) * 1.5
-			end
-		end
-		part.Position = basePos + offset + wobble
-	end
+		local distance = (segmentCount - i) * tailLength
+		local targetPos = hrp.Position - hrp.CFrame.LookVector * distance
+		local force = Instance.new("BodyVelocity")
+		force.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		force.Velocity = (targetPos - part.Position) * 3
+		force.P = 3000
+		force.Parent = part
 
-	-- Tip cube: 5 studs BEHIND the tail tip using the direction of last segment
-	local lastPart = tailParts[#tailParts]
-	local backDir = (lastPart.Position - tailParts[#tailParts - 1].Position).Unit
-	local spin = CFrame.Angles(0, tick() * 2, 0)
-	tipPart.CFrame = CFrame.new(lastPart.Position + backDir * 10) * spin
-	tipPart.Color = Color3.fromHSV((hue + 0.5) % 1, 0.7, 1)
+		game.Debris:AddItem(force, 0.05)
+	end
 end)
