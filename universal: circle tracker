@@ -55,9 +55,15 @@ local wobbleActive = false
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Highlight variables
-local highlight = nil
-local rainbowCycleDuration = 0.5 -- how fast colors cycle
+-- Highlight (Roblox Highlight instance)
+local highlight = Instance.new("Highlight")
+highlight.Adornee = character
+highlight.Parent = character
+highlight.DepthMode = Enum.HighlightDepthMode.Occluded -- So you can see it through walls
+highlight.FillTransparency = 1 -- start fully invisible fill
+highlight.OutlineTransparency = 1 -- start fully invisible outline
+
+local rainbowCycleDuration = 0.05 -- VERY fast cycle through colors
 
 local function getSoundPosition(sound)
     if sound.Parent:IsA("BasePart") then
@@ -100,26 +106,6 @@ local function getNearbySounds()
 
     return sounds
 end
-
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("SelectionBox")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.LineThickness = 0.05
-    highlight.Transparency = 1  -- start fully transparent (invisible)
-    highlight.Color3 = Color3.new(1,1,1)
-    highlight.SurfaceTransparency = 0.8
-end
-
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
-end
-
-createHighlight()
 
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
@@ -189,16 +175,31 @@ RunService.Heartbeat:Connect(function(dt)
         part.Orientation = Vector3.new(0, yawAngle, 0)
     end
 
-    -- Update highlight color cycling (rainbow)
-    if highlight then
-        local highlightTime = tick() % rainbowCycleDuration
-        local hue = highlightTime / rainbowCycleDuration
-        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
+    -- Update highlight color cycling (fast rainbow)
+    local hue = (tick() % rainbowCycleDuration) / rainbowCycleDuration
+    highlight.FillColor = Color3.fromHSV(hue, 1, 1)
+    highlight.OutlineColor = highlight.FillColor
 
-        -- Set transparency based on loudness (more loud => less transparent)
-        local minTransparency = 0.1  -- how visible highlight can get at max loudness
-        local maxTransparency = 1.0  -- fully invisible at zero loudness
-        local transparency = maxTransparency - (normalized * (maxTransparency - minTransparency))
-        highlight.Transparency = transparency
+    -- Adjust visibility based on loudness:
+    -- At zero loudness: fully transparent (1)
+    -- At half loudness: barely visible (about 0.9 transparency)
+    -- At max loudness: bright (about 0.2 transparency)
+    local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
+
+    local transparencyAtZero = 1
+    local transparencyAtHalf = 0.9
+    local transparencyAtMax = 0.2
+
+    local transparency
+
+    if normalized < 0.5 then
+        -- interpolate between transparencyAtZero and transparencyAtHalf
+        transparency = transparencyAtZero - (normalized / 0.5) * (transparencyAtZero - transparencyAtHalf)
+    else
+        -- interpolate between transparencyAtHalf and transparencyAtMax
+        transparency = transparencyAtHalf - ((normalized - 0.5) / 0.5) * (transparencyAtHalf - transparencyAtMax)
     end
+
+    highlight.FillTransparency = transparency
+    highlight.OutlineTransparency = transparency
 end)
