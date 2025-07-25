@@ -1,349 +1,111 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local head = character:WaitForChild("Head")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
--- Crown setup (unchanged from your last script)
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local soundDetectionRadius = 60
-local maxLoudnessExpected = 1000
-local maxPartHeight = 5
+-- Settings
+local wingSize = Vector3.new(2, 1, 0.1)
+local flapSpeedMultiplier = 5 -- how fast wings flap per walk speed
+local afterimageLifetime = 0.5
+local afterimageFadeTime = 0.5
+local afterimageSpawnInterval = 0.05
 
--- Clear existing crown folder if any
-local crownFolder = workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then
-    crownFolder:Destroy()
-end
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerCrown"
-crownFolder.Parent = workspace
+-- Create wing function (creates one wing part, left facing)
+local function createWing()
+    local wing = Instance.new("Part")
+    wing.Name = "Wing"
+    wing.Size = wingSize
+    wing.Anchored = false
+    wing.CanCollide = false
+    wing.Transparency = 0
+    wing.Material = Enum.Material.Neon
+    wing.Color = Color3.new(1, 1, 1)
+    wing.CastShadow = false
 
-local parts = {}
-local partScales = {}
-
-for i = 1, segmentCount do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = basePartSize
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Transparency = 0
-    part.Name = "CrownPart"..i
-    part.Parent = crownFolder
-    parts[i] = part
-    partScales[i] = basePartSize.Y
+    -- Add a Mesh for wing shape (triangle-ish)
+    local mesh = Instance.new("SpecialMesh", wing)
+    mesh.MeshType = Enum.MeshType.Wedge
+    mesh.Scale = Vector3.new(1, 1, 1)
+    
+    return wing
 end
 
--- Crown wobble vars
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
+-- Create left and right wings
+local leftWing = createWing()
+local rightWing = createWing()
 
--- PointLight setup
-local pointLight = Instance.new("PointLight")
-pointLight.Parent = head
-pointLight.Range = 15
-pointLight.Brightness = 0
-pointLight.Shadows = false
-pointLight.Color = Color3.new(1, 1, 1)
+-- Weld wings to HumanoidRootPart
+local function weldWing(wing, offset, flipY)
+    wing.CFrame = rootPart.CFrame * offset
+    wing.Parent = character
 
-local rainbowCycleDuration = 0.05 -- fast rainbow cycling
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = rootPart
+    weld.Part1 = wing
+    weld.Parent = wing
 
--- Sound helpers
-local function getSoundPosition(sound)
-    if sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent:IsA("Model") then
-        if sound.Parent:FindFirstChild("HumanoidRootPart") then
-            return sound.Parent.HumanoidRootPart.Position
-        end
-        for _, descendant in pairs(sound.Parent:GetDescendants()) do
-            if descendant:IsA("BasePart") then
-                return descendant.Position
-            end
-        end
-    end
-    return head.Position
-end
-
-local function getNearbySounds()
-    local sounds = {}
-
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    local function addLocalSounds(root)
-        for _, sound in pairs(root:GetDescendants()) do
-            if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    addLocalSounds(player:WaitForChild("PlayerGui"))
-    addLocalSounds(character)
-
-    return sounds
-end
-
--- === Wings Setup ===
-local wingAssetId = 75171109405668
-
-local function loadWing()
-    local success, model = pcall(function()
-        return game:GetService("InsertService"):LoadAsset(wingAssetId)
-    end)
-    if success and model then
-        local wing = model:FindFirstChildOfClass("Model") or model:FindFirstChildWhichIsA("BasePart") or model:GetChildren()[1]
-        if wing then
-            wing.Parent = nil
-            model:Destroy()
-            return wing
-        end
-    end
-    return nil
-end
-
-local leftWing = loadWing()
-if not leftWing then
-    warn("Failed to load wing asset.")
-    return
-end
-leftWing.Parent = character
-leftWing.Name = "LeftWing"
-
--- Position & weld left wing to HumanoidRootPart
-leftWing:SetPrimaryPartCFrame(rootPart.CFrame * CFrame.new(-1.5, 0, 0))
-local weldLeft = Instance.new("WeldConstraint")
-weldLeft.Part0 = rootPart
-weldLeft.Part1 = leftWing.PrimaryPart
-weldLeft.Parent = leftWing.PrimaryPart
-
--- Clone for right wing, flip on X axis
-local rightWing = leftWing:Clone()
-rightWing.Name = "RightWing"
-rightWing.Parent = character
-
--- Flip right wing by scaling X to -1
-for _, part in pairs(rightWing:GetDescendants()) do
-    if part:IsA("BasePart") then
-        part.Transparency = 0 -- make sure visible
-        part.Material = Enum.Material.Neon -- nice glowing look (optional)
+    if flipY then
+        wing.CFrame = wing.CFrame * CFrame.Angles(0, math.rad(180), 0)
     end
 end
-local function flipWingModel(model)
-    local primary = model.PrimaryPart
-    if not primary then return end
-    model:SetPrimaryPartCFrame(primary.CFrame * CFrame.new(0,0,0))
-    for _, part in pairs(model:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CFrame = part.CFrame * CFrame.new(0,0,0)
-            local size = part.Size
-            part.Size = Vector3.new(-size.X, size.Y, size.Z)
-            -- Negative size breaks physics so instead scale mesh or use negative scale on PrimaryPart
-            -- We'll instead just flip the PrimaryPart's CFrame relative to root, and flip parts visually below
-        end
-    end
-    -- Instead, do this:
-    model.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(1.5, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
-end
-flipWingModel(rightWing)
 
-local weldRight = Instance.new("WeldConstraint")
-weldRight.Part0 = rootPart
-weldRight.Part1 = rightWing.PrimaryPart
-weldRight.Parent = rightWing.PrimaryPart
+weldWing(leftWing, CFrame.new(-2, 0, 0), false)
+weldWing(rightWing, CFrame.new(2, 0, 0), true)
 
--- Flapping vars
-local flapAmplitude = math.rad(15)
-local flapSpeedBase = 2
+-- Flap animation variables
+local flapAngle = 0
+local lastAfterimageTime = 0
 
--- Afterimages container
-local afterimagesFolder = Instance.new("Folder")
-afterimagesFolder.Name = "WingAfterimages"
-afterimagesFolder.Parent = workspace
+-- Afterimage system
+local afterimages = {}
 
--- Afterimage parameters
-local afterimageFadeTime = 0.8
-local afterimageSpawnInterval = 0.07
-local afterimageTimer = 0
+local function createAfterimage(wing)
+    local clone = wing:Clone()
+    clone.Anchored = true
+    clone.CanCollide = false
+    clone.Parent = workspace
+    clone.Material = Enum.Material.Neon
+    clone.CastShadow = false
 
--- Function to create afterimage of wings (rainbow tint)
-local function createAfterimage()
-    for _, wing in pairs({leftWing, rightWing}) do
-        local clone = wing:Clone()
-        clone.Parent = afterimagesFolder
-        -- Remove any welds or constraints in clone so it can sit still
-        for _, c in pairs(clone:GetDescendants()) do
-            if c:IsA("WeldConstraint") or c:IsA("Weld") or c:IsA("Motor6D") then
-                c:Destroy()
-            end
-        end
+    -- Start rainbow cycle
+    local hue = 0
+    local colorCycleSpeed = 10 -- cycles per second
 
-        -- Position clone exactly where the wing is
-        clone:SetPrimaryPartCFrame(wing.PrimaryPart.CFrame)
-
-        -- Make all parts Neon and fully transparent initially
-        for _, part in pairs(clone:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Material = Enum.Material.Neon
-                part.Transparency = 0
-                part.Color = Color3.fromHSV(tick() % 1, 1, 1) -- rainbow base color
-            end
-        end
-
-        -- Tween fade out
+    spawn(function()
         local startTime = tick()
-        coroutine.wrap(function()
-            while true do
-                local elapsed = tick() - startTime
-                local alpha = elapsed / afterimageFadeTime
-                if alpha >= 1 then
-                    clone:Destroy()
-                    break
-                end
-                local hue = (tick() * 5) % 1 -- cycle rainbow fast
-                for _, part in pairs(clone:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Transparency = alpha
-                        part.Color = Color3.fromHSV(hue, 1, 1)
-                    end
-                end
-                wait(0.03)
-            end
-        end)()
-    end
-end
+        while tick() - startTime < afterimageLifetime do
+            hue = (hue + colorCycleSpeed * RunService.Heartbeat:Wait()) % 1
+            clone.Color = Color3.fromHSV(hue, 1, 1)
 
--- Track last position to detect movement speed
-local lastPos = rootPart.Position
+            -- Fade out near end
+            local elapsed = tick() - startTime
+            if elapsed > afterimageLifetime - afterimageFadeTime then
+                clone.Transparency = math.clamp((elapsed - (afterimageLifetime - afterimageFadeTime)) / afterimageFadeTime, 0, 1)
+            end
+        end
+        clone:Destroy()
+    end)
+end
 
 RunService.Heartbeat:Connect(function(dt)
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+    local speed = rootPart.Velocity.Magnitude
 
-    -- Detect significant head tilt change to trigger wobble
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch = pitch
-    lastRoll = roll
+    -- Flap angle based on speed
+    flapAngle = flapAngle + dt * flapSpeedMultiplier * speed
+    local flapOffset = math.sin(flapAngle) * math.rad(30)
 
-    -- Smooth tilt targets (invert to tilt opposite direction)
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
+    -- Apply flap rotation on wings (around Z axis)
+    leftWing.CFrame = rootPart.CFrame * CFrame.new(-2, 0, 0) * CFrame.Angles(0, 0, flapOffset)
+    rightWing.CFrame = rootPart.CFrame * CFrame.new(2, 0, 0) * CFrame.Angles(0, math.rad(180), -flapOffset)
 
-    -- Wobble progress [0 to 1]
-    if wobbleActive then
-        wobbleTime = wobbleTime + dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
-        end
-    end
-
-    local wobbleProgress = wobbleTime / wobbleDuration
-
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
-
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
-    local sounds = getNearbySounds()
-
-    -- Find the loudest sound's loudness this frame (0 to maxLoudnessExpected)
-    local maxLoudness = 0
-    for _, sound in ipairs(sounds) do
-        local loudness = sound.PlaybackLoudness or 0
-        if loudness > maxLoudness then
-            maxLoudness = loudness
-        end
-    end
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-    end
-
-    -- Update PointLight color cycling (fast rainbow)
-    local hue = (tick() % rainbowCycleDuration) / rainbowCycleDuration
-    pointLight.Color = Color3.fromHSV(hue, 1, 1)
-
-    -- Adjust brightness based on loudness:
-    local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
-    local brightnessAtZero = 0
-    local brightnessAtHalf = 0.3
-    local brightnessAtMax = 1.5
-    local brightness
-
-    if normalized < 0.5 then
-        brightness = brightnessAtZero + (normalized / 0.5) * (brightnessAtHalf - brightnessAtZero)
-    else
-        brightness = brightnessAtHalf + ((normalized - 0.5) / 0.5) * (brightnessAtMax - brightnessAtHalf)
-    end
-
-    pointLight.Brightness = brightness
-
-    -- === Wings Flapping ===
-    local speed = humanoid.WalkSpeed or 0
-    local moveDelta = (rootPart.Position - lastPos).Magnitude / dt
-    lastPos = rootPart.Position
-
-    local flapSpeed = flapSpeedBase + (speed / 10)
-    local flapAngle = math.sin(tick() * flapSpeed * math.pi * 2) * flapAmplitude
-
-    leftWing.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(-1.5, 0, 0) * CFrame.Angles(flapAngle, 0, 0)
-    rightWing.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(1.5, 0, 0) * CFrame.Angles(-flapAngle, 0, math.rad(180))
-
-    -- Spawn afterimages only if moving faster than threshold
-    if moveDelta > 0.1 then
-        afterimageTimer = afterimageTimer + dt
-        if afterimageTimer >= afterimageSpawnInterval then
-            afterimageTimer = 0
-            createAfterimage()
+    -- Spawn afterimages only when moving
+    if speed > 1 then
+        if tick() - lastAfterimageTime > afterimageSpawnInterval then
+            createAfterimage(leftWing)
+            createAfterimage(rightWing)
+            lastAfterimageTime = tick()
         end
     end
 end)
