@@ -5,7 +5,7 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local torso = character:WaitForChild("Torso")
 
-local segmentCount = 16 -- longer tail for smooth curve
+local segmentCount = 16 -- total tail parts
 
 -- Cleanup old parts
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
@@ -34,15 +34,15 @@ for i = 1, segmentCount do
     parts[i] = part
 end
 
--- Set sizes
+-- Tail segments 1-10: long thin segments
 for i = 1, 10 do
-    parts[i].Size = Vector3.new(basePartThickness, basePartThickness, basePartLength) -- tail segments
+    parts[i].Size = Vector3.new(basePartThickness, basePartThickness, basePartLength)
 end
 
+-- Square tip frame parts (11-14)
 local squareThickness = basePartThickness
 local squareLength = basePartLength * 1.2
 
--- Square tip frame parts (11-14)
 parts[11].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- top
 parts[12].Size = Vector3.new(squareThickness, squareThickness, squareLength)  -- right
 parts[13].Size = Vector3.new(squareLength, squareThickness, squareThickness)  -- bottom
@@ -59,8 +59,8 @@ local wobbleTime = 0
 RunService.Heartbeat:Connect(function(dt)
     wobbleTime = wobbleTime + dt * 5
 
-    -- Base position at torso back waist
-    local backWaistOffset = Vector3.new(0, -torso.Size.Y/2, torso.Size.Z/2)
+    -- Tail base at back waist of torso (note the -Z for back!)
+    local backWaistOffset = Vector3.new(0, -torso.Size.Y / 2, -torso.Size.Z / 2)
     local baseCFrame = torso.CFrame * CFrame.new(backWaistOffset)
 
     -- Tail segments 1-10, extend backward (-Z torso)
@@ -71,15 +71,8 @@ RunService.Heartbeat:Connect(function(dt)
         local localOffset = Vector3.new(swayX, swayY - 0.1 * i, offsetZ)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        -- The base orientation facing backward along -Z in torso space
+        -- Apply wobble rotation locally relative to torso rotation
         local wobbleRotation = CFrame.Angles(math.rad(swayY * 10), 0, math.rad(swayX * 20))
-
-        -- Compose final CFrame: position + torso rotation + wobble rotation
-        parts[i].CFrame = CFrame.new(worldPos) * baseCFrame - baseCFrame.Position * CFrame.new() * wobbleRotation
-
-        -- CORRECT WAY:
-        -- We want part's rotation to match torso rotation * wobbleRotation
-        -- So we do:
         parts[i].CFrame = CFrame.new(worldPos) * baseCFrame.Rotation * wobbleRotation
     end
 
