@@ -2,81 +2,91 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local torso = character:WaitForChild("Torso")
+local char = player.Character or player.CharacterAdded:Wait()
+local torso = char:WaitForChild("Torso")
 
--- Settings
-local tailLength = 4
+local tailParts = {}
+local segmentCount = 4
 local segmentLength = 1.5
-local tailOffset = Vector3.new(0, -0.5, 1.5) -- slightly lower and back
 
--- Cleanup old tail
-if character:FindFirstChild("DynamicTail") then
-	character.DynamicTail:Destroy()
-end
-
-local tailModel = Instance.new("Model")
-tailModel.Name = "DynamicTail"
-tailModel.Parent = character
-
--- Create segments
-local segments = {}
-local lastAttachment = Instance.new("Attachment")
-lastAttachment.Name = "RootAttachment"
-lastAttachment.Parent = torso
-lastAttachment.Position = tailOffset
-
-for i = 1, tailLength do
+-- Create Attachments + Constraints
+local function createSegment(index)
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.5, 0.5, segmentLength)
+	part.Size = Vector3.new(0.4, 0.4, segmentLength)
+	part.Material = Enum.Material.SmoothPlastic
 	part.Anchored = false
 	part.CanCollide = false
 	part.Massless = true
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromRGB(255 - (i * 30), 80 + i * 20, 255)
-	part.Name = "TailSegment" .. i
-	part.Parent = tailModel
+	part.Name = "TailSegment_" .. index
+	part.Color = Color3.new(0.2 + index * 0.2, 0.2, 1)
+	part.Parent = workspace
 
-	local att0 = Instance.new("Attachment")
-	att0.Position = Vector3.new(0, 0, -segmentLength/2)
-	att0.Parent = part
+	local att0 = Instance.new("Attachment", part)
+	att0.Name = "TailAttach0"
 
 	local att1 = Instance.new("Attachment")
-	att1.Position = Vector3.new(0, 0, segmentLength/2)
-	att1.Parent = part
+	att1.Name = "TailAttach1"
 
-	local constraint = Instance.new("BallSocketConstraint")
-	constraint.Attachment0 = lastAttachment
-	constraint.Attachment1 = att0
-	constraint.LimitsEnabled = true
-	constraint.TwistLimitsEnabled = true
-	constraint.UpperAngle = 25
-	constraint.TwistLowerAngle = -15
-	constraint.TwistUpperAngle = 15
-	constraint.Parent = part
+	local alignPos = Instance.new("AlignPosition")
+	alignPos.Attachment0 = att0
+	alignPos.Attachment1 = att1
+	alignPos.RigidityEnabled = false
+	alignPos.Responsiveness = 50
+	alignPos.MaxForce = 10000
+	alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+	alignPos.Parent = part
 
-	local align = Instance.new("AlignOrientation")
-	align.Attachment0 = att0
-	align.Attachment1 = lastAttachment
-	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
-	align.ReactionTorqueEnabled = true
-	align.Responsiveness = 5
-	align.MaxTorque = 5000
-	align.Parent = part
+	local alignOri = Instance.new("AlignOrientation")
+	alignOri.Attachment0 = att0
+	alignOri.Attachment1 = att1
+	alignOri.RigidityEnabled = false
+	alignOri.Responsiveness = 20
+	alignOri.MaxTorque = 10000
+	alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	alignOri.Parent = part
 
-	-- Position the part at initial spot
-	part.CFrame = torso.CFrame * CFrame.new(0, -0.5, 1.5 + segmentLength * (i - 1))
-
-	table.insert(segments, part)
-	lastAttachment = att1
+	return part, att0, att1
 end
 
--- Make it pitch up slightly over time
-RunService.RenderStepped:Connect(function()
-	for i, part in ipairs(segments) do
-		local offset = Vector3.new(0, 0.1 * i, 0) -- pitch upward
-		local base = torso.CFrame * CFrame.new(tailOffset + Vector3.new(0, 0, segmentLength * (i - 1)))
-		part.Velocity = torso.Velocity -- follow motion
-		part.CFrame = base + offset
+-- Create all tail segments
+for i = 1, segmentCount do
+	local part, att0, att1 = createSegment(i)
+	tailParts[i] = {
+		Part = part,
+		Attach0 = att0,
+		Attach1 = att1
+	}
+end
+
+-- Weld first segment to torso
+local baseAttachment = Instance.new("Attachment", torso)
+baseAttachment.Position = Vector3.new(0, -0.5, 1.5)
+
+tailParts[1].Attach1.Parent = torso
+tailParts[1].Attach1.Position = baseAttachment.Position
+tailParts[1].Attach0.Position = Vector3.new(0, 0, -segmentLength / 2)
+
+-- Chain the rest of the tail
+for i = 2, segmentCount do
+	local prev = tailParts[i - 1]
+	local current = tailParts[i]
+
+	current.Attach1.Parent = prev.Part
+	current.Attach1.Position = Vector3.new(0, 0, -segmentLength / 2)
+	current.Attach0.Position = Vector3.new(0, 0, -segmentLength / 2)
+end
+
+-- Tail dynamics: reacts to movement
+local lastTorsoCFrame = torso.CFrame
+RunService.RenderStepped:Connect(function(dt)
+	local velocity = (torso.Position - lastTorsoCFrame.Position) / dt
+	local speed = velocity.Magnitude
+
+	for i, segment in ipairs(tailParts) do
+		local flickFactor = math.sin(tick() * 4 + i) * (speed / 16) -- wobble from movement
+		local upwardCurve = CFrame.Angles(math.rad(5 + i * 5), 0, 0) -- pitch upward
+		segment.Attach0.CFrame = upwardCurve * CFrame.Angles(0, math.rad(flickFactor * 10), 0)
 	end
+
+	lastTorsoCFrame = torso.CFrame
 end)
