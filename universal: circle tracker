@@ -17,7 +17,7 @@ local BUILD_DELAY = 0.05
 
 -- Movement threshold and idle time
 local VELOCITY_THRESHOLD = 0.2
-local IDLE_TIME_REQUIRED = 5
+local IDLE_TIME_REQUIRED = 4  -- Changed to 4 seconds
 
 -- Cleanup old tail
 if character:FindFirstChild("DynamicTailModel") then
@@ -115,13 +115,13 @@ for i = 1, NUM_SEGMENTS do
 	alignOri.Parent = part
 end
 
--- Create spinning pastel cube at tail tip
+-- Create spinning pastel cube at tail tip AFTER tail build is complete
 
 local cube = Instance.new("Part")
 cube.Name = "TailTipCube"
 cube.Size = Vector3.new(1.5, 1.5, 1.5)
 cube.Material = Enum.Material.Neon
-cube.Anchored = false
+cube.Anchored = true -- Start anchored to spawn still
 cube.CanCollide = false       -- No collision
 cube.Massless = true
 cube.CastShadow = false
@@ -132,7 +132,7 @@ local tipAttach = Instance.new("Attachment", segments[#segments])
 tipAttach.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2)
 
 local cubeAttach = Instance.new("Attachment", cube)
-cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2 + 1) -- exactly 1 stud behind tip
+cubeAttach.Position = Vector3.new(0, 0, LENGTH_PER_SEGMENT / 2 + 1) -- 1 stud behind tip
 
 local alignPosCube = Instance.new("AlignPosition")
 alignPosCube.Attachment0 = cubeAttach
@@ -151,7 +151,7 @@ alignOriCube.Parent = cube
 
 -- Tail wobble parameters
 local wobbleSpeed = 2
-local wobbleMagnitude = 0.05
+local wobbleMagnitudeMax = 0.05
 local cubeWobbleSpeed = 4
 local cubeWobbleMagnitude = 0.12
 local cubeHue = 0
@@ -159,6 +159,10 @@ local cubeHue = 0
 -- Idle animation state variables
 local idleStartTime = nil
 local isIdle = false
+
+-- For smooth velocity and direction change tracking
+local lastVelocityVector = Vector3.new(0,0,0)
+local wobbleScale = 1 -- start at 1 for wobble on start
 
 -- Helper function: apply idle curling/helicoptering motions
 local function applyIdleMotion(time)
@@ -178,6 +182,8 @@ RunService.RenderStepped:Connect(function(dt)
 	if #segments == 0 then return end
 
 	local velocity = torso.Velocity.Magnitude
+	local velocityVector = (velocity > 0) and torso.Velocity.Unit or lastVelocityVector
+
 	local time = tick()
 
 	-- Detect idle vs moving
@@ -193,15 +199,26 @@ RunService.RenderStepped:Connect(function(dt)
 		isIdle = false
 	end
 
+	-- Calculate direction change amount for wobble scaling
+	local dirChange = 0
+	if velocity > 0 then
+		dirChange = math.acos(math.clamp(velocityVector:Dot(lastVelocityVector), -1, 1))
+	end
+	lastVelocityVector = velocityVector
+
+	-- Scale wobble based on direction change
+	local targetWobbleScale = math.clamp(1 - dirChange * 3, 0, 1)
+	wobbleScale = wobbleScale + (targetWobbleScale - wobbleScale) * math.min(dt * 5, 1)
+
 	if isIdle then
 		-- Idle tail animations (curling/helicoptering)
 		applyIdleMotion(time)
 	else
-		-- Normal tail wobble
+		-- Normal tail wobble, scaled by wobbleScale for smooth less violent movement on sudden changes
 		for i, part in ipairs(segments) do
 			local phase = time * wobbleSpeed + i
-			local swayX = math.sin(phase) * wobbleMagnitude * (velocity / 20)
-			local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
+			local swayX = math.sin(phase) * wobbleMagnitudeMax * (velocity / 20) * wobbleScale
+			local swayY = math.cos(phase * 1.5) * wobbleMagnitudeMax * (velocity / 20) * wobbleScale
 
 			local att0 = attachments[i][1]
 			att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
@@ -209,6 +226,11 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 
 	if cube then
+		-- Unanchor the cube now that it's aligned to attachments
+		if cube.Anchored then
+			cube.Anchored = false
+		end
+
 		-- Constant spin of cube (faster)
 		cube.CFrame = cube.CFrame * CFrame.Angles(0, math.rad(6), math.rad(4))
 
