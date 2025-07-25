@@ -2,33 +2,18 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local head = character:WaitForChild("Head")
 
--- Wait for character and necessary parts
-local function getCharacterParts()
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    local head = character:WaitForChild("Head")
-    return character, humanoidRootPart, head
-end
-
-local character, humanoidRootPart, head = getCharacterParts()
-
--- Re-fetch parts on respawn
-player.CharacterAdded:Connect(function(char)
-    character = char
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-    head = character:WaitForChild("Head")
-end)
-
--- Crown setup
 local segmentCount = 10
 local radius = 2
 local heightOffset = 3
 local basePartSize = Vector3.new(0.3, 0.5, 0.3)
+local soundDetectionRadius = 60
 local maxLoudnessExpected = 1000
 local maxPartHeight = 5
 
--- Create folder for crown parts
+-- Clear existing crown folder if any
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
 if crownFolder then
     crownFolder:Destroy()
@@ -37,9 +22,10 @@ crownFolder = Instance.new("Folder")
 crownFolder.Name = "VisualizerCrown"
 crownFolder.Parent = workspace
 
-local crownParts = {}
-local crownPartScales = {}
+local parts = {}
+local partScales = {}
 
+-- Your original crown parts creation code (unchanged)
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
@@ -50,63 +36,11 @@ for i = 1, segmentCount do
     part.Transparency = 0
     part.Name = "CrownPart"..i
     part.Parent = crownFolder
-    crownParts[i] = part
-    crownPartScales[i] = basePartSize.Y
+    parts[i] = part
+    partScales[i] = basePartSize.Y
 end
 
--- Pillars setup
-local pillarsFolder = workspace:FindFirstChild("FootPillars")
-if pillarsFolder then pillarsFolder:Destroy() end
-pillarsFolder = Instance.new("Folder", workspace)
-pillarsFolder.Name = "FootPillars"
-
-local pillarBaseSize = Vector3.new(0.2, 2, 0.2)
-local pillarSpawnInterval = 0.5
-local pillarLifetime = 10
-local lastPillarSpawn = 0
-local pillars = {}
-
--- Get all playing sounds from workspace, player GUI, and character
-local function getAllPlayingSounds()
-    local sounds = {}
-
-    local function addSoundsFrom(parent)
-        for _, obj in pairs(parent:GetDescendants()) do
-            if obj:IsA("Sound") and obj.IsPlaying then
-                table.insert(sounds, obj)
-            end
-        end
-    end
-
-    addSoundsFrom(workspace)
-    if player:FindFirstChild("PlayerGui") then
-        addSoundsFrom(player.PlayerGui)
-    end
-    if character then
-        addSoundsFrom(character)
-    end
-
-    return sounds
-end
-
--- Create a new pillar part at a position
-local function createPillar(position)
-    local pillar = Instance.new("Part")
-    pillar.Anchored = true
-    pillar.CanCollide = false
-    pillar.Material = Enum.Material.Neon
-    pillar.Color = Color3.fromHSV(math.random(), 0.6, 1) -- pastel rainbow
-    pillar.Size = pillarBaseSize
-    pillar.CFrame = CFrame.new(position.X, position.Y + pillarBaseSize.Y / 2, position.Z)
-    pillar.Parent = pillarsFolder
-
-    return {
-        part = pillar,
-        spawnTime = tick()
-    }
-end
-
--- Variables for crown wobble effect
+-- Variables for smooth tilt and wobble
 local prevTiltX, prevTiltZ = 0, 0
 local tiltSmoothing = 0.1
 local tiltIntensity = 0.1
@@ -120,14 +54,74 @@ local wobbleActive = false
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
-RunService.Heartbeat:Connect(function(dt)
-    -- Validate character parts
-    if not character or not character.Parent then
-        character, humanoidRootPart, head = getCharacterParts()
-        return
+-- Highlight vars
+local highlight = nil
+local highlightTime = 0
+local highlightDuration = 0.7  -- 0.2s fully visible + 0.5s fade out
+local highlightFullyVisibleTime = 0.2
+local rainbowCycleDuration = 0.5
+
+-- Create Highlight instance on avatar
+local function createHighlight()
+    if highlight then return end
+    highlight = Instance.new("Highlight")
+    highlight.Adornee = character
+    highlight.FillTransparency = 0
+    highlight.OutlineTransparency = 1
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+end
+
+local function removeHighlight()
+    if highlight then
+        highlight:Destroy()
+        highlight = nil
+    end
+end
+
+local function getSoundPosition(sound)
+    if sound.Parent:IsA("BasePart") then
+        return sound.Parent.Position
+    elseif sound.Parent:IsA("Model") then
+        if sound.Parent:FindFirstChild("HumanoidRootPart") then
+            return sound.Parent.HumanoidRootPart.Position
+        end
+        for _, descendant in pairs(sound.Parent:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                return descendant.Position
+            end
+        end
+    end
+    return head.Position
+end
+
+local function getNearbySounds()
+    local sounds = {}
+
+    for _, sound in pairs(workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.IsPlaying then
+            local pos = getSoundPosition(sound)
+            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
+                table.insert(sounds, sound)
+            end
+        end
     end
 
-    -- Crown visualizer update
+    local function addLocalSounds(root)
+        for _, sound in pairs(root:GetDescendants()) do
+            if sound:IsA("Sound") and sound.IsPlaying then
+                table.insert(sounds, sound)
+            end
+        end
+    end
+
+    addLocalSounds(player:WaitForChild("PlayerGui"))
+    addLocalSounds(character)
+
+    return sounds
+end
+
+RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
 
@@ -163,13 +157,11 @@ RunService.Heartbeat:Connect(function(dt)
     local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
-    local sounds = getAllPlayingSounds()
-    local totalLoudness = 0
-    for _, sound in pairs(sounds) do
-        totalLoudness = totalLoudness + (sound.PlaybackLoudness or 0)
-    end
+    local sounds = getNearbySounds()
 
-    for i, part in ipairs(crownParts) do
+    local highlightTriggeredThisFrame = false
+
+    for i, part in ipairs(parts) do
         local angle = (2 * math.pi / segmentCount) * i
         local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
@@ -185,58 +177,36 @@ RunService.Heartbeat:Connect(function(dt)
         local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
         local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
 
-        crownPartScales[i] = crownPartScales[i] + (targetHeight - crownPartScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, crownPartScales[i], basePartSize.Z)
+        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
+        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
 
-        part.Position = worldPos + Vector3.new(0, crownPartScales[i] / 2, 0)
+        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
         part.Orientation = Vector3.new(0, yawAngle, 0)
-    end
 
-    -- Pillars spawning and scaling
-    if humanoidRootPart.Velocity.Magnitude > 1 then
-        lastPillarSpawn = lastPillarSpawn + dt
-        if lastPillarSpawn >= pillarSpawnInterval then
-            lastPillarSpawn = 0
-
-            local footY = humanoidRootPart.Position.Y - 3
-            -- offsets for two pillars per foot
-            local leftFootOffsets = {Vector3.new(-0.5, footY, 0.5), Vector3.new(-0.7, footY, 0)}
-            local rightFootOffsets = {Vector3.new(0.5, footY, 0.5), Vector3.new(0.7, footY, 0)}
-
-            for _, offset in pairs(leftFootOffsets) do
-                table.insert(pillars, createPillar(humanoidRootPart.Position + offset))
-            end
-            for _, offset in pairs(rightFootOffsets) do
-                table.insert(pillars, createPillar(humanoidRootPart.Position + offset))
-            end
+        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
+            highlightTriggeredThisFrame = true
         end
     end
 
-    local normalizedLoudness = math.clamp(totalLoudness / maxLoudnessExpected, 0, 1)
-    local targetHeight = 2 + normalizedLoudness * 8 -- pillars height between 2 and 10
+    if highlightTriggeredThisFrame then
+        highlightTime = 0
+        createHighlight()
+    end
 
-    for i = #pillars, 1, -1 do
-        local data = pillars[i]
-        local part = data.part
-        local age = tick() - data.spawnTime
+    if highlight then
+        highlightTime = highlightTime + dt
+        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
+        highlight.FillColor = Color3.fromHSV(hue, 1, 1)
 
-        if age >= pillarLifetime or not part.Parent then
-            part:Destroy()
-            table.remove(pillars, i)
+        if highlightTime < highlightFullyVisibleTime then
+            highlight.FillTransparency = 0
+        elseif highlightTime < highlightDuration then
+            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
+            highlight.FillTransparency = fadeProgress
         else
-            local alpha = 1 - (age / pillarLifetime)
-            part.Transparency = 1 - (alpha * 0.8) -- fade out
-
-            -- Smooth height lerp to targetHeight
-            local currentSizeY = part.Size.Y
-            local newSizeY = currentSizeY + (targetHeight - currentSizeY) * dt * 10
-            part.Size = Vector3.new(pillarBaseSize.X, newSizeY, pillarBaseSize.Z)
-
-            -- Keep base at foot level
-            local pos = part.Position
-            part.CFrame = CFrame.new(pos.X, humanoidRootPart.Position.Y - 3 + newSizeY / 2, pos.Z)
+            removeHighlight()
         end
     end
 end)
