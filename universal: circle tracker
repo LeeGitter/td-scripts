@@ -4,113 +4,87 @@ local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
--- Wait for character and HRP properly
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
-
-local camera = Workspace.CurrentCamera
-
--- Visualizer config
 local NUM_PARTS = 10
-local RADIUS = 3
+local RADIUS = 1.5  -- smaller radius for crown size
 local MAX_HEIGHT = 5
 local BASE_HEIGHT = 0.5
-local SENSITIVITY = 0.03 -- less sensitive
+local SENSITIVITY = 0.015 -- less sensitive scaling
 
--- FOV + vignette config
-local BASE_FOV = 70
-local MAX_FOV_INCREASE = 6
-local BOP_DURATION = 0.2
-local VIGNETTE_INTENSITY_MAX = 0.25
+local FLOAT_HEIGHT = 2 -- studs above head
 
--- Create vignette and color correction effects
-local vignette = Instance.new("VignetteEffect")
-vignette.Parent = camera
-vignette.Enabled = true
-vignette.Intensity = 0
-
-local colorCorrection = Instance.new("ColorCorrectionEffect")
-colorCorrection.Parent = camera
-colorCorrection.Enabled = true
-colorCorrection.TintColor = Color3.new(1, 1, 1)
-
--- Create parts table
 local parts = {}
 
+-- Create parts once
 for i = 1, NUM_PARTS do
     local part = Instance.new("Part")
-    part.Name = "VisualizerPart"..i
+    part.Name = "VisualizerCrownPart"..i
     part.Anchored = true
     part.CanCollide = false
     part.Material = Enum.Material.Neon
-    part.Color = Color3.fromRGB(255, 0, 255) -- magenta start
-    part.Size = Vector3.new(0.3, BASE_HEIGHT, 0.3)
+    part.Color = Color3.fromRGB(255, 0, 255) -- start magenta
+    part.Size = Vector3.new(0.2, BASE_HEIGHT, 0.2) -- smaller parts for crown
     part.Parent = Workspace
     parts[i] = part
 end
 
-local timeSinceBop = math.huge
-local bopActive = false
-
-local function startBop()
-    if bopActive then return end
-    bopActive = true
-    timeSinceBop = 0
-end
+local lastHeadPos = nil
 
 RunService.RenderStepped:Connect(function(dt)
-    -- Confirm character and HRP (handle respawn)
-    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
-    character = player.Character
-    hrp = character.HumanoidRootPart
+    local character = player.Character
+    if not character then return end
 
-    local position = hrp.Position
+    local head = character:FindFirstChild("Head")
+    if not head then return end
 
-    -- Position parts in circle around player
+    local currentHeadPos = head.Position
+
+    -- Calculate head movement vector
+    local headMovement = Vector3.new(0,0,0)
+    if lastHeadPos then
+        headMovement = currentHeadPos - lastHeadPos
+    end
+    lastHeadPos = currentHeadPos
+
+    local crownCenter = currentHeadPos + Vector3.new(0, FLOAT_HEIGHT, 0)
+
+    -- Position parts in a circle around crownCenter
     for i, part in ipairs(parts) do
         local angle = (2 * math.pi / NUM_PARTS) * i
         local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * RADIUS
-        local partPos = position + offset
-        part.Position = Vector3.new(partPos.X, position.Y - (part.Size.Y / 2), partPos.Z)
-    end
 
-    -- Detect loudness near each part
-    local loudnessValues = {}
+        -- Apply opposite head movement scaled down for parallax effect
+        local parallaxOffset = -headMovement * 3
 
-    for i, part in ipairs(parts) do
+        local partPos = crownCenter + offset + parallaxOffset
+
+        -- Calculate height based on nearby sounds specific to this part
         local maxLoudness = 0
         for _, sound in ipairs(Workspace:GetDescendants()) do
             if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
-                local dist = (sound.Parent.Position - part.Position).Magnitude
+                local dist = (sound.Parent.Position - partPos).Magnitude
                 if dist <= 15 then
-                    maxLoudness = math.max(maxLoudness, sound.PlaybackLoudness or 0)
+                    local loud = sound.PlaybackLoudness or 0
+                    if loud > maxLoudness then
+                        maxLoudness = loud
+                    end
                 end
             end
         end
-        loudnessValues[i] = maxLoudness
-    end
 
-    -- Find highest loudness & index
-    local highestLoudness = 0
-    local highestIndex = 1
-    for i, loud in ipairs(loudnessValues) do
-        if loud > highestLoudness then
-            highestLoudness = loud
-            highestIndex = i
-        end
-    end
-
-    -- Update parts scale & color smoothly
-    for i, part in ipairs(parts) do
-        local targetHeight = BASE_HEIGHT + loudnessValues[i] * SENSITIVITY
+        -- Calculate height scaled and clamped
+        local targetHeight = BASE_HEIGHT + maxLoudness * SENSITIVITY
         targetHeight = math.clamp(targetHeight, BASE_HEIGHT, MAX_HEIGHT)
 
         local currentY = part.Size.Y
+        -- Smoothly interpolate size change
         local newY = currentY + (targetHeight - currentY) * 0.1
 
+        -- Update part size and position
         part.Size = Vector3.new(part.Size.X, newY, part.Size.Z)
-        part.Position = Vector3.new(part.Position.X, position.Y - (newY / 2), part.Position.Z)
+        -- Position Y so base of part is always FLOAT_HEIGHT above head, never sinking
+        part.Position = Vector3.new(partPos.X, crownCenter.Y - (BASE_HEIGHT/2) + (newY - BASE_HEIGHT)/2, partPos.Z)
 
+        -- Color: lerp from magenta to rainbow as it grows
         local t = (newY - BASE_HEIGHT) / (MAX_HEIGHT - BASE_HEIGHT)
         local randomColor = Color3.fromHSV(((i * 0.1) + tick()) % 1, 1, 1)
         part.Color = Color3.new(
@@ -118,31 +92,5 @@ RunService.RenderStepped:Connect(function(dt)
             0 * (1 - t) + randomColor.G * t,
             1 * (1 - t) + randomColor.B * t
         )
-    end
-
-    -- Trigger FOV + vignette bop if highest loudness part hits max height
-    if loudnessValues[highestIndex] * SENSITIVITY >= MAX_HEIGHT - BASE_HEIGHT then
-        startBop()
-    end
-
-    -- Handle bop effect
-    if bopActive then
-        timeSinceBop = timeSinceBop + dt
-        local progress = timeSinceBop / BOP_DURATION
-
-        if progress >= 1 then
-            bopActive = false
-            vignette.Intensity = 0
-            colorCorrection.TintColor = Color3.new(1, 1, 1)
-            camera.FieldOfView = BASE_FOV
-        else
-            local fovOffset = math.sin(progress * math.pi) * MAX_FOV_INCREASE
-            camera.FieldOfView = BASE_FOV + fovOffset
-
-            vignette.Intensity = math.sin(progress * math.pi) * VIGNETTE_INTENSITY_MAX
-
-            local hue = (tick() * 4) % 1
-            colorCorrection.TintColor = Color3.fromHSV(hue, 1, 1)
-        end
     end
 end)
