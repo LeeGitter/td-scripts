@@ -3,85 +3,202 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
 
--- Wing parameters
-local wingDistanceBack = 2       -- studs behind HumanoidRootPart
-local wingOffsetSide = 1.5       -- studs to side (left/right)
-local wingSize = Vector3.new(1, 2, 0.1) -- thin flat parts, like 2D wings
-local flapAmplitude = math.rad(20)  -- max flap angle in radians
-local flapSpeedMultiplier = 4        -- flap speed factor times movement speed
+local head = character:WaitForChild("Head")
 
--- Create wing parts
-local leftWing = Instance.new("Part")
-leftWing.Size = wingSize
-leftWing.Anchored = true
-leftWing.CanCollide = false
-leftWing.Material = Enum.Material.Neon
-leftWing.Color = Color3.fromRGB(255, 255, 255)
-leftWing.Name = "LeftWing"
-leftWing.Transparency = 0.3
-leftWing.Parent = workspace
+local segmentCount = 10
+local radius = 2
+local heightOffset = 3
+local basePartSize = Vector3.new(0.3, 0.5, 0.3)
+local soundDetectionRadius = 60
+local maxLoudnessExpected = 1000
+local maxPartHeight = 5
 
-local rightWing = Instance.new("Part")
-rightWing.Size = wingSize
-rightWing.Anchored = true
-rightWing.CanCollide = false
-rightWing.Material = Enum.Material.Neon
-rightWing.Color = Color3.fromRGB(255, 255, 255)
-rightWing.Name = "RightWing"
-rightWing.Transparency = 0.3
-rightWing.Parent = workspace
+-- Clear existing crown folder if any
+local crownFolder = workspace:FindFirstChild("VisualizerCrown")
+if crownFolder then
+    crownFolder:Destroy()
+end
+crownFolder = Instance.new("Folder")
+crownFolder.Name = "VisualizerCrown"
+crownFolder.Parent = workspace
 
--- Utility to get movement speed magnitude
-local function getSpeed()
-    local velocity = hrp.Velocity
-    velocity = Vector3.new(velocity.X, 0, velocity.Z) -- horizontal only
-    return velocity.Magnitude
+local parts = {}
+local partScales = {}
+
+for i = 1, segmentCount do
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = basePartSize
+    part.Material = Enum.Material.Neon
+    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
+    part.Transparency = 0
+    part.Name = "CrownPart"..i
+    part.Parent = crownFolder
+    parts[i] = part
+    partScales[i] = basePartSize.Y
 end
 
-local timeElapsed = 0
+-- Variables for smooth tilt and wobble
+local prevTiltX, prevTiltZ = 0, 0
+local tiltSmoothing = 0.1
+local tiltIntensity = 0.1
 
-RunService.RenderStepped:Connect(function(dt)
-    if not hrp or not humanoid or humanoid.Health <= 0 then
-        leftWing.Transparency = 1
-        rightWing.Transparency = 1
-        return
+-- Wobble parameters
+local wobbleDuration = 0.5
+local wobbleTime = 0
+local wobbleAmplitudePos = 0.2
+local wobbleAmplitudeRot = 0.09
+local wobbleActive = false
+
+local lastPitch, lastRoll = 0, 0
+local wobbleTriggerThreshold = 0.05
+
+-- Highlight variables
+local highlight = nil
+local rainbowCycleDuration = 0.5 -- how fast colors cycle
+
+local function getSoundPosition(sound)
+    if sound.Parent:IsA("BasePart") then
+        return sound.Parent.Position
+    elseif sound.Parent:IsA("Model") then
+        if sound.Parent:FindFirstChild("HumanoidRootPart") then
+            return sound.Parent.HumanoidRootPart.Position
+        end
+        for _, descendant in pairs(sound.Parent:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                return descendant.Position
+            end
+        end
+    end
+    return head.Position
+end
+
+local function getNearbySounds()
+    local sounds = {}
+
+    for _, sound in pairs(workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.IsPlaying then
+            local pos = getSoundPosition(sound)
+            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
+                table.insert(sounds, sound)
+            end
+        end
     end
 
-    timeElapsed = timeElapsed + dt
+    local function addLocalSounds(root)
+        for _, sound in pairs(root:GetDescendants()) do
+            if sound:IsA("Sound") and sound.IsPlaying then
+                table.insert(sounds, sound)
+            end
+        end
+    end
 
-    local speed = getSpeed()
-    local flapSpeed = speed * flapSpeedMultiplier
-    local flapAngle = math.sin(timeElapsed * flapSpeed) * flapAmplitude
+    addLocalSounds(player:WaitForChild("PlayerGui"))
+    addLocalSounds(character)
 
-    -- Position base: behind the HumanoidRootPart
-    local hrpCFrame = hrp.CFrame
-    local basePos = hrpCFrame.Position - hrpCFrame.LookVector * wingDistanceBack
+    return sounds
+end
 
-    -- Left wing position and orientation
-    local leftOffset = hrpCFrame.RightVector * -wingOffsetSide
-    local leftPos = basePos + leftOffset + Vector3.new(0, 1, 0)  -- slightly up
-    leftWing.CFrame = CFrame.new(leftPos) 
-        * CFrame.Angles(0, 0, flapAngle)  -- flap rotation around Z-axis (like wing flapping)
-        * CFrame.new(0, 0, 0)  -- no offset needed here
+local function createHighlight()
+    if highlight then return end
+    highlight = Instance.new("SelectionBox")
+    highlight.Adornee = character
+    highlight.Parent = character
+    highlight.LineThickness = 0.05
+    highlight.Transparency = 1  -- start fully transparent (invisible)
+    highlight.Color3 = Color3.new(1,1,1)
+    highlight.SurfaceTransparency = 0.8
+end
 
-    -- Right wing position and orientation
-    local rightOffset = hrpCFrame.RightVector * wingOffsetSide
-    local rightPos = basePos + rightOffset + Vector3.new(0, 1, 0)
-    rightWing.CFrame = CFrame.new(rightPos) 
-        * CFrame.Angles(0, 0, -flapAngle)
-        * CFrame.new(0, 0, 0)
+local function removeHighlight()
+    if highlight then
+        highlight:Destroy()
+        highlight = nil
+    end
+end
 
-    -- Make sure wings are visible
-    leftWing.Transparency = 0.3
-    rightWing.Transparency = 0.3
-end)
+createHighlight()
 
--- Cleanup wings on character respawn
-player.CharacterAdded:Connect(function(char)
-    character = char
-    hrp = character:WaitForChild("HumanoidRootPart")
-    humanoid = character:WaitForChild("Humanoid")
+RunService.Heartbeat:Connect(function(dt)
+    local headCFrame = head.CFrame
+    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+
+    -- Detect significant head tilt change to trigger wobble
+    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
+        wobbleActive = true
+        wobbleTime = 0
+    end
+    lastPitch = pitch
+    lastRoll = roll
+
+    -- Smooth tilt targets (invert to tilt opposite direction)
+    local targetTiltX = -pitch * tiltIntensity
+    local targetTiltZ = -roll * tiltIntensity
+    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
+    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
+
+    -- Wobble progress [0 to 1]
+    if wobbleActive then
+        wobbleTime = wobbleTime + dt
+        if wobbleTime > wobbleDuration then
+            wobbleActive = false
+            wobbleTime = wobbleDuration
+        end
+    end
+
+    local wobbleProgress = wobbleTime / wobbleDuration
+
+    local wobblePosOffset = 0
+    local wobbleRotOffset = 0
+    if wobbleActive then
+        local decay = 1 - wobbleProgress
+        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
+        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
+    end
+
+    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
+    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
+
+    local sounds = getNearbySounds()
+
+    -- Find the loudest sound's loudness this frame (0 to maxLoudnessExpected)
+    local maxLoudness = 0
+    for _, sound in ipairs(sounds) do
+        local loudness = sound.PlaybackLoudness or 0
+        if loudness > maxLoudness then
+            maxLoudness = loudness
+        end
+    end
+
+    for i, part in ipairs(parts) do
+        local angle = (2 * math.pi / segmentCount) * i
+        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
+
+        local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
+        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
+
+        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
+        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
+
+        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
+
+        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
+        part.Orientation = Vector3.new(0, yawAngle, 0)
+    end
+
+    -- Update highlight color cycling (rainbow)
+    if highlight then
+        local highlightTime = tick() % rainbowCycleDuration
+        local hue = highlightTime / rainbowCycleDuration
+        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
+
+        -- Set transparency based on loudness (more loud => less transparent)
+        local minTransparency = 0.1  -- how visible highlight can get at max loudness
+        local maxTransparency = 1.0  -- fully invisible at zero loudness
+        local transparency = maxTransparency - (normalized * (maxTransparency - minTransparency))
+        highlight.Transparency = transparency
+    end
 end)
