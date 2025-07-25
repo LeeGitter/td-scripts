@@ -1,11 +1,14 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-
+local humanoid = character:WaitForChild("Humanoid")
 local head = character:WaitForChild("Head")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 
+-- Crown setup (unchanged from your last script)
 local segmentCount = 10
 local radius = 2
 local heightOffset = 3
@@ -40,31 +43,29 @@ for i = 1, segmentCount do
     partScales[i] = basePartSize.Y
 end
 
--- Variables for smooth tilt and wobble
+-- Crown wobble vars
 local prevTiltX, prevTiltZ = 0, 0
 local tiltSmoothing = 0.1
 local tiltIntensity = 0.1
-
--- Wobble parameters
 local wobbleDuration = 0.5
 local wobbleTime = 0
 local wobbleAmplitudePos = 0.2
 local wobbleAmplitudeRot = 0.09
 local wobbleActive = false
-
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Create the PointLight attached to the head
+-- PointLight setup
 local pointLight = Instance.new("PointLight")
 pointLight.Parent = head
 pointLight.Range = 15
 pointLight.Brightness = 0
 pointLight.Shadows = false
-pointLight.Color = Color3.new(1, 1, 1) -- will override with rainbow colors
+pointLight.Color = Color3.new(1, 1, 1)
 
-local rainbowCycleDuration = 0.05 -- Very fast rainbow cycle
+local rainbowCycleDuration = 0.05 -- fast rainbow cycling
 
+-- Sound helpers
 local function getSoundPosition(sound)
     if sound.Parent:IsA("BasePart") then
         return sound.Parent.Position
@@ -106,6 +107,138 @@ local function getNearbySounds()
 
     return sounds
 end
+
+-- === Wings Setup ===
+local wingAssetId = 75171109405668
+
+local function loadWing()
+    local success, model = pcall(function()
+        return game:GetService("InsertService"):LoadAsset(wingAssetId)
+    end)
+    if success and model then
+        local wing = model:FindFirstChildOfClass("Model") or model:FindFirstChildWhichIsA("BasePart") or model:GetChildren()[1]
+        if wing then
+            wing.Parent = nil
+            model:Destroy()
+            return wing
+        end
+    end
+    return nil
+end
+
+local leftWing = loadWing()
+if not leftWing then
+    warn("Failed to load wing asset.")
+    return
+end
+leftWing.Parent = character
+leftWing.Name = "LeftWing"
+
+-- Position & weld left wing to HumanoidRootPart
+leftWing:SetPrimaryPartCFrame(rootPart.CFrame * CFrame.new(-1.5, 0, 0))
+local weldLeft = Instance.new("WeldConstraint")
+weldLeft.Part0 = rootPart
+weldLeft.Part1 = leftWing.PrimaryPart
+weldLeft.Parent = leftWing.PrimaryPart
+
+-- Clone for right wing, flip on X axis
+local rightWing = leftWing:Clone()
+rightWing.Name = "RightWing"
+rightWing.Parent = character
+
+-- Flip right wing by scaling X to -1
+for _, part in pairs(rightWing:GetDescendants()) do
+    if part:IsA("BasePart") then
+        part.Transparency = 0 -- make sure visible
+        part.Material = Enum.Material.Neon -- nice glowing look (optional)
+    end
+end
+local function flipWingModel(model)
+    local primary = model.PrimaryPart
+    if not primary then return end
+    model:SetPrimaryPartCFrame(primary.CFrame * CFrame.new(0,0,0))
+    for _, part in pairs(model:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CFrame = part.CFrame * CFrame.new(0,0,0)
+            local size = part.Size
+            part.Size = Vector3.new(-size.X, size.Y, size.Z)
+            -- Negative size breaks physics so instead scale mesh or use negative scale on PrimaryPart
+            -- We'll instead just flip the PrimaryPart's CFrame relative to root, and flip parts visually below
+        end
+    end
+    -- Instead, do this:
+    model.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(1.5, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
+end
+flipWingModel(rightWing)
+
+local weldRight = Instance.new("WeldConstraint")
+weldRight.Part0 = rootPart
+weldRight.Part1 = rightWing.PrimaryPart
+weldRight.Parent = rightWing.PrimaryPart
+
+-- Flapping vars
+local flapAmplitude = math.rad(15)
+local flapSpeedBase = 2
+
+-- Afterimages container
+local afterimagesFolder = Instance.new("Folder")
+afterimagesFolder.Name = "WingAfterimages"
+afterimagesFolder.Parent = workspace
+
+-- Afterimage parameters
+local afterimageFadeTime = 0.8
+local afterimageSpawnInterval = 0.07
+local afterimageTimer = 0
+
+-- Function to create afterimage of wings (rainbow tint)
+local function createAfterimage()
+    for _, wing in pairs({leftWing, rightWing}) do
+        local clone = wing:Clone()
+        clone.Parent = afterimagesFolder
+        -- Remove any welds or constraints in clone so it can sit still
+        for _, c in pairs(clone:GetDescendants()) do
+            if c:IsA("WeldConstraint") or c:IsA("Weld") or c:IsA("Motor6D") then
+                c:Destroy()
+            end
+        end
+
+        -- Position clone exactly where the wing is
+        clone:SetPrimaryPartCFrame(wing.PrimaryPart.CFrame)
+
+        -- Make all parts Neon and fully transparent initially
+        for _, part in pairs(clone:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Material = Enum.Material.Neon
+                part.Transparency = 0
+                part.Color = Color3.fromHSV(tick() % 1, 1, 1) -- rainbow base color
+            end
+        end
+
+        -- Tween fade out
+        local startTime = tick()
+        coroutine.wrap(function()
+            while true do
+                local elapsed = tick() - startTime
+                local alpha = elapsed / afterimageFadeTime
+                if alpha >= 1 then
+                    clone:Destroy()
+                    break
+                end
+                local hue = (tick() * 5) % 1 -- cycle rainbow fast
+                for _, part in pairs(clone:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Transparency = alpha
+                        part.Color = Color3.fromHSV(hue, 1, 1)
+                    end
+                end
+                wait(0.03)
+            end
+        end)()
+    end
+end
+
+-- Track last position to detect movement speed
+local lastPos = rootPart.Position
 
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
@@ -180,24 +313,37 @@ RunService.Heartbeat:Connect(function(dt)
     pointLight.Color = Color3.fromHSV(hue, 1, 1)
 
     -- Adjust brightness based on loudness:
-    -- At zero loudness: brightness = 0 (off)
-    -- At half loudness: brightness = 0.3 (barely visible)
-    -- At max loudness: brightness = 1.5 (bright)
     local normalized = math.clamp(maxLoudness / maxLoudnessExpected, 0, 1)
-
     local brightnessAtZero = 0
     local brightnessAtHalf = 0.3
     local brightnessAtMax = 1.5
-
     local brightness
 
     if normalized < 0.5 then
-        -- interpolate between brightnessAtZero and brightnessAtHalf
         brightness = brightnessAtZero + (normalized / 0.5) * (brightnessAtHalf - brightnessAtZero)
     else
-        -- interpolate between brightnessAtHalf and brightnessAtMax
         brightness = brightnessAtHalf + ((normalized - 0.5) / 0.5) * (brightnessAtMax - brightnessAtHalf)
     end
 
     pointLight.Brightness = brightness
+
+    -- === Wings Flapping ===
+    local speed = humanoid.WalkSpeed or 0
+    local moveDelta = (rootPart.Position - lastPos).Magnitude / dt
+    lastPos = rootPart.Position
+
+    local flapSpeed = flapSpeedBase + (speed / 10)
+    local flapAngle = math.sin(tick() * flapSpeed * math.pi * 2) * flapAmplitude
+
+    leftWing.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(-1.5, 0, 0) * CFrame.Angles(flapAngle, 0, 0)
+    rightWing.PrimaryPart.CFrame = rootPart.CFrame * CFrame.new(1.5, 0, 0) * CFrame.Angles(-flapAngle, 0, math.rad(180))
+
+    -- Spawn afterimages only if moving faster than threshold
+    if moveDelta > 0.1 then
+        afterimageTimer = afterimageTimer + dt
+        if afterimageTimer >= afterimageSpawnInterval then
+            afterimageTimer = 0
+            createAfterimage()
+        end
+    end
 end)
