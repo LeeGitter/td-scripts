@@ -1,108 +1,175 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
-local head = char:WaitForChild("Head")
+local character = player.Character or player.CharacterAdded:Wait()
+local head = character:WaitForChild("Head")
 
--- Settings
-local CROWN_RADIUS = 3
-local HEIGHT_ABOVE_HEAD = 0.5
-local NUM_PARTS = 12
-local DETECTION_RADIUS = 50
-local SCALE_MULTIPLIER = 4
-local DECAY_RATE = 0.1
-local VISUALIZER_LIFETIME = 10
+local segmentCount = 10
+local radius = 2
+local heightOffset = 3
+local basePartSize = Vector3.new(0.3, 0.5, 0.3)
+local soundDetectionRadius = 60
+local maxLoudnessExpected = 1000
 
--- Data
-local visualizerParts = {}
-local partTimers = {}
+-- Clear existing crown folder if any
+local crownFolder = workspace:FindFirstChild("VisualizerCrown")
+if crownFolder then
+    crownFolder:Destroy()
+end
+crownFolder = Instance.new("Folder")
+crownFolder.Name = "VisualizerCrown"
+crownFolder.Parent = workspace
 
--- Utility
-local function createVisualizerPart(index)
-	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.25, 1, 0.25)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(index / NUM_PARTS, 1, 1)
-	part.Name = "VisualizerPart_" .. index
-	part.Parent = workspace
-	visualizerParts[index] = {
-		Part = part,
-		Scale = 1,
-		Sound = nil,
-	}
-	partTimers[index] = tick()
+local parts = {}
+local partScales = {}
+
+for i = 1, segmentCount do
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = basePartSize
+    part.Material = Enum.Material.Neon
+    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
+    part.Transparency = 0
+    part.Name = "CrownPart"..i
+    part.Parent = crownFolder
+    parts[i] = part
+    partScales[i] = basePartSize.Y
 end
 
--- Create crown
-for i = 1, NUM_PARTS do
-	createVisualizerPart(i)
+-- Variables for smooth tilt and wobble
+local prevTiltX, prevTiltZ = 0, 0
+local tiltSmoothing = 0.1
+local tiltIntensity = 0.1
+
+-- Wobble parameters (increased amplitudes)
+local wobbleDuration = 0.5
+local wobbleTime = 0
+local wobbleAmplitudePos = 0.2  -- studs side to side
+local wobbleAmplitudeRot = 0.09 -- radians tilt
+local wobbleActive = false
+
+local lastPitch, lastRoll = 0, 0
+local wobbleTriggerThreshold = 0.05 -- radians difference to trigger wobble
+
+-- Helper to get position of a sound source
+local function getSoundPosition(sound)
+    if sound.Parent:IsA("BasePart") then
+        return sound.Parent.Position
+    elseif sound.Parent:IsA("Model") then
+        if sound.Parent:FindFirstChild("HumanoidRootPart") then
+            return sound.Parent.HumanoidRootPart.Position
+        end
+        for _, descendant in pairs(sound.Parent:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                return descendant.Position
+            end
+        end
+    end
+    return head.Position
 end
 
--- Find nearby sounds
+-- Get all nearby sounds within detection radius
 local function getNearbySounds()
-	local sounds = {}
-	for _, sound in ipairs(workspace:GetDescendants()) do
-		if sound:IsA("Sound") and sound.IsPlaying and (sound.Position - hrp.Position).Magnitude <= DETECTION_RADIUS then
-			table.insert(sounds, sound)
-		end
-	end
-	return sounds
+    local sounds = {}
+
+    for _, sound in pairs(workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.IsPlaying then
+            local pos = getSoundPosition(sound)
+            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
+                table.insert(sounds, sound)
+            end
+        end
+    end
+
+    local function addLocalSounds(root)
+        for _, sound in pairs(root:GetDescendants()) do
+            if sound:IsA("Sound") and sound.IsPlaying then
+                table.insert(sounds, sound)
+            end
+        end
+    end
+
+    addLocalSounds(player:WaitForChild("PlayerGui"))
+    addLocalSounds(character)
+
+    return sounds
 end
 
--- Main update loop
-RunService.RenderStepped:Connect(function(dt)
-	local nearbySounds = getNearbySounds()
+RunService.Heartbeat:Connect(function(dt)
+    local headCFrame = head.CFrame
+    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
 
-	-- Tilt angle based on head movement (inverted)
-	local tiltX = -math.clamp(head.RotVelocity.X, -1, 1)
-	local tiltZ = -math.clamp(head.RotVelocity.Z, -1, 1)
+    -- Detect significant head tilt change to trigger wobble
+    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
+        wobbleActive = true
+        wobbleTime = 0
+    end
+    lastPitch = pitch
+    lastRoll = roll
 
-	for i = 1, NUM_PARTS do
-		local visual = visualizerParts[i]
-		local part = visual.Part
+    -- Smooth tilt targets (invert to tilt opposite direction)
+    local targetTiltX = -pitch * tiltIntensity
+    local targetTiltZ = -roll * tiltIntensity
+    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
+    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
 
-		local angle = (i / NUM_PARTS) * math.pi * 2
-		local offsetX = math.cos(angle + tiltX) * CROWN_RADIUS
-		local offsetZ = math.sin(angle + tiltZ) * CROWN_RADIUS
-		local offsetY = HEIGHT_ABOVE_HEAD
+    -- Wobble progress [0 to 1]
+    if wobbleActive then
+        wobbleTime = wobbleTime + dt
+        if wobbleTime > wobbleDuration then
+            wobbleActive = false
+            wobbleTime = wobbleDuration
+        end
+    end
 
-		local position = head.Position + Vector3.new(offsetX, offsetY, offsetZ)
-		part.Position = position
+    local wobbleProgress = wobbleTime / wobbleDuration
 
-		-- Track a sound for this visualizer part
-		local sound = nearbySounds[i % #nearbySounds + 1]
-		visual.Sound = sound
+    -- Calculate wobble offsets (side to side position + small rotation)
+    local wobblePosOffset = 0
+    local wobbleRotOffset = 0
+    if wobbleActive then
+        -- Use sine wave for smooth oscillation, decaying amplitude
+        local decay = 1 - wobbleProgress
+        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
+        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
+    end
 
-		-- Scale height based on loudness
-		local targetScale = 1
-		if sound then
-			targetScale = 1 + (sound.PlaybackLoudness / 300) * SCALE_MULTIPLIER
-			part.Color = Color3.fromHSV(i / NUM_PARTS, 1, 1):Lerp(Color3.new(1, 1, 1), math.clamp(targetScale / 6, 0, 1))
-			partTimers[i] = tick()
-		end
+    -- Compose rotation CFrame with wobble rotation around Z axis (roll)
+    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
 
-		-- Smooth scaling
-		visual.Scale = visual.Scale + (targetScale - visual.Scale) * 0.1
-		part.Size = Vector3.new(0.25, visual.Scale, 0.25)
+    -- Base CFrame is head + height offset + wobble position offset on X axis
+    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
 
-		-- Align base of part to crown level
-		part.CFrame = CFrame.new(part.Position) * CFrame.new(0, visual.Scale / 2, 0)
-	end
+    -- Get sounds for visualization
+    local sounds = getNearbySounds()
 
-	-- Despawn old parts
-	for i, t in pairs(partTimers) do
-		if tick() - t > VISUALIZER_LIFETIME then
-			local v = visualizerParts[i]
-			if v and v.Part then
-				v.Part:Destroy()
-			end
-			visualizerParts[i] = nil
-			partTimers[i] = nil
-		end
-	end
+    for i, part in ipairs(parts) do
+        local angle = (2 * math.pi / segmentCount) * i
+        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
+
+        -- Visualize sound loudness per segment
+        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
+        local sound = soundIndex and sounds[soundIndex] or nil
+
+        local loudness = 0
+        if sound then
+            loudness = sound.PlaybackLoudness or 0
+        end
+
+        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
+        local targetHeight = 0.5 + normalized * (5 - 0.5) -- min 0.5 studs, max 5 studs
+
+        -- Smoothly scale part height
+        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
+        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
+
+        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
+
+        -- Rotate part to face outward on the circle
+        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
+        part.Orientation = Vector3.new(0, yawAngle, 0)
+    end
 end)
