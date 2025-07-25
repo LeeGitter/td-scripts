@@ -3,17 +3,11 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local head = character:WaitForChild("Head")
+local torso = character:WaitForChild("Torso") -- R6 torso part
 
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local soundDetectionRadius = 60
-local maxLoudnessExpected = 1000
-local maxPartHeight = 5
+local segmentCount = 11
 
--- Clear existing crown folder if any
+-- Clear existing VisualizerCrown folder if any
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
 if crownFolder then
     crownFolder:Destroy()
@@ -25,188 +19,88 @@ crownFolder.Parent = workspace
 local parts = {}
 local partScales = {}
 
--- Your original crown parts creation code (unchanged)
+local basePartThickness = 0.25
+local basePartLength = 1.5
+
+-- Create 11 tail parts
 for i = 1, segmentCount do
     local part = Instance.new("Part")
     part.Anchored = true
     part.CanCollide = false
-    part.Size = basePartSize
     part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
     part.Transparency = 0
-    part.Name = "CrownPart"..i
+    part.Name = "TailPart" .. i
+    part.Color = Color3.fromHSV(i / segmentCount, 1, 1) -- rainbow colors (optional)
     part.Parent = crownFolder
     parts[i] = part
-    partScales[i] = basePartSize.Y
+    partScales[i] = basePartLength
 end
 
--- Variables for smooth tilt and wobble
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
+-- Configure sizes:
+-- Parts 1-3: Long thin tail segments (bendable)
+for i = 1, 3 do
+    parts[i].Size = Vector3.new(basePartThickness, basePartThickness, basePartLength)
+end
 
-local wobbleDuration = 0.5
+-- Parts 4-7: Hollow square at tail end, made of 4 parts forming the square frame
+-- We'll make thin rectangular parts positioned to form a square outline
+local squareThickness = basePartThickness
+local squareLength = basePartLength
+
+-- We'll reuse parts 4,5,6,7 for square frame:
+parts[4].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- top side
+parts[5].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- right side
+parts[6].Size = Vector3.new(squareLength, squareThickness, squareThickness) -- bottom side
+parts[7].Size = Vector3.new(squareThickness, squareThickness, squareLength) -- left side
+
+-- Parts 8-10: Crossing parts through tail near the square
+for i = 8, 10 do
+    parts[i].Size = Vector3.new(squareThickness * 0.5, squareThickness * 0.5, squareLength * 0.9)
+    parts[i].Color = Color3.new(1, 0, 0) -- optional red for contrast
+end
+
+-- Part 11: Final extra part, thin and small, place near square
+parts[11].Size = Vector3.new(squareThickness * 0.3, squareThickness * 0.3, squareLength * 0.6)
+parts[11].Color = Color3.new(0, 1, 0) -- optional green
+
+-- Variables for wobble
 local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
-
--- Highlight vars
-local highlight = nil
-local highlightTime = 0
-local highlightDuration = 0.7  -- 0.2s fully visible + 0.5s fade out
-local highlightFullyVisibleTime = 0.2
-local rainbowCycleDuration = 0.5
-
--- Create Highlight instance on avatar
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("Highlight")
-    highlight.Adornee = character
-    highlight.FillTransparency = 0
-    highlight.OutlineTransparency = 1
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Parent = character
-end
-
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
-end
-
-local function getSoundPosition(sound)
-    if sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent:IsA("Model") then
-        if sound.Parent:FindFirstChild("HumanoidRootPart") then
-            return sound.Parent.HumanoidRootPart.Position
-        end
-        for _, descendant in pairs(sound.Parent:GetDescendants()) do
-            if descendant:IsA("BasePart") then
-                return descendant.Position
-            end
-        end
-    end
-    return head.Position
-end
-
-local function getNearbySounds()
-    local sounds = {}
-
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    local function addLocalSounds(root)
-        for _, sound in pairs(root:GetDescendants()) do
-            if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    addLocalSounds(player:WaitForChild("PlayerGui"))
-    addLocalSounds(character)
-
-    return sounds
-end
 
 RunService.Heartbeat:Connect(function(dt)
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+    wobbleTime = wobbleTime + dt * 5 -- speed of wobble
 
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch = pitch
-    lastRoll = roll
+    local basePos = torso.Position - Vector3.new(0, 1.5, 0) -- start just below torso
 
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
+    -- Tail segments 1-3: stacked and wobbling
+    for i = 1, 3 do
+        local offsetZ = -basePartLength * (i - 1)
+        -- Sway side to side with sine wave and index to make slight phase differences
+        local swayX = math.sin(wobbleTime + i) * 0.15
+        local swayY = math.cos(wobbleTime * 1.5 + i) * 0.05
+        local pos = basePos + Vector3.new(swayX, swayY - 0.1 * i, offsetZ)
 
-    if wobbleActive then
-        wobbleTime = wobbleTime + dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
-        end
+        -- Orient the tail parts to point along negative Z (away from torso)
+        parts[i].CFrame = CFrame.new(pos) * CFrame.Angles(math.rad(swayY * 10), 0, math.rad(swayX * 20))
     end
 
-    local wobbleProgress = wobbleTime / wobbleDuration
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
+    -- Position the square parts (4-7) forming hollow square frame at tail end
+    local squareCenter = parts[3].Position + Vector3.new(0, -0.1, -basePartLength)
+    local halfLen = squareLength / 2
 
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
+    -- Top side (4): offset +X
+    parts[4].CFrame = CFrame.new(squareCenter + Vector3.new(halfLen, 0, 0)) * CFrame.Angles(0, 0, 0)
+    -- Right side (5): offset +Z and rotated 90deg Y
+    parts[5].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0, halfLen)) * CFrame.Angles(0, math.rad(90), 0)
+    -- Bottom side (6): offset -X
+    parts[6].CFrame = CFrame.new(squareCenter + Vector3.new(-halfLen, 0, 0)) * CFrame.Angles(0, 0, 0)
+    -- Left side (7): offset -Z and rotated 90deg Y
+    parts[7].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0, -halfLen)) * CFrame.Angles(0, math.rad(90), 0)
 
-    local sounds = getNearbySounds()
+    -- Crossing parts (8-10) intersect near the square center with rotations for crossing effect
+    parts[8].CFrame = CFrame.new(squareCenter) * CFrame.Angles(math.rad(45), 0, 0)
+    parts[9].CFrame = CFrame.new(squareCenter) * CFrame.Angles(math.rad(-45), 0, 0)
+    parts[10].CFrame = CFrame.new(squareCenter) * CFrame.Angles(0, math.rad(45), 0)
 
-    local highlightTriggeredThisFrame = false
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
-        local sound = soundIndex and sounds[soundIndex] or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
-        end
-
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-
-        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
-            highlightTriggeredThisFrame = true
-        end
-    end
-
-    if highlightTriggeredThisFrame then
-        highlightTime = 0
-        createHighlight()
-    end
-
-    if highlight then
-        highlightTime = highlightTime + dt
-        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
-        highlight.FillColor = Color3.fromHSV(hue, 1, 1)
-
-        if highlightTime < highlightFullyVisibleTime then
-            highlight.FillTransparency = 0
-        elseif highlightTime < highlightDuration then
-            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.FillTransparency = fadeProgress
-        else
-            removeHighlight()
-        end
-    end
+    -- Last part (11) near the square center with slight offset and rotation
+    parts[11].CFrame = CFrame.new(squareCenter + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(30))
 end)
