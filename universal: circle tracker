@@ -7,211 +7,74 @@ local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
 
--- Config
-local NUM_PARTS = 10
-local ORBIT_RADIUS = 3 -- smaller circle radius
-local BASE_SIZE = Vector3.new(0.4, 0.5, 0.4)
-local MAX_HEIGHT = 5
-local SCALE_MULTIPLIER = 0.03
-local ORBIT_SPEED = math.rad(90)
-local FLOOR_Y_OFFSET = 2
-local HORIZONTAL_GAP = 0.05
-local CLOSE_RADIUS = 20
-local DESPAWN_DISTANCE = 20
-local DESPAWN_TIME = 10 -- seconds outside distance before despawn
-local HEIGHT_LERP_SPEED = 5 -- higher = faster height changes
-
-local BASE_COLOR = Color3.fromRGB(255, 0, 255)  -- magenta base color
-
--- FOV and vignette config
+-- Config for FOV and vignette beat-bop effect
 local BASE_FOV = 70
-local MAX_FOV_INCREASE = 20
-local FOV_LERP_SPEED = 10
-local VIGNETTE_DURATION = 0.2
-local LOUDNESS_THRESHOLD = 150 -- loudness threshold to trigger effects
+local MAX_FOV_INCREASE = 15
+local BOP_SPEED = 8          -- how fast the FOV pulses
+local VIGNETTE_BOP_SPEED = 10 -- how fast the vignette pulses
+local VIGNETTE_INTENSITY_MAX = 0.5
+local LOUDNESS_THRESHOLD = 150
 
--- Helper functions
-local function lerpColor(a, b, t)
-    return Color3.new(
-        a.R + (b.R - a.R) * t,
-        a.G + (b.G - a.G) * t,
-        a.B + (b.B - a.B) * t
-    )
-end
+-- Setup vignette effect
+local vignette = Instance.new("VignetteEffect")
+vignette.Parent = camera
+vignette.Enabled = true
+vignette.Intensity = 0
+
+-- Setup color correction for rainbow tint
+local colorCorrection = Instance.new("ColorCorrectionEffect")
+colorCorrection.Parent = camera
+colorCorrection.Enabled = true
+colorCorrection.TintColor = Color3.new(1, 1, 1)
+
+local timeSinceLoud = 0
+local active = false
 
 local function lerp(a, b, t)
     return a + (b - a) * t
 end
 
-local function randomColor()
-    return Color3.fromHSV(math.random(), 0.8, 1)
-end
-
--- Create parts and track their out-of-range timers, current heights, and max colors
-local parts = {}
-local outsideTimers = {}
-local currentHeights = {}
-local maxColors = {}
-
-for i = 1, NUM_PARTS do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Material = Enum.Material.Neon
-    part.Size = BASE_SIZE
-    part.Name = "OrbitingSoundVisualizerPart"
-    part.Parent = workspace
-    parts[i] = part
-    outsideTimers[i] = 0
-    currentHeights[i] = BASE_SIZE.Y
-    maxColors[i] = randomColor()
-end
-
--- Setup vignette effect
-local vignette = Instance.new("ColorCorrectionEffect")
-vignette.Parent = camera
-vignette.Enabled = false
-vignette.Saturation = 1
-
-local vignetteTimer = 0
-local vignetteActive = false
-
-local angle = 0
-local currentFOV = BASE_FOV
-camera.FieldOfView = BASE_FOV
-
 RunService.RenderStepped:Connect(function(dt)
-    local half = math.floor(NUM_PARTS / 2)
-
-    local closeBuckets = {}
-    local farBuckets = {}
-    for i = 1, half do
-        closeBuckets[i] = 0
-        farBuckets[i] = 0
-    end
-
-    local sounds = {}
+    -- Get max loudness from all playing sounds near the player
+    local maxLoudness = 0
     for _, sound in ipairs(Workspace:GetDescendants()) do
         if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
-            table.insert(sounds, sound)
-        end
-    end
-
-    local closeSounds = {}
-    local farSounds = {}
-    local maxLoudness = 0
-
-    for _, sound in ipairs(sounds) do
-        local pos = sound.Parent.Position
-        local dist = (pos - hrp.Position).Magnitude
-        local loudness = sound.PlaybackLoudness or 0
-        maxLoudness = math.max(maxLoudness, loudness)
-
-        if dist <= CLOSE_RADIUS then
-            table.insert(closeSounds, sound)
-        else
-            table.insert(farSounds, sound)
-        end
-    end
-
-    local farSoundsTotalLoudness = 0
-    for _, sound in ipairs(farSounds) do
-        farSoundsTotalLoudness = farSoundsTotalLoudness + (sound.PlaybackLoudness or 0)
-    end
-
-    for i, sound in ipairs(closeSounds) do
-        local loudness = sound.PlaybackLoudness or 0
-        local index = ((i - 1) % half) + 1
-        closeBuckets[index] = closeBuckets[index] + loudness
-    end
-
-    local farGroupParts = half - 1
-    for i, sound in ipairs(farSounds) do
-        local loudness = sound.PlaybackLoudness or 0
-        if farGroupParts > 0 then
-            local index = ((i - 1) % farGroupParts) + 1
-            farBuckets[index] = farBuckets[index] + loudness
-        end
-    end
-
-    local partsToRemove = {}
-
-    for i = 1, #parts do
-        local targetHeight
-        local bucketIndex = ((i - 1) % half) + 1
-
-        if i <= half then
-            targetHeight = math.clamp(BASE_SIZE.Y + closeBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
-        elseif i < NUM_PARTS then
-            targetHeight = math.clamp(BASE_SIZE.Y + farBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
-        else
-            targetHeight = math.clamp(BASE_SIZE.Y + farSoundsTotalLoudness * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
-        end
-
-        currentHeights[i] = lerp(currentHeights[i], targetHeight, math.clamp(dt * HEIGHT_LERP_SPEED, 0, 1))
-        local height = currentHeights[i]
-
-        local partAngle = angle + (2 * math.pi * (i - 1) / NUM_PARTS)
-        local gapOffset = (height - BASE_SIZE.Y) * HORIZONTAL_GAP
-        local x = hrp.Position.X + math.cos(partAngle) * (ORBIT_RADIUS + gapOffset)
-        local z = hrp.Position.Z + math.sin(partAngle) * (ORBIT_RADIUS + gapOffset)
-        local y = hrp.Position.Y + FLOOR_Y_OFFSET + height / 2
-
-        local part = parts[i]
-        part.Position = Vector3.new(x, y, z)
-        part.Size = Vector3.new(BASE_SIZE.X, height, BASE_SIZE.Z)
-        part.CFrame = CFrame.new(part.Position)
-
-        -- Color lerp from base magenta to randomized maxColor based on height
-        local t = (height - BASE_SIZE.Y) / (MAX_HEIGHT - BASE_SIZE.Y)
-        part.Color = lerpColor(BASE_COLOR, maxColors[i], t)
-
-        local distToPlayer = (part.Position - hrp.Position).Magnitude
-        if distToPlayer > DESPAWN_DISTANCE then
-            outsideTimers[i] = outsideTimers[i] + dt
-            if outsideTimers[i] >= DESPAWN_TIME then
-                table.insert(partsToRemove, i)
+            local pos = sound.Parent.Position
+            local dist = (pos - hrp.Position).Magnitude
+            local loudness = sound.PlaybackLoudness or 0
+            if dist <= 50 then -- within 50 studs
+                maxLoudness = math.max(maxLoudness, loudness)
             end
-        else
-            outsideTimers[i] = 0
         end
     end
 
-    for i = #partsToRemove, 1, -1 do
-        local index = partsToRemove[i]
-        parts[index]:Destroy()
-        table.remove(parts, index)
-        table.remove(outsideTimers, index)
-        table.remove(currentHeights, index)
-        table.remove(maxColors, index)
-    end
-
-    angle = (angle + ORBIT_SPEED * dt) % (2 * math.pi)
-
-    -- FOV and vignette effects
-    -- Increase FOV proportional to loudness above threshold
-    local loudnessExcess = math.clamp(maxLoudness - LOUDNESS_THRESHOLD, 0, LOUDNESS_THRESHOLD)
-    local targetFOV = BASE_FOV + (loudnessExcess / LOUDNESS_THRESHOLD) * MAX_FOV_INCREASE
-    currentFOV = lerp(currentFOV, targetFOV, dt * FOV_LERP_SPEED)
-    camera.FieldOfView = currentFOV
-
-    -- Trigger vignette on loud sounds
     if maxLoudness > LOUDNESS_THRESHOLD then
-        vignette.Enabled = true
-        vignetteTimer = VIGNETTE_DURATION
-        vignetteActive = true
+        active = true
+        timeSinceLoud = 0
+    else
+        timeSinceLoud = timeSinceLoud + dt
+        if timeSinceLoud > 0.5 then -- stop effect after 0.5s quiet
+            active = false
+            vignette.Intensity = 0
+            colorCorrection.TintColor = Color3.new(1, 1, 1)
+            camera.FieldOfView = BASE_FOV
+            return
+        end
     end
 
-    if vignetteActive then
-        vignetteTimer = vignetteTimer - dt
-        if vignetteTimer <= 0 then
-            vignette.Enabled = false
-            vignetteActive = false
-        else
-            -- Cycle through rainbow colors on saturation and tint
-            local hue = (tick() * 5) % 1 -- cycle hue quickly
-            vignette.TintColor = Color3.fromHSV(hue, 1, 1)
-            vignette.Saturation = 1
-        end
+    if active then
+        timeSinceLoud = timeSinceLoud + dt
+
+        -- FOV bops with sine wave synced to time
+        local fovOffset = math.sin(timeSinceLoud * BOP_SPEED) * (MAX_FOV_INCREASE / 2) + (MAX_FOV_INCREASE / 2)
+        camera.FieldOfView = BASE_FOV + fovOffset
+
+        -- Vignette intensity pulses faster
+        local vignettePulse = (math.sin(timeSinceLoud * VIGNETTE_BOP_SPEED) + 1) / 2
+        vignette.Intensity = vignettePulse * VIGNETTE_INTENSITY_MAX
+
+        -- Cycle rainbow tint color over time
+        local hue = (tick() * 3) % 1
+        colorCorrection.TintColor = Color3.fromHSV(hue, 1, 1)
     end
 end)
