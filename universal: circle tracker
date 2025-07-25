@@ -7,21 +7,21 @@ local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
 
--- Config for SIGNIFICANTLY less sensitive FOV and vignette bopping
+-- Config for more sensitive FOV and vignette bopping
 local BASE_FOV = 70
-local MAX_FOV_INCREASE = 3          -- very subtle zoom
-local BOP_SPEED = 4                 -- slower bopping speed
-local VIGNETTE_BOP_SPEED = 5        -- slower vignette pulse speed
-local VIGNETTE_INTENSITY_MAX = 0.1  -- very subtle vignette
-local LOUDNESS_THRESHOLD = 1200     -- very high threshold
+local MAX_FOV_INCREASE = 8           -- bigger zoom
+local BOP_SPEED = 6                  -- moderate bopping speed
+local VIGNETTE_BOP_SPEED = 8         -- moderate vignette pulse speed
+local VIGNETTE_INTENSITY_MAX = 0.25  -- stronger vignette
+local LOUDNESS_THRESHOLD = 400       -- lowered threshold for more sensitivity
 
--- Setup vignette effect
+-- Create VignetteEffect
 local vignette = Instance.new("VignetteEffect")
 vignette.Parent = camera
 vignette.Enabled = true
 vignette.Intensity = 0
 
--- Setup color correction for rainbow tint
+-- Create ColorCorrectionEffect for rainbow tint
 local colorCorrection = Instance.new("ColorCorrectionEffect")
 colorCorrection.Parent = camera
 colorCorrection.Enabled = true
@@ -36,9 +36,8 @@ RunService.RenderStepped:Connect(function(dt)
         if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
             local pos = sound.Parent.Position
             local dist = (pos - hrp.Position).Magnitude
-            local loudness = sound.PlaybackLoudness or 0
-            if dist <= 50 then -- within 50 studs
-                maxLoudness = math.max(maxLoudness, loudness)
+            if dist <= 50 then
+                maxLoudness = math.max(maxLoudness, sound.PlaybackLoudness or 0)
             end
         end
     end
@@ -66,7 +65,7 @@ RunService.RenderStepped:Connect(function(dt)
         local vignettePulse = (math.sin(timeSinceLoud * VIGNETTE_BOP_SPEED) + 1) / 2
         vignette.Intensity = vignettePulse * VIGNETTE_INTENSITY_MAX
 
-        local hue = (tick() * 1.5) % 1
+        local hue = (tick() * 2) % 1
         colorCorrection.TintColor = Color3.fromHSV(hue, 1, 1)
     end
 end)
