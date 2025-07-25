@@ -1,174 +1,143 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HRP = Character:WaitForChild("HumanoidRootPart")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
 
-local detectionRadius = 50
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Cleanup
-local existing = workspace:FindFirstChild("AuraParts")
-if existing then existing:Destroy() end
-local auraFolder = Instance.new("Folder", workspace)
-auraFolder.Name = "AuraParts"
+-- Config
+local NUM_PARTS = 10
+local ORBIT_RADIUS = 3 -- smaller circle radius
+local BASE_SIZE = Vector3.new(0.4, 0.5, 0.4)
+local MAX_HEIGHT = 5
+local SCALE_MULTIPLIER = 0.03
+local ORBIT_SPEED = math.rad(90)
+local FLOOR_Y_OFFSET = 2
+local HORIZONTAL_GAP = 0.05
+local CLOSE_RADIUS = 20
+local DESPAWN_DISTANCE = 20
+local DESPAWN_TIME = 10 -- seconds outside distance before despawn
 
--- Create circle base and wedge sections
-local function createWedge(angleStart, angleEnd, color)
-	local part = Instance.new("Part")
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = color
-	part.Transparency = 0.7
-	part.Size = Vector3.new(0.1, 0.1, 0.1) -- Small size, will use Mesh for shape
-	part.Name = "WedgeSection"
+local COLOR_START = Color3.fromRGB(255, 0, 255)  -- magenta
+local COLOR_END = Color3.fromRGB(0, 255, 100)    -- teal-greenish
 
-	local wedgeMesh = Instance.new("SpecialMesh", part)
-	wedgeMesh.MeshType = Enum.MeshType.FileMesh
-	wedgeMesh.MeshId = "rbxassetid://5598318443" -- Rounded wedge mesh
-	wedgeMesh.Scale = Vector3.new(50, 0.2, 50)
-	wedgeMesh.Offset = Vector3.new(0, 0, 0)
-	part.Parent = auraFolder
-
-	return part
+local function lerpColor(a, b, t)
+    return Color3.new(
+        a.R + (b.R - a.R) * t,
+        a.G + (b.G - a.G) * t,
+        a.B + (b.B - a.B) * t
+    )
 end
 
-local sectionColors = {
-	Color3.fromRGB(200, 200, 255),
-	Color3.fromRGB(200, 255, 200),
-	Color3.fromRGB(255, 200, 200),
-	Color3.fromRGB(255, 255, 200),
-}
+-- Create parts and track their out-of-range timers
+local parts = {}
+local outsideTimers = {}
 
-local wedgeSections = {}
-for i = 1, 4 do
-	local wedge = createWedge((i - 1) * 90, i * 90, sectionColors[i])
-	table.insert(wedgeSections, wedge)
+for i = 1, NUM_PARTS do
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.Size = BASE_SIZE
+    part.Name = "OrbitingSoundVisualizerPart"
+    part.Parent = workspace
+    parts[i] = part
+    outsideTimers[i] = 0
 end
 
--- Create 3 hovering rings
-local function createRing(yOffset, transparency)
-	local ring = Instance.new("Part")
-	ring.Anchored = true
-	ring.CanCollide = false
-	ring.Shape = Enum.PartType.Cylinder
-	ring.Size = Vector3.new(0.5, 1, 50)
-	ring.Material = Enum.Material.Neon
-	ring.Color = Color3.fromRGB(255, 255, 255)
-	ring.Transparency = transparency
-	ring.Name = "HoverRing"
-	ring.Orientation = Vector3.new(0, 0, 90)
-	ring.Parent = auraFolder
-	ring.Position = HRP.Position + Vector3.new(0, yOffset, 0)
-	return ring
-end
+local angle = 0
 
-local rings = {
-	createRing(2, 0.8), -- top faint
-	createRing(1.5, 0.5), -- middle
-	createRing(1, 0), -- bottom
-}
+RunService.RenderStepped:Connect(function(dt)
+    local closeBuckets = {}
+    local farBuckets = {}
+    local half = math.floor(NUM_PARTS / 2)
 
--- UI for username and avatar
-local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-local screenGui = Instance.new("ScreenGui", playerGui)
-screenGui.Name = "AuraUI"
-screenGui.ResetOnSpawn = false
+    for i = 1, half do
+        closeBuckets[i] = 0
+        farBuckets[i] = 0
+    end
 
-local usernameLabel = Instance.new("TextLabel", screenGui)
-usernameLabel.Size = UDim2.new(0, 300, 0, 40)
-usernameLabel.Position = UDim2.new(0.5, -150, 0, 10)
-usernameLabel.BackgroundTransparency = 1
-usernameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-usernameLabel.TextStrokeTransparency = 0
-usernameLabel.TextScaled = true
-usernameLabel.Font = Enum.Font.GothamBold
-usernameLabel.Text = LocalPlayer.Name
+    -- Get all playing sounds attached to BaseParts
+    local sounds = {}
+    for _, sound in ipairs(Workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.Playing and sound.Parent and sound.Parent:IsA("BasePart") then
+            table.insert(sounds, sound)
+        end
+    end
 
-local avatarImage = Instance.new("ImageLabel", screenGui)
-avatarImage.Size = UDim2.new(0, 64, 0, 64)
-avatarImage.Position = UDim2.new(0.5, -32, 0, 50)
-avatarImage.BackgroundTransparency = 1
-avatarImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LocalPlayer.UserId .. "&width=420&height=420&format=png"
+    -- Separate sounds by distance
+    local closeSounds = {}
+    local farSounds = {}
+    for _, sound in ipairs(sounds) do
+        local pos = sound.Parent.Position
+        local dist = (pos - hrp.Position).Magnitude
+        if dist <= CLOSE_RADIUS then
+            table.insert(closeSounds, sound)
+        else
+            table.insert(farSounds, sound)
+        end
+    end
 
--- Rounded avatar mask
-local uicorner = Instance.new("UICorner", avatarImage)
-uicorner.CornerRadius = UDim.new(1, 0)
+    -- Distribute sounds evenly in each group
+    for i, sound in ipairs(closeSounds) do
+        local loudness = sound.PlaybackLoudness or 0
+        local index = ((i - 1) % half) + 1
+        closeBuckets[index] = closeBuckets[index] + loudness
+    end
 
--- Username Billboard for detected players
-local function createBillboard(player)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Size = UDim2.new(0, 200, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, 3, 0)
-	billboard.AlwaysOnTop = true
+    for i, sound in ipairs(farSounds) do
+        local loudness = sound.PlaybackLoudness or 0
+        local index = ((i - 1) % half) + 1
+        farBuckets[index] = farBuckets[index] + loudness
+    end
 
-	local label = Instance.new("TextLabel", billboard)
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.fromHSV(tick() % 5 / 5, 1, 1)
-	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
-	label.Text = player.Name
+    -- Parts to remove after loop
+    local partsToRemove = {}
 
-	return billboard
-end
+    -- Update parts and check distance for despawn timer
+    for i = 1, #parts do
+        local bucketIndex = ((i - 1) % half) + 1
+        local height
+        if i <= half then
+            height = math.clamp(BASE_SIZE.Y + closeBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
+        else
+            height = math.clamp(BASE_SIZE.Y + farBuckets[bucketIndex] * SCALE_MULTIPLIER, BASE_SIZE.Y, MAX_HEIGHT)
+        end
 
-local billboardMap = {}
+        local partAngle = angle + (2 * math.pi * (i - 1) / NUM_PARTS)
+        local gapOffset = (height - BASE_SIZE.Y) * HORIZONTAL_GAP
+        local x = hrp.Position.X + math.cos(partAngle) * (ORBIT_RADIUS + gapOffset)
+        local z = hrp.Position.Z + math.sin(partAngle) * (ORBIT_RADIUS + gapOffset)
+        local y = hrp.Position.Y + FLOOR_Y_OFFSET + height / 2
 
--- Update loop
-RunService.RenderStepped:Connect(function()
-	if not HRP or not HRP.Parent then return end
-	local pos = HRP.Position
-	local camLook = Camera.CFrame.LookVector
+        local part = parts[i]
+        part.Position = Vector3.new(x, y, z)
+        part.Size = Vector3.new(BASE_SIZE.X, height, BASE_SIZE.Z)
+        part.CFrame = CFrame.new(part.Position)
 
-	-- Place and rotate wedges
-	for i, wedge in ipairs(wedgeSections) do
-		local angle = math.rad((i - 1) * 90 + 45)
-		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * 5
-		wedge.Position = pos + Vector3.new(0, 0.2, 0)
-		wedge.CFrame = CFrame.new(wedge.Position) * CFrame.Angles(0, math.rad((i - 1) * 90), 0)
-	end
+        local t = (height - BASE_SIZE.Y) / (MAX_HEIGHT - BASE_SIZE.Y)
+        part.Color = lerpColor(COLOR_START, COLOR_END, t)
 
-	-- Place rings and shift hue
-	for i, ring in ipairs(rings) do
-		ring.Position = pos + Vector3.new(0, ring.Position.Y - ring.Position.Y % 0.05, 0)
-		local hue = (tick() * 0.1 + i * 0.1) % 1
-		ring.Color = Color3.fromHSV(hue, 0.2, 1)
-	end
+        -- Check distance to player for despawn
+        local distToPlayer = (part.Position - hrp.Position).Magnitude
+        if distToPlayer > DESPAWN_DISTANCE then
+            outsideTimers[i] = outsideTimers[i] + dt
+            if outsideTimers[i] >= DESPAWN_TIME then
+                table.insert(partsToRemove, i)
+            end
+        else
+            outsideTimers[i] = 0
+        end
+    end
 
-	-- Detection
-	local nearby = {}
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-			local dist = (player.Character.HumanoidRootPart.Position - pos).Magnitude
-			if dist <= detectionRadius then
-				local rel = (player.Character.HumanoidRootPart.Position - pos).Unit
-				local dot = camLook:Dot(rel)
-				local right = camLook:Cross(Vector3.yAxis).Unit:Dot(rel)
+    -- Remove parts safely after loop
+    for i = #partsToRemove, 1, -1 do
+        local index = partsToRemove[i]
+        parts[index]:Destroy()
+        table.remove(parts, index)
+        table.remove(outsideTimers, index)
+    end
 
-				-- Section highlights
-				local left = right < -0.3
-				local rightS = right > 0.3
-				local front = dot > 0.3
-				local back = dot < -0.3
-
-				wedgeSections[1].Transparency = (left or front) and 0.3 or 0.7
-				wedgeSections[2].Transparency = (rightS or front) and 0.3 or 0.7
-				wedgeSections[3].Transparency = (left or back) and 0.3 or 0.7
-				wedgeSections[4].Transparency = (rightS or back) and 0.3 or 0.7
-
-				-- Rainbow + name tag
-				if not billboardMap[player] then
-					local bb = createBillboard(player)
-					bb.Parent = player.Character:FindFirstChild("Head")
-					billboardMap[player] = bb
-				end
-
-				local hue = tick() % 5 / 5
-				player.Character:FindFirstChild("HumanoidRootPart").Color = Color3.fromHSV(hue, 1, 1)
-			end
-		end
-	end
+    angle = (angle + ORBIT_SPEED * dt) % (2 * math.pi)
 end)
