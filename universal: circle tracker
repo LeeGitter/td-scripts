@@ -4,23 +4,16 @@ local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
-local camera = workspace.CurrentCamera
 
 local segmentCount = 10
-local radius = 2.2       -- slightly smaller radius
-local heightOffset = 1   -- lowered crown
+local radius = 3       -- smaller radius here
+local heightOffset = 1 -- lowered crown here
 local basePartSize = Vector3.new(0.3, 0.5, 0.3)
 local soundDetectionRadius = 60
 local maxLoudnessExpected = 1000
-local maxPartHeight = 3
+local maxPartHeight = 3  -- max height now 3 studs
 
--- Camera bop
-local defaultFOV = camera.FieldOfView
-local bopFOV = 10
-local fovTime = 0
-local fovDuration = 0.3
-
--- Clear existing crown
+-- Clear existing crown folder if any
 local crownFolder = workspace:FindFirstChild("VisualizerCrown")
 if crownFolder then
     crownFolder:Destroy()
@@ -46,22 +39,25 @@ for i = 1, segmentCount do
     partScales[i] = basePartSize.Y
 end
 
--- Wobble & tilt
+-- Variables for smooth tilt and wobble
 local prevTiltX, prevTiltZ = 0, 0
 local tiltSmoothing = 0.1
 local tiltIntensity = 0.1
+
+-- Wobble parameters
+local wobbleDuration = 0.5
 local wobbleTime = 0
 local wobbleAmplitudePos = 0.2
 local wobbleAmplitudeRot = 0.09
-local wobbleDuration = 0.5
 local wobbleActive = false
+
 local lastPitch, lastRoll = 0, 0
 local wobbleTriggerThreshold = 0.05
 
--- Highlight
+-- Rainbow highlight vars
 local highlight = nil
 local highlightTime = 0
-local highlightDuration = 1.0
+local highlightDuration = 1.0 -- 0.2s visible + 0.8s fade out
 local highlightFullyVisibleTime = 0.2
 local rainbowCycleDuration = 0.5
 
@@ -129,7 +125,7 @@ RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
 
-    -- Detect movement to wobble more
+    -- Detect significant head tilt change to trigger wobble
     if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
         wobbleActive = true
         wobbleTime = 0
@@ -137,24 +133,30 @@ RunService.Heartbeat:Connect(function(dt)
     lastPitch = pitch
     lastRoll = roll
 
-    -- Tilt smoothing
+    -- Smooth tilt targets (invert to tilt opposite direction)
     local targetTiltX = -pitch * tiltIntensity
     local targetTiltZ = -roll * tiltIntensity
-    prevTiltX += (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ += (targetTiltZ - prevTiltZ) * tiltSmoothing
+    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
+    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
 
+    -- Wobble progress [0 to 1]
     if wobbleActive then
-        wobbleTime += dt
+        wobbleTime = wobbleTime + dt
         if wobbleTime > wobbleDuration then
-            wobbleTime = wobbleDuration
             wobbleActive = false
+            wobbleTime = wobbleDuration
         end
     end
 
     local wobbleProgress = wobbleTime / wobbleDuration
-    local decay = 1 - wobbleProgress
-    local wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-    local wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
+
+    local wobblePosOffset = 0
+    local wobbleRotOffset = 0
+    if wobbleActive then
+        local decay = 1 - wobbleProgress
+        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
+        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
+    end
 
     local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
     local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
@@ -168,7 +170,7 @@ RunService.Heartbeat:Connect(function(dt)
         local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
         local worldPos = baseCFrame:PointToWorldSpace(localOffset)
 
-        -- Sound response
+        -- Visualize sound loudness per segment
         local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
         local sound = soundIndex and sounds[soundIndex] or nil
 
@@ -180,47 +182,42 @@ RunService.Heartbeat:Connect(function(dt)
         local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
         local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
 
-        partScales[i] += (targetHeight - partScales[i]) * 0.15
+        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
         part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
+
         part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
 
         local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
         part.Orientation = Vector3.new(0, yawAngle, 0)
 
+        -- Trigger highlight if any part close to max height
         if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
             highlightTriggeredThisFrame = true
         end
     end
 
+    -- Trigger highlight only if a part is at max height this frame
     if highlightTriggeredThisFrame then
         highlightTime = 0
-        fovTime = 0
         createHighlight()
-        camera.FieldOfView = defaultFOV + bopFOV
     end
 
-    -- Animate highlight
+    -- Update highlight effect if active
     if highlight then
-        highlightTime += dt
+        highlightTime = highlightTime + dt
+
+        -- Cycle rainbow colors every 0.5 seconds
         local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
         highlight.Color3 = Color3.fromHSV(hue, 1, 1)
 
+        -- Manage transparency (fade out after 0.2 seconds)
         if highlightTime < highlightFullyVisibleTime then
             highlight.Transparency = 0
         elseif highlightTime < highlightDuration then
-            local fade = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.Transparency = fade
+            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
+            highlight.Transparency = fadeProgress
         else
             removeHighlight()
         end
-    end
-
-    -- Camera FOV bop easing
-    if fovTime < fovDuration then
-        fovTime += dt
-        local progress = math.clamp(fovTime / fovDuration, 0, 1)
-        camera.FieldOfView = defaultFOV + bopFOV * (1 - progress)
-    else
-        camera.FieldOfView = defaultFOV
     end
 end)
