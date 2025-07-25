@@ -131,7 +131,7 @@ RunService.RenderStepped:Connect(function(dt)
 		local swayY = math.cos(phase * 1.5) * wobbleMagnitude * (velocity / 20)
 
 		local att0, att1 = attachments[i][1], attachments[i][2]
-		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 2) + Vector3.new(swayX, swayY, 0)
+		att0.Position = Vector3.new(0, 0, -LENGTH_PER_SEGMENT / 5) + Vector3.new(swayX, swayY, 0)
 	end
 
 	if cube then
