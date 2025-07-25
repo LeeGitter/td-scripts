@@ -1,223 +1,129 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 local character = player.Character or player.CharacterAdded:Wait()
-local head = character:WaitForChild("Head")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-local segmentCount = 10
-local radius = 1       -- smaller radius here
-local heightOffset = 1 -- lowered crown here
-local basePartSize = Vector3.new(0.3, 0.5, 0.3)
-local soundDetectionRadius = 60
-local maxLoudnessExpected = 1000
-local maxPartHeight = 3  -- max height now 3 studs
+-- Crown Settings
+local crownParts = {}
+local partCount = 12
+local orbitRadius = 2
+local baseHeight = 1
+local maxHeight = 3
+local rotationSpeed = 2
+local bobAmplitude = 2 -- maxHeight - baseHeight
+local bobSpeed = 2
 
--- Clear existing crown folder if any
-local crownFolder = workspace:FindFirstChild("VisualizerCrown")
-if crownFolder then
-    crownFolder:Destroy()
-end
-crownFolder = Instance.new("Folder")
-crownFolder.Name = "VisualizerCrown"
-crownFolder.Parent = workspace
-
-local parts = {}
-local partScales = {}
-
-for i = 1, segmentCount do
-    local part = Instance.new("Part")
-    part.Anchored = true
-    part.CanCollide = false
-    part.Size = basePartSize
-    part.Material = Enum.Material.Neon
-    part.Color = Color3.fromHSV(i / segmentCount, 1, 1)
-    part.Transparency = 0
-    part.Name = "CrownPart"..i
-    part.Parent = crownFolder
-    parts[i] = part
-    partScales[i] = basePartSize.Y
-end
-
--- Variables for smooth tilt and wobble
-local prevTiltX, prevTiltZ = 0, 0
-local tiltSmoothing = 0.1
-local tiltIntensity = 0.1
-
--- Wobble parameters
-local wobbleDuration = 0.5
-local wobbleTime = 0
-local wobbleAmplitudePos = 0.2
-local wobbleAmplitudeRot = 0.09
-local wobbleActive = false
-
-local lastPitch, lastRoll = 0, 0
-local wobbleTriggerThreshold = 0.05
-
--- Rainbow highlight vars
-local highlight = nil
+-- Effects
+local defaultFOV = camera.FieldOfView
+local fovBoost = 15
 local highlightTime = 0
-local highlightDuration = 1.0 -- 0.2s visible + 0.8s fade out
-local highlightFullyVisibleTime = 0.2
-local rainbowCycleDuration = 0.5
+local highlight = nil
+local triggeredParts = {}
 
-local function getSoundPosition(sound)
-    if sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent:IsA("Model") then
-        if sound.Parent:FindFirstChild("HumanoidRootPart") then
-            return sound.Parent.HumanoidRootPart.Position
-        end
-        for _, descendant in pairs(sound.Parent:GetDescendants()) do
-            if descendant:IsA("BasePart") then
-                return descendant.Position
-            end
-        end
-    end
-    return head.Position
+-- UI Overlay
+local overlayGui = Instance.new("ScreenGui")
+overlayGui.Name = "RainbowOverlay"
+overlayGui.ResetOnSpawn = false
+overlayGui.Parent = player:WaitForChild("PlayerGui")
+
+local overlayFrame = Instance.new("Frame")
+overlayFrame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+overlayFrame.BackgroundTransparency = 1
+overlayFrame.Size = UDim2.fromScale(1, 1)
+overlayFrame.BorderSizePixel = 0
+overlayFrame.Parent = overlayGui
+
+-- Gradient for rainbow effect
+local gradient = Instance.new("UIGradient")
+gradient.Rotation = 0
+gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+		ColorSequenceKeypoint.new(0.16, Color3.fromRGB(255, 165, 0)),
+		ColorSequenceKeypoint.new(0.33, Color3.fromRGB(255, 255, 0)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 0)),
+		ColorSequenceKeypoint.new(0.66, Color3.fromRGB(0, 0, 255)),
+		ColorSequenceKeypoint.new(0.83, Color3.fromRGB(75, 0, 130)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(238, 130, 238))
+})
+gradient.Parent = overlayFrame
+
+-- Create crown parts
+for i = 1, partCount do
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(0.4, 0.4, 0.4)
+	part.Shape = Enum.PartType.Ball
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromRGB(255, 255, 255)
+	part.Name = "CrownPart_"..i
+	part.Parent = workspace
+	crownParts[i] = part
 end
 
-local function getNearbySounds()
-    local sounds = {}
+-- Highlight generator
+function createHighlight()
+	if highlight then highlight:Destroy() end
+	highlight = Instance.new("Highlight")
+	highlight.FillColor = Color3.fromRGB(255, 0, 255)
+	highlight.OutlineTransparency = 1
+	highlight.FillTransparency = 0
+	highlight.Parent = character
+	highlight.Adornee = character
 
-    for _, sound in pairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if pos and (pos - head.Position).Magnitude <= soundDetectionRadius then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    local function addLocalSounds(root)
-        for _, sound in pairs(root:GetDescendants()) do
-            if sound:IsA("Sound") and sound.IsPlaying then
-                table.insert(sounds, sound)
-            end
-        end
-    end
-
-    addLocalSounds(player:WaitForChild("PlayerGui"))
-    addLocalSounds(character)
-
-    return sounds
+	-- Animate rainbow transition & fade out
+	task.spawn(function()
+		local duration = 1
+		for t = 0, duration, RunService.RenderStepped:Wait() do
+			local progress = t / duration
+			highlight.FillTransparency = math.clamp(progress - 0.2, 0, 1)
+			highlight.FillColor = Color3.fromHSV((tick() % 0.5) / 0.5, 1, 1)
+		end
+		highlight:Destroy()
+		highlight = nil
+	end)
 end
 
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("SelectionBox")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.LineThickness = 0.05
-    highlight.Transparency = 0
-    highlight.Color3 = Color3.new(1,1,1)
-    highlight.SurfaceTransparency = 0.8
-end
+-- Update loop
+RunService.RenderStepped:Connect(function(dt)
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
 
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
-end
+	local time = tick()
 
-RunService.Heartbeat:Connect(function(dt)
-    local headCFrame = head.CFrame
-    local pitch, roll = headCFrame:ToEulerAnglesXYZ()
+	for i, part in ipairs(crownParts) do
+		local angle = (i / partCount) * math.pi * 2 + time * rotationSpeed
+		local offset = Vector3.new(math.cos(angle) * orbitRadius, 0, math.sin(angle) * orbitRadius)
 
-    -- Detect significant head tilt change to trigger wobble
-    if math.abs(pitch - lastPitch) > wobbleTriggerThreshold or math.abs(roll - lastRoll) > wobbleTriggerThreshold then
-        wobbleActive = true
-        wobbleTime = 0
-    end
-    lastPitch = pitch
-    lastRoll = roll
+		local bobOffset = math.sin(time * bobSpeed + i) * (bobAmplitude / 2)
+		local targetPos = hrp.Position + Vector3.new(0, baseHeight + bobOffset, 0) + offset
 
-    -- Smooth tilt targets (invert to tilt opposite direction)
-    local targetTiltX = -pitch * tiltIntensity
-    local targetTiltZ = -roll * tiltIntensity
-    prevTiltX = prevTiltX + (targetTiltX - prevTiltX) * tiltSmoothing
-    prevTiltZ = prevTiltZ + (targetTiltZ - prevTiltZ) * tiltSmoothing
+		part.Position = part.Position:Lerp(targetPos, 0.25) -- smooth
 
-    -- Wobble progress [0 to 1]
-    if wobbleActive then
-        wobbleTime = wobbleTime + dt
-        if wobbleTime > wobbleDuration then
-            wobbleActive = false
-            wobbleTime = wobbleDuration
-        end
-    end
+		local verticalOffset = (part.Position - (hrp.Position + Vector3.new(0, baseHeight, 0))).Y
 
-    local wobbleProgress = wobbleTime / wobbleDuration
+		if verticalOffset >= (maxHeight - baseHeight - 0.2) and not triggeredParts[part] then
+			triggeredParts[part] = true
 
-    local wobblePosOffset = 0
-    local wobbleRotOffset = 0
-    if wobbleActive then
-        local decay = 1 - wobbleProgress
-        wobblePosOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudePos * decay
-        wobbleRotOffset = math.sin(wobbleTime * math.pi * 4) * wobbleAmplitudeRot * decay
-    end
+			-- Trigger effects
+			highlightTime = 1
+			createHighlight()
+			camera.FieldOfView = defaultFOV + fovBoost
+			overlayFrame.BackgroundTransparency = 0
+		end
+	end
 
-    local tiltRotation = CFrame.Angles(prevTiltX, 0, prevTiltZ + wobbleRotOffset)
-    local baseCFrame = headCFrame * CFrame.new(wobblePosOffset, heightOffset, 0) * tiltRotation
-
-    local sounds = getNearbySounds()
-
-    local highlightTriggeredThisFrame = false
-
-    for i, part in ipairs(parts) do
-        local angle = (2 * math.pi / segmentCount) * i
-        local localOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-        local worldPos = baseCFrame:PointToWorldSpace(localOffset)
-
-        -- Visualize sound loudness per segment
-        local soundIndex = #sounds > 0 and ((i - 1) % #sounds) + 1 or nil
-        local sound = soundIndex and sounds[soundIndex] or nil
-
-        local loudness = 0
-        if sound then
-            loudness = sound.PlaybackLoudness or 0
-        end
-
-        local normalized = math.clamp(loudness / maxLoudnessExpected, 0, 1)
-        local targetHeight = 0.5 + normalized * (maxPartHeight - 0.5)
-
-        partScales[i] = partScales[i] + (targetHeight - partScales[i]) * 0.15
-        part.Size = Vector3.new(basePartSize.X, partScales[i], basePartSize.Z)
-
-        part.Position = worldPos + Vector3.new(0, partScales[i] / 2, 0)
-
-        local yawAngle = math.deg(math.atan2(localOffset.Z, localOffset.X))
-        part.Orientation = Vector3.new(0, yawAngle, 0)
-
-        -- Trigger highlight if any part close to max height
-        if not highlightTriggeredThisFrame and partScales[i] >= maxPartHeight - 0.1 then
-            highlightTriggeredThisFrame = true
-        end
-    end
-
-    -- Trigger highlight only if a part is at max height this frame
-    if highlightTriggeredThisFrame then
-        highlightTime = 0
-        createHighlight()
-    end
-
-    -- Update highlight effect if active
-    if highlight then
-        highlightTime = highlightTime + dt
-
-        -- Cycle rainbow colors every 0.5 seconds
-        local hue = (highlightTime % rainbowCycleDuration) / rainbowCycleDuration
-        highlight.Color3 = Color3.fromHSV(hue, 1, 1)
-
-        -- Manage transparency (fade out after 0.2 seconds)
-        if highlightTime < highlightFullyVisibleTime then
-            highlight.Transparency = 0
-        elseif highlightTime < highlightDuration then
-            local fadeProgress = (highlightTime - highlightFullyVisibleTime) / (highlightDuration - highlightFullyVisibleTime)
-            highlight.Transparency = fadeProgress
-        else
-            removeHighlight()
-        end
-    end
+	-- Handle FOV + overlay fading
+	if highlightTime > 0 then
+		highlightTime -= dt
+		gradient.Rotation = (gradient.Rotation + dt * 180) % 360
+	else
+		camera.FieldOfView = defaultFOV
+		overlayFrame.BackgroundTransparency = 1
+		triggeredParts = {}
+	end
 end)
