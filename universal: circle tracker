@@ -330,6 +330,9 @@ RunService.Heartbeat:Connect(function(dt)
         else
             removeHighlight()
         end
+    end
+end)
+
 -- Speed Boost & Afterimage System
 local humanoid = character:WaitForChild("Humanoid")
 local isBoosted = false
