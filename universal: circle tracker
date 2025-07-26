@@ -281,6 +281,7 @@ end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -289,20 +290,30 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 local head = character:WaitForChild("Head")
 
 -- Config
-local MAX_VOLUME = 1000 -- max expected PlaybackLoudness
+local MAX_VOLUME = 1000
 local MAX_DISTANCE = 60
 local AFTERIMAGE_INTERVAL = 0.1
 local AFTERIMAGE_FADE = 0.3
 local AFTERIMAGE_SIZE_MULT = 0.95
 
-local BASE_SPEED_BOOST = 0.10 -- 10% base speed boost
-local MAX_ADDITIONAL_SPEED_BOOST = 0.20 -- up to +20% speed boost based on volume
+local BASE_SPEED_BOOST = 0.1 -- 10%
+local MAX_ADDITIONAL_SPEED_BOOST = 0.2 -- up to 20%
 
-local BASE_AFTERIMAGE_VISIBILITY = 0.01 -- 1% visibility base
-local MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY = 0.5 -- up to +50% visibility
+local BASE_AFTERIMAGE_VISIBILITY = 0.01 -- 1%
+local MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY = 0.5 -- 50%
 
 local lastAfterimageTime = 0
 
+-- Create VectorForce to add speed without fighting controls
+local attachment = Instance.new("Attachment", rootPart)
+local vectorForce = Instance.new("VectorForce")
+vectorForce.Attachment0 = attachment
+vectorForce.Force = Vector3.new(0, 0, 0)
+vectorForce.RelativeTo = Enum.ActuatorRelativeTo.Attachment0
+vectorForce.Name = "SpeedBoostForce"
+vectorForce.Parent = rootPart
+
+-- Sound loudness detection function (same as before)
 local function getSoundPosition(sound)
 	if sound.Parent and sound.Parent:IsA("BasePart") then
 		return sound.Parent.Position
@@ -332,11 +343,8 @@ local function getLoudestSoundVolume()
 	return loudest
 end
 
-local bodyVelocity = Instance.new("BodyVelocity")
-bodyVelocity.MaxForce = Vector3.new(1e5, 0, 1e5)
-bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-bodyVelocity.Parent = rootPart
-
+-- Afterimage creation (same as before)
+local TweenService = game:GetService("TweenService")
 local function createAfterimage(visibility)
 	local ghost = Instance.new("Model")
 	ghost.Name = "Afterimage"
@@ -367,24 +375,37 @@ RunService.RenderStepped:Connect(function()
 	local loudest = getLoudestSoundVolume()
 	local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
 
-	-- Calculate total speed boost
-	local totalSpeedBoost = BASE_SPEED_BOOST + MAX_ADDITIONAL_SPEED_BOOST * loudnessPercent
+	-- Speed boost amount
+	local speedBoostPercent = BASE_SPEED_BOOST + MAX_ADDITIONAL_SPEED_BOOST * loudnessPercent
 
-	local moveDir = humanoid.MoveDirection
-	if moveDir.Magnitude > 0 then
-		local baseSpeed = humanoid.WalkSpeed
-		local addedSpeed = baseSpeed * totalSpeedBoost
-		bodyVelocity.Velocity = moveDir.Unit * addedSpeed
+	-- Movement input vector
+	local moveDirection = humanoid.MoveDirection
+	if moveDirection.Magnitude > 0 then
+		-- Calculate added velocity (you can tweak multiplier)
+		local addedSpeed = humanoid.WalkSpeed * speedBoostPercent
+		local forceVector = moveDirection.Unit * addedSpeed * rootPart.AssemblyMass -- Scale by mass for physics
+		vectorForce.Force = forceVector
 	else
-		bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+		vectorForce.Force = Vector3.new(0, 0, 0)
 	end
 
-	-- Calculate total afterimage visibility
-	local totalVisibility = BASE_AFTERIMAGE_VISIBILITY + MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY * loudnessPercent
-	totalVisibility = math.clamp(totalVisibility, 0, 1)
+	-- Afterimage visibility scaling
+	local visibility = BASE_AFTERIMAGE_VISIBILITY + MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY * loudnessPercent
+	visibility = math.clamp(visibility, 0, 1)
 
 	if tick() - lastAfterimageTime > AFTERIMAGE_INTERVAL then
 		lastAfterimageTime = tick()
-		createAfterimage(totalVisibility)
+		createAfterimage(visibility)
 	end
+end)
+
+-- Reset vectorForce on character respawn
+player.CharacterAdded:Connect(function(newChar)
+	character = newChar
+	humanoid = character:WaitForChild("Humanoid")
+	rootPart = character:WaitForChild("HumanoidRootPart")
+	head = character:WaitForChild("Head")
+	attachment.Parent = rootPart
+	vectorForce.Parent = rootPart
+	vectorForce.Force = Vector3.new(0, 0, 0)
 end)
