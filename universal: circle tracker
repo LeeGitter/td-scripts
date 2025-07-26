@@ -315,15 +315,80 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local head = character:WaitForChild("Head")
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Apply 20% speed boost
+humanoid.WalkSpeed *= 1.2
+
+-------------------------------
+-- Ring Effect (No Changes)
+-------------------------------
+local segmentCount = 10
+local radius = 2
+local heightOffset = 3
+local basePartSize = Vector3.new(0.3, 0.3, 0.3)
+
+local parts = {}
+
+for i = 1, segmentCount do
+	local part = Instance.new("Part")
+	part.Size = basePartSize
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.BrickColor = BrickColor.new("Bright yellow")
+	part.Parent = workspace
+	table.insert(parts, part)
+end
+
+RunService.RenderStepped:Connect(function()
+	local camCF = workspace.CurrentCamera.CFrame
+	local basePos = head.Position + Vector3.new(0, heightOffset, 0)
+
+	for i, part in ipairs(parts) do
+		local angle = math.rad((360 / segmentCount) * i)
+		local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		offset = camCF:VectorToWorldSpace(offset)
+		local targetPos = basePos + offset
+		part.Position = targetPos
+	end
+end)
+
 -------------------------------
 -- Afterimage Trail Effect
 -------------------------------
+
+-- Pastel rainbow neon color palette
+local pastelColors = {
+	Color3.fromRGB(255, 182, 193), -- Light Pink
+	Color3.fromRGB(173, 216, 230), -- Light Blue
+	Color3.fromRGB(144, 238, 144), -- Light Green
+	Color3.fromRGB(255, 255, 153), -- Light Yellow
+	Color3.fromRGB(221, 160, 221), -- Plum
+	Color3.fromRGB(255, 204, 229), -- Pastel Pink
+	Color3.fromRGB(204, 255, 229), -- Mint
+	Color3.fromRGB(204, 229, 255), -- Sky Blue
+}
 
 local function createAfterimage()
 	local clone = character:Clone()
 	clone.Name = "Afterimage"
 
-	-- Clean up transparency 1+ parts and make remaining ones anchored and non-functional
+	-- Filter: remove crown, keep tail
+	for _, obj in clone:GetDescendants() do
+		if obj:IsA("Accessory") and obj.Name:lower():find("crown") then
+			obj:Destroy()
+		end
+	end
+
+	-- Filter + prep parts
 	for _, part in clone:GetDescendants() do
 		if part:IsA("BasePart") then
 			if part.Transparency >= 1 then
@@ -332,34 +397,29 @@ local function createAfterimage()
 				part.Anchored = true
 				part.CanCollide = false
 				part.Massless = true
+				part.Material = Enum.Material.Neon
+				part.Color = pastelColors[math.random(1, #pastelColors)]
 			end
 		elseif part:IsA("Humanoid") or part:IsA("Animator") then
 			part:Destroy()
 		end
 	end
 
-	-- Parent to workspace
 	clone.Parent = workspace
 
 	-- Tween fade out
-	local TweenService = game:GetService("TweenService")
 	local fadeTime = 0.3
-
 	for _, part in clone:GetDescendants() do
 		if part:IsA("BasePart") then
-			local goal = {}
-			goal.Transparency = 1
-
-			local tween = TweenService:Create(part, TweenInfo.new(fadeTime), goal)
+			local tween = TweenService:Create(part, TweenInfo.new(fadeTime), {Transparency = 1})
 			tween:Play()
 		end
 	end
 
-	-- Auto-remove after fade
 	game.Debris:AddItem(clone, fadeTime)
 end
 
--- Spawn afterimage trail continuously
+-- Spawn afterimages rapidly
 task.spawn(function()
 	while true do
 		createAfterimage()
