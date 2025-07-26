@@ -278,102 +278,104 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local root = character:WaitForChild("HumanoidRootPart")
-local head = character:WaitForChild("Head")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
-local maxAfterimages = 8
-local afterimageInterval = 0.05
-local afterimageFadeTime = 0.3
-local afterimageSizeScale = 0.98
+-- Settings
+local AFTERIMAGE_DURATION = 0.3
+local AFTERIMAGE_INTERVAL = 0.1
+local CLONE_SCALE = 0.97 -- Slightly smaller
+local BOOST_SCALE = 0.005 -- Each sound loudness unit adds 0.5% WalkSpeed boost
+local MAX_SOUND_DISTANCE = 30
 
-local tailParts = {} -- Will be filled externally if used in your setup
-local crownParts = {} -- Parts visually used for sound visualization ("crown")
-
--- Fill crownParts automatically
-for _, part in ipairs(character:GetDescendants()) do
-	if part:IsA("BasePart") and part.Name:lower():find("crown") then
-		table.insert(crownParts, part)
-	end
+-- Ignore crown parts
+local function isValidPart(part)
+	if not part:IsA("BasePart") then return false end
+	if part.Transparency >= 1 then return false end
+	if part.Name:lower():find("crown") then return false end
+	return true
 end
 
--- Utility: clone parts (but skip any that have Transparency >= 1 or name contains "Crown")
-local function cloneVisibleParts(sourceModel)
-	local parts = {}
-	for _, part in ipairs(sourceModel:GetDescendants()) do
-		if part:IsA("BasePart") and part.Transparency < 1 and not part.Name:lower():find("crown") then
-			local clone = part:Clone()
-			clone.Anchored = true
-			clone.CanCollide = false
-			clone.Size = clone.Size * afterimageSizeScale
-			clone.Material = Enum.Material.Neon
-			clone.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1) -- Pastel rainbow
-			clone.CFrame = part.CFrame
-			clone.Parent = workspace
-			table.insert(parts, clone)
-			task.delay(afterimageFadeTime, function()
-				clone:Destroy()
-			end)
-		end
-	end
+-- Pastel rainbow color generator
+local function pastelRainbow(hueShift)
+	local hue = (tick() * 20 + hueShift) % 360
+	return Color3.fromHSV(hue / 360, 0.6, 1)
 end
 
--- Monitor afterimage + speed multiplier based on crown height
-local boosting = false
-local lastAfterimageTime = 0
+-- Get local/global sounds near player
+local function getLoudestSoundVolume()
+	local maxLoudness = 0
+	for _, sound in ipairs(SoundService:GetDescendants()) do
+		if sound:IsA("Sound") and sound.IsPlaying then
+			local distance = (sound.Parent:IsA("BasePart") and sound.Parent.Position or hrp.Position) - hrp.Position
+			if distance.Magnitude <= MAX_SOUND_DISTANCE or sound.Parent == character or player.Character:IsAncestorOf(sound) then
+				local loudness = sound.PlaybackLoudness
+				if loudness > maxLoudness then
+					maxLoudness = loudness
+				end
+			end
+		end
+	end
+	return maxLoudness
+end
 
-RunService.RenderStepped:Connect(function(dt)
-	local tallest = 0
-	for _, part in ipairs(crownParts) do
-		local height = part.Size.Y
-		if height > tallest then
-			tallest = height
+-- Clone afterimage
+local function createAfterimage(transparency)
+	local clone = Instance.new("Model")
+	clone.Name = "Afterimage"
+
+	for _, part in ipairs(character:GetDescendants()) do
+		if isValidPart(part) then
+			local newPart = part:Clone()
+			newPart.Anchored = true
+			newPart.CanCollide = false
+			newPart.Material = Enum.Material.Neon
+			newPart.Color = pastelRainbow(part.Position.X * 10)
+			newPart.Size *= CLONE_SCALE
+			newPart.CFrame = part.CFrame
+			newPart.Transparency = math.clamp(transparency, 0, 1)
+			newPart.Parent = clone
 		end
 	end
 
-	local loudnessRatio = math.clamp((tallest - 4) / 6, 0, 1) -- 0% if below 4, 100% at 10 studs
-	local speedMultiplier = 1 + loudnessRatio * 0.2
-	local afterimageAlpha = loudnessRatio
+	clone.Parent = workspace
 
-	-- Apply speed boost
-	if loudnessRatio > 0 then
-		humanoid.WalkSpeed = 16 * speedMultiplier
-		boosting = true
-	else
-		if boosting then
-			humanoid.WalkSpeed = 16
-			boosting = false
+	-- Fade out over time
+	task.spawn(function()
+		local fadeStart = tick()
+		while tick() - fadeStart < AFTERIMAGE_DURATION do
+			local alpha = 1 - ((tick() - fadeStart) / AFTERIMAGE_DURATION)
+			for _, part in ipairs(clone:GetChildren()) do
+				if part:IsA("BasePart") then
+					part.Transparency = 1 - alpha * (1 - transparency)
+				end
+			end
+			RunService.Heartbeat:Wait()
 		end
-	end
+		clone:Destroy()
+	end)
+end
 
-	-- Spawn afterimage if enough time passed
-	if tick() - lastAfterimageTime >= afterimageInterval and loudnessRatio > 0 then
-		lastAfterimageTime = tick()
-		local clonedParts = {}
-		for _, part in ipairs(character:GetDescendants()) do
-			if part:IsA("BasePart") and part.Transparency < 1 and not part.Name:lower():find("crown") then
-				local clone = part:Clone()
-				clone.Anchored = true
-				clone.CanCollide = false
-				clone.Size = part.Size * afterimageSizeScale
-				clone.Material = Enum.Material.Neon
-				clone.Color = Color3.fromHSV((tick() + part.Position.X) % 5 / 5, 0.3, 1)
-				clone.CFrame = part.CFrame
-				clone.Transparency = 1 - afterimageAlpha
-				clone.Parent = workspace
-				table.insert(clonedParts, clone)
-			end
-		end
-		task.delay(afterimageFadeTime, function()
-			for _, p in ipairs(clonedParts) do
-				p:Destroy()
-			end
-		end)
+-- Main loop
+local lastAfterimage = 0
+RunService.Heartbeat:Connect(function()
+	local loudness = getLoudestSoundVolume()
+	local boostPercent = loudness * BOOST_SCALE
+	local boostWalkSpeed = boostPercent * 100 -- interpret as % WalkSpeed boost
+
+	-- Apply boost
+	humanoid.WalkSpeed = humanoid.WalkSpeed + boostWalkSpeed
+
+	-- Create afterimage every interval
+	if tick() - lastAfterimage >= AFTERIMAGE_INTERVAL then
+		local visibility = math.clamp(boostPercent, 0, 1)
+		createAfterimage(1 - visibility)
+		lastAfterimage = tick()
 	end
 end)
