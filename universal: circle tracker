@@ -276,7 +276,6 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
-
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
@@ -299,6 +298,7 @@ local pastelColors = {
 local boostActive = false
 local boostStartTime = 0
 local lastAfterimageTime = 0
+local baseWalkSpeed = humanoid.WalkSpeed
 
 local function createAfterimage()
     local clone = Instance.new("Model")
@@ -320,7 +320,6 @@ local function createAfterimage()
         end
     end
 
-    -- Clone tail accessories only
     for _, acc in ipairs(character:GetChildren()) do
         if acc:IsA("Accessory") and acc.Name:lower():find("tail") then
             local accClone = acc:Clone()
@@ -344,20 +343,28 @@ end
 RunService.Heartbeat:Connect(function(dt)
     local now = tick()
 
-    if boostActive and now - boostStartTime > boostDuration then
-        boostActive = false
+    if boostActive then
         if humanoid and humanoid.Parent then
-            humanoid.WalkSpeed /= speedMultiplier
+            -- Keep WalkSpeed clamped to boosted speed (in case other scripts try to change it)
+            if humanoid.WalkSpeed ~= baseWalkSpeed * speedMultiplier then
+                humanoid.WalkSpeed = baseWalkSpeed * speedMultiplier
+            end
         end
-    end
 
-    if not boostActive then
+        if now - boostStartTime > boostDuration then
+            boostActive = false
+            if humanoid and humanoid.Parent then
+                humanoid.WalkSpeed = baseWalkSpeed
+            end
+        end
+    else
         for _, scale in ipairs(partScales) do
             if scale >= maxPartHeight * 0.5 then
                 boostActive = true
                 boostStartTime = now
+                baseWalkSpeed = humanoid.WalkSpeed or 16 -- default fallback
                 if humanoid and humanoid.Parent then
-                    humanoid.WalkSpeed *= speedMultiplier
+                    humanoid.WalkSpeed = baseWalkSpeed * speedMultiplier
                 end
                 lastAfterimageTime = 0
                 break
