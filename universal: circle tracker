@@ -281,113 +281,99 @@ end)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-
+local root = character:WaitForChild("HumanoidRootPart")
 local head = character:WaitForChild("Head")
-local tail = character:FindFirstChild("Tail") -- optional
-local speedBoostActive = false
-local lastTriggerTime = 0
 
-local BOOST_DURATION = 1
-local SPEED_MULTIPLIER = 1.2
-local AFTERIMAGE_LIFETIME = 0.3
-local CHECK_INTERVAL = 0.1
+local maxAfterimages = 8
+local afterimageInterval = 0.05
+local afterimageFadeTime = 0.3
+local afterimageSizeScale = 0.98
 
--- Rainbow pastel color generator
-local function getPastelRainbowColor(index)
-	local hue = (tick() * 60 + index * 30) % 360
-	return Color3.fromHSV(hue / 360, 0.4, 1)
+local tailParts = {} -- Will be filled externally if used in your setup
+local crownParts = {} -- Parts visually used for sound visualization ("crown")
+
+-- Fill crownParts automatically
+for _, part in ipairs(character:GetDescendants()) do
+	if part:IsA("BasePart") and part.Name:lower():find("crown") then
+		table.insert(crownParts, part)
+	end
 end
 
-local function createAfterImage()
-	local clone = Instance.new("Model")
-	clone.Name = "AfterImage"
-	clone.Parent = workspace
+-- Utility: clone parts (but skip any that have Transparency >= 1 or name contains "Crown")
+local function cloneVisibleParts(sourceModel)
+	local parts = {}
+	for _, part in ipairs(sourceModel:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 and not part.Name:lower():find("crown") then
+			local clone = part:Clone()
+			clone.Anchored = true
+			clone.CanCollide = false
+			clone.Size = clone.Size * afterimageSizeScale
+			clone.Material = Enum.Material.Neon
+			clone.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1) -- Pastel rainbow
+			clone.CFrame = part.CFrame
+			clone.Parent = workspace
+			table.insert(parts, clone)
+			task.delay(afterimageFadeTime, function()
+				clone:Destroy()
+			end)
+		end
+	end
+end
 
-	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") and part.Transparency < 1 then
-			if not part:IsDescendantOf(head:FindFirstChild("Crown") or Instance.new("Folder")) then
-				local partClone = part:Clone()
-				partClone.Anchored = true
-				partClone.CanCollide = false
-				partClone.Material = Enum.Material.Neon
-				partClone.Color = getPastelRainbowColor(math.random(1, 20))
-				partClone.Transparency = 0.2
-				partClone.Size *= 0.9
-				partClone.CFrame = part.CFrame
-				partClone.Parent = clone
+-- Monitor afterimage + speed multiplier based on crown height
+local boosting = false
+local lastAfterimageTime = 0
 
-				TweenService:Create(partClone, TweenInfo.new(AFTERIMAGE_LIFETIME), {
-					Transparency = 1
-				}):Play()
+RunService.RenderStepped:Connect(function(dt)
+	local tallest = 0
+	for _, part in ipairs(crownParts) do
+		local height = part.Size.Y
+		if height > tallest then
+			tallest = height
+		end
+	end
+
+	local loudnessRatio = math.clamp((tallest - 4) / 6, 0, 1) -- 0% if below 4, 100% at 10 studs
+	local speedMultiplier = 1 + loudnessRatio * 0.2
+	local afterimageAlpha = loudnessRatio
+
+	-- Apply speed boost
+	if loudnessRatio > 0 then
+		humanoid.WalkSpeed = 16 * speedMultiplier
+		boosting = true
+	else
+		if boosting then
+			humanoid.WalkSpeed = 16
+			boosting = false
+		end
+	end
+
+	-- Spawn afterimage if enough time passed
+	if tick() - lastAfterimageTime >= afterimageInterval and loudnessRatio > 0 then
+		lastAfterimageTime = tick()
+		local clonedParts = {}
+		for _, part in ipairs(character:GetDescendants()) do
+			if part:IsA("BasePart") and part.Transparency < 1 and not part.Name:lower():find("crown") then
+				local clone = part:Clone()
+				clone.Anchored = true
+				clone.CanCollide = false
+				clone.Size = part.Size * afterimageSizeScale
+				clone.Material = Enum.Material.Neon
+				clone.Color = Color3.fromHSV((tick() + part.Position.X) % 5 / 5, 0.3, 1)
+				clone.CFrame = part.CFrame
+				clone.Transparency = 1 - afterimageAlpha
+				clone.Parent = workspace
+				table.insert(clonedParts, clone)
 			end
 		end
-	end
-
-	if tail and tail:IsA("BasePart") then
-		local tailClone = tail:Clone()
-		tailClone.Anchored = true
-		tailClone.CanCollide = false
-		tailClone.Material = Enum.Material.Neon
-		tailClone.Color = getPastelRainbowColor(math.random(1, 20))
-		tailClone.Transparency = 0.2
-		tailClone.Size *= 0.9
-		tailClone.CFrame = tail.CFrame
-		tailClone.Parent = clone
-
-		TweenService:Create(tailClone, TweenInfo.new(AFTERIMAGE_LIFETIME), {
-			Transparency = 1
-		}):Play()
-	end
-
-	game.Debris:AddItem(clone, AFTERIMAGE_LIFETIME)
-end
-
-local function getCrownParts()
-	local crown = head:FindFirstChild("Crown")
-	if not crown then return {} end
-	return crown:GetDescendants()
-end
-
-local function shouldTrigger()
-	for _, part in ipairs(getCrownParts()) do
-		if part:IsA("BasePart") and part.Size.Y >= 4 then
-			return true
-		end
-	end
-	return false
-end
-
--- Speed boost logic
-RunService.RenderStepped:Connect(function()
-	if not character or not character.Parent then return end
-
-	if shouldTrigger() then
-		if tick() - lastTriggerTime > BOOST_DURATION then
-			lastTriggerTime = tick()
-			if not speedBoostActive then
-				speedBoostActive = true
-				local originalSpeed = humanoid.WalkSpeed
-				humanoid.WalkSpeed = originalSpeed * SPEED_MULTIPLIER
-
-				-- Spawn afterimages repeatedly during boost
-				local afterImageConnection
-				local boostStart = tick()
-				afterImageConnection = RunService.RenderStepped:Connect(function()
-					if tick() - boostStart > BOOST_DURATION then
-						humanoid.WalkSpeed = originalSpeed
-						speedBoostActive = false
-						afterImageConnection:Disconnect()
-					else
-						createAfterImage()
-					end
-				end)
+		task.delay(afterimageFadeTime, function()
+			for _, p in ipairs(clonedParts) do
+				p:Destroy()
 			end
-		end
+		end)
 	end
 end)
