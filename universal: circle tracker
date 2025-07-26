@@ -1,11 +1,13 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local torso = character:WaitForChild("Torso")
 local head = character:WaitForChild("Head")
+local humanoid = character:WaitForChild("Humanoid")
 
 -------------------------------
 -- Tail Configuration
@@ -276,23 +278,24 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 
-local humanoid = character:WaitForChild("Humanoid")
+-------------------------------
+-- Speed Boost + Afterimage System
+-------------------------------
 
 local speedMultiplier = 1.2      -- 20% speed boost
 local boostDuration = 1          -- Boost lasts 1 second
 local afterimageFadeTime = 0.3
 local afterimageInterval = 0.05
 local sizeScale = 0.95           -- Slightly smaller clones
+local crownThreshold = maxPartHeight * 0.6 -- 60% height threshold
 
 local pastelColors = {
-    Color3.fromRGB(255, 182, 193), -- Light Pink
-    Color3.fromRGB(173, 216, 230), -- Light Blue
-    Color3.fromRGB(144, 238, 144), -- Light Green
-    Color3.fromRGB(255, 255, 153), -- Light Yellow
-    Color3.fromRGB(221, 160, 221), -- Plum
+	Color3.fromRGB(255, 182, 193), -- Light Pink
+	Color3.fromRGB(173, 216, 230), -- Light Blue
+	Color3.fromRGB(144, 238, 144), -- Light Green
+	Color3.fromRGB(255, 255, 153), -- Light Yellow
+	Color3.fromRGB(221, 160, 221), -- Plum
 }
 
 local boostActive = false
@@ -301,79 +304,27 @@ local lastAfterimageTime = 0
 local baseWalkSpeed = humanoid.WalkSpeed
 
 local function createAfterimage()
-    local clone = Instance.new("Model")
-    clone.Name = "Afterimage"
+	local clone = Instance.new("Model")
+	clone.Name = "Afterimage"
 
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Transparency < 1 and part.Name ~= "HumanoidRootPart" then
-            if not part.Name:lower():find("crown") then
-                local pClone = part:Clone()
-                pClone.Anchored = true
-                pClone.CanCollide = false
-                pClone.Massless = true
-                pClone.Material = Enum.Material.Neon
-                pClone.Size = part.Size * sizeScale
-                pClone.CFrame = part.CFrame
-                pClone.Color = pastelColors[math.random(1, #pastelColors)]
-                pClone.Parent = clone
-            end
-        end
-    end
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 and part.Name ~= "HumanoidRootPart" then
+			if not part.Name:lower():find("crown") then
+				local pClone = part:Clone()
+				pClone.Anchored = true
+				pClone.CanCollide = false
+				pClone.Massless = true
+				pClone.Material = Enum.Material.Neon
+				pClone.Size = part.Size * sizeScale
+				pClone.CFrame = part.CFrame
+				pClone.Color = pastelColors[math.random(1, #pastelColors)]
+				pClone.Parent = clone
+			end
+		end
+	end
 
-    for _, acc in ipairs(character:GetChildren()) do
-        if acc:IsA("Accessory") and acc.Name:lower():find("tail") then
-            local accClone = acc:Clone()
-            accClone.Parent = clone
-        end
-    end
-
-    clone.Parent = workspace
-
-    for _, p in ipairs(clone:GetChildren()) do
-        if p:IsA("BasePart") then
-            p.Transparency = 0
-            local tween = TweenService:Create(p, TweenInfo.new(afterimageFadeTime), {Transparency = 1})
-            tween:Play()
-        end
-    end
-
-    game.Debris:AddItem(clone, afterimageFadeTime)
-end
-
-RunService.Heartbeat:Connect(function(dt)
-    local now = tick()
-
-    if boostActive then
-        if humanoid and humanoid.Parent then
-            -- Keep WalkSpeed clamped to boosted speed (in case other scripts try to change it)
-            if humanoid.WalkSpeed ~= baseWalkSpeed * speedMultiplier then
-                humanoid.WalkSpeed = baseWalkSpeed * speedMultiplier
-            end
-        end
-
-        if now - boostStartTime > boostDuration then
-            boostActive = false
-            if humanoid and humanoid.Parent then
-                humanoid.WalkSpeed = baseWalkSpeed
-            end
-        end
-    else
-        for _, scale in ipairs(partScales) do
-            if scale >= maxPartHeight * 0.5 then
-                boostActive = true
-                boostStartTime = now
-                baseWalkSpeed = humanoid.WalkSpeed or 16 -- default fallback
-                if humanoid and humanoid.Parent then
-                    humanoid.WalkSpeed = baseWalkSpeed * speedMultiplier
-                end
-                lastAfterimageTime = 0
-                break
-            end
-        end
-    end
-
-    if boostActive and now - lastAfterimageTime > afterimageInterval then
-        lastAfterimageTime = now
-        createAfterimage()
-    end
-end)
+	-- Clone tail accessories (optional)
+	for _, acc in ipairs(character:GetChildren()) do
+		if acc:IsA("Accessory") and acc.Name:lower():find("tail") then
+			local accClone = acc:Clone()
+		
