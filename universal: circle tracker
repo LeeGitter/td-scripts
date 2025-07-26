@@ -280,102 +280,59 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Settings
-local AFTERIMAGE_DURATION = 0.3
-local AFTERIMAGE_INTERVAL = 0.1
-local CLONE_SCALE = 0.97 -- Slightly smaller
-local BOOST_SCALE = 0.005 -- Each sound loudness unit adds 0.5% WalkSpeed boost
-local MAX_SOUND_DISTANCE = 30
+-- CONFIGURATION
+local MIN_SPEED = 25 -- Start showing afterimages above this speed
+local INTERVAL = 0.1 -- Time between afterimages
+local FADE_TIME = 0.5 -- Duration of fade-out
 
--- Ignore crown parts
-local function isValidPart(part)
-	if not part:IsA("BasePart") then return false end
-	if part.Transparency >= 1 then return false end
-	if part.Name:lower():find("crown") then return false end
-	return true
-end
+local lastAfterimage = 0
 
--- Pastel rainbow color generator
-local function pastelRainbow(hueShift)
-	local hue = (tick() * 20 + hueShift) % 360
-	return Color3.fromHSV(hue / 360, 0.6, 1)
-end
+local function cloneCharacterModel(char)
+	local ghost = Instance.new("Model")
+	ghost.Name = "Afterimage"
 
--- Get local/global sounds near player
-local function getLoudestSoundVolume()
-	local maxLoudness = 0
-	for _, sound in ipairs(SoundService:GetDescendants()) do
-		if sound:IsA("Sound") and sound.IsPlaying then
-			local distance = (sound.Parent:IsA("BasePart") and sound.Parent.Position or hrp.Position) - hrp.Position
-			if distance.Magnitude <= MAX_SOUND_DISTANCE or sound.Parent == character or player.Character:IsAncestorOf(sound) then
-				local loudness = sound.PlaybackLoudness
-				if loudness > maxLoudness then
-					maxLoudness = loudness
-				end
-			end
-		end
-	end
-	return maxLoudness
-end
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 then
+			local ghostPart = part:Clone()
+			ghostPart.Anchored = true
+			ghostPart.CanCollide = false
+			ghostPart.Transparency = 0.5
+			ghostPart.Color = Color3.new(1, 1, 1)
+			ghostPart.Material = Enum.Material.ForceField
+			ghostPart.Parent = ghost
 
--- Clone afterimage
-local function createAfterimage(transparency)
-	local clone = Instance.new("Model")
-	clone.Name = "Afterimage"
-
-	for _, part in ipairs(character:GetDescendants()) do
-		if isValidPart(part) then
-			local newPart = part:Clone()
-			newPart.Anchored = true
-			newPart.CanCollide = false
-			newPart.Material = Enum.Material.Neon
-			newPart.Color = pastelRainbow(part.Position.X * 10)
-			newPart.Size *= CLONE_SCALE
-			newPart.CFrame = part.CFrame
-			newPart.Transparency = math.clamp(transparency, 0, 1)
-			newPart.Parent = clone
+			-- Fade it out
+			TweenService:Create(ghostPart, TweenInfo.new(FADE_TIME), {
+				Transparency = 1
+			}):Play()
 		end
 	end
 
-	clone.Parent = workspace
+	ghost.Parent = workspace
 
-	-- Fade out over time
-	task.spawn(function()
-		local fadeStart = tick()
-		while tick() - fadeStart < AFTERIMAGE_DURATION do
-			local alpha = 1 - ((tick() - fadeStart) / AFTERIMAGE_DURATION)
-			for _, part in ipairs(clone:GetChildren()) do
-				if part:IsA("BasePart") then
-					part.Transparency = 1 - alpha * (1 - transparency)
-				end
-			end
-			RunService.Heartbeat:Wait()
-		end
-		clone:Destroy()
+	-- Auto destroy
+	task.delay(FADE_TIME, function()
+		if ghost then ghost:Destroy() end
 	end)
 end
 
--- Main loop
-local lastAfterimage = 0
-RunService.Heartbeat:Connect(function()
-	local loudness = getLoudestSoundVolume()
-	local boostPercent = loudness * BOOST_SCALE
-	local boostWalkSpeed = boostPercent * 100 -- interpret as % WalkSpeed boost
+RunService.RenderStepped:Connect(function()
+	local character = player.Character
+	if not character then return end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
 
-	-- Apply boost
-	humanoid.WalkSpeed = humanoid.WalkSpeed + boostWalkSpeed
+	local spoofForce = hrp:FindFirstChild("SoundSpeedForce")
+	if not spoofForce then return end
 
-	-- Create afterimage every interval
-	if tick() - lastAfterimage >= AFTERIMAGE_INTERVAL then
-		local visibility = math.clamp(boostPercent, 0, 1)
-		createAfterimage(1 - visibility)
+	local spoofSpeed = spoofForce.Velocity.Magnitude
+	if spoofSpeed > MIN_SPEED and tick() - lastAfterimage > INTERVAL then
 		lastAfterimage = tick()
+		cloneCharacterModel(character)
 	end
 end)
