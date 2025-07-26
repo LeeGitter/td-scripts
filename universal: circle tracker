@@ -281,76 +281,88 @@ end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local SoundService = game:GetService("SoundService")
-
 local player = Players.LocalPlayer
+
 local character = player.Character or player.CharacterAdded:Wait()
 local head = character:WaitForChild("Head")
 
--- CONFIG
+-- Config
 local CHECK_INTERVAL = 0.05
 local AFTERIMAGE_INTERVAL = 0.1
-local MAX_VOLUME = 1 -- Treat this as 100% volume
-local MIN_VOLUME = 0.02 -- Start showing afterimages above this
+local MAX_VOLUME = 1000  -- Max playback loudness expected
+local MIN_VOLUME = 50    -- Minimum playback loudness to start afterimages
 local FADE_TIME = 0.4
+local MAX_DISTANCE = 60  -- Max distance to hear sounds
 
 local lastAfterimageTime = 0
 local lastCheck = 0
 
--- Utility: clone parts of the character as a ghost
-local function createAfterimageFrom(char, loudnessPercent)
-	local ghost = Instance.new("Model")
-	ghost.Name = "Afterimage"
-
-	for _, part in ipairs(char:GetDescendants()) do
-		if part:IsA("BasePart") and part.Transparency < 1 then
-			local clone = part:Clone()
-			clone.Anchored = true
-			clone.CanCollide = false
-			clone.Transparency = 1 - loudnessPercent -- more visible when louder
-			clone.Material = Enum.Material.ForceField
-			clone.Color = part.Color
-			clone.Size = part.Size
-			clone.CFrame = part.CFrame
-			clone.Parent = ghost
-
-			-- Fade out
-			TweenService:Create(clone, TweenInfo.new(FADE_TIME), {
-				Transparency = 1
-			}):Play()
-		end
-	end
-
-	ghost.Parent = workspace
-	game.Debris:AddItem(ghost, FADE_TIME)
+local function getSoundPosition(sound)
+    if sound.Parent and sound.Parent:IsA("BasePart") then
+        return sound.Parent.Position
+    elseif sound.Parent and sound.Parent:IsA("Model") then
+        local hrp = sound.Parent:FindFirstChild("HumanoidRootPart")
+        if hrp then return hrp.Position end
+        for _, d in pairs(sound.Parent:GetDescendants()) do
+            if d:IsA("BasePart") then return d.Position end
+        end
+    end
+    return head.Position
 end
 
--- Get loudest local sound heard by the player
-local function getLoudestSoundVolume()
-	local loudest = 0
-	for _, descendant in ipairs(workspace:GetDescendants()) do
-		if descendant:IsA("Sound") and descendant.IsPlaying then
-			local dist = (descendant.Position - head.Position).Magnitude
-			if dist < descendant.EmitterSize + 60 then -- within audible range
-				if descendant.Volume > loudest then
-					loudest = descendant.Volume
-				end
-			end
-		end
-	end
-	return loudest
+local function getLoudestSoundPlaybackLoudness()
+    local loudest = 0
+    for _, sound in ipairs(workspace:GetDescendants()) do
+        if sound:IsA("Sound") and sound.IsPlaying then
+            local pos = getSoundPosition(sound)
+            if (pos - head.Position).Magnitude <= MAX_DISTANCE then
+                local loudness = sound.PlaybackLoudness or 0
+                if loudness > loudest then
+                    loudest = loudness
+                end
+            end
+        end
+    end
+    return loudest
+end
+
+local function createAfterimageFrom(char, loudnessPercent)
+    local ghost = Instance.new("Model")
+    ghost.Name = "Afterimage"
+
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Transparency < 1 then
+            local clone = part:Clone()
+            clone.Anchored = true
+            clone.CanCollide = false
+            clone.Transparency = 1 - loudnessPercent -- more visible when louder
+            clone.Material = Enum.Material.ForceField
+            clone.Color = part.Color
+            clone.Size = part.Size * 0.95 -- slightly smaller to prevent clipping
+            clone.CFrame = part.CFrame
+            clone.Parent = ghost
+
+            -- Fade out
+            TweenService:Create(clone, TweenInfo.new(FADE_TIME), {
+                Transparency = 1
+            }):Play()
+        end
+    end
+
+    ghost.Parent = workspace
+    game.Debris:AddItem(ghost, FADE_TIME)
 end
 
 RunService.RenderStepped:Connect(function()
-	if tick() - lastCheck < CHECK_INTERVAL then return end
-	lastCheck = tick()
+    if tick() - lastCheck < CHECK_INTERVAL then return end
+    lastCheck = tick()
 
-	local loudest = getLoudestSoundVolume()
-	if loudest >= MIN_VOLUME then
-		local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
-		if tick() - lastAfterimageTime >= AFTERIMAGE_INTERVAL * (1 - loudnessPercent) then
-			lastAfterimageTime = tick()
-			createAfterimageFrom(character, loudnessPercent)
-		end
-	end
+    local loudest = getLoudestSoundPlaybackLoudness()
+    if loudest >= MIN_VOLUME then
+        local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
+        if tick() - lastAfterimageTime >= AFTERIMAGE_INTERVAL * (1 - loudnessPercent) then
+            lastAfterimageTime = tick()
+            createAfterimageFrom(character, loudnessPercent)
+        end
+    end
 end)
