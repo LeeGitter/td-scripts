@@ -280,134 +280,134 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 
--- UI Setup
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-gui.Name = "ChargeBarGui"
-gui.ResetOnSpawn = false
+-- === GUI SETUP ===
+local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+screenGui.Name = "TimeBarGUI"
 
-local bar = Instance.new("Frame", gui)
-bar.Size = UDim2.new(0.4, 0, 0.05, 0)
-bar.Position = UDim2.new(0.3, 0, 0.9, 0)
-bar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+local barBack = Instance.new("Frame", screenGui)
+barBack.Size = UDim2.new(0.4, 0, 0.03, 0)
+barBack.Position = UDim2.new(0.3, 0, 0.95, 0)
+barBack.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+barBack.BorderSizePixel = 0
 
-local fill = Instance.new("Frame", bar)
-fill.BackgroundColor3 = Color3.fromRGB(50, 200, 255)
-fill.Size = UDim2.new(0, 0, 1, 0)
+local bar = Instance.new("Frame", barBack)
+bar.Size = UDim2.new(0, 0, 1, 0)
+bar.Position = UDim2.new(0, 0, 0, 0)
+bar.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
 
-local label = Instance.new("TextLabel", bar)
-label.Size = UDim2.new(1, 0, 1, 0)
-label.BackgroundTransparency = 1
-label.TextColor3 = Color3.new(1, 1, 1)
-label.Text = ""
-label.TextScaled = true
-label.Font = Enum.Font.GothamBold
+local barText = Instance.new("TextLabel", barBack)
+barText.Size = UDim2.new(1, 0, 1, 0)
+barText.Position = UDim2.new(0, 0, 0, 0)
+barText.BackgroundTransparency = 1
+barText.Text = ""
+barText.TextColor3 = Color3.new(1, 0, 0)
+barText.Font = Enum.Font.GothamBold
+barText.TextScaled = true
 
--- Charge Variables
-local charging = false
-local filled = false
-local fillAmount = 0
+-- === POSITION TRACKING ===
+local positionLog = {}
+local maxTime = 10
+local interval = 0.1
+local maxEntries = math.floor(maxTime / interval)
 
--- Time Tracking
-local positionHistory = {}
-local maxRecordTime = 10
-local rewindSpeed = 1.5
-local rewinding = false
+RunService.Heartbeat:Connect(function()
+	if #positionLog >= maxEntries then
+		table.remove(positionLog, 1)
+	end
+	table.insert(positionLog, 1, hrp.Position)
+end)
 
--- Afterimage Function
-local function spawnAfterimage()
-	local ghost = character:Clone()
-	for _, desc in ghost:GetDescendants() do
-		if desc:IsA("BasePart") then
-			desc.Anchored = true
-			desc.CanCollide = false
-			desc.Transparency = 0.5
-		elseif desc:IsA("Humanoid") then
-			desc.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+-- === REWIND CONTROL ===
+local isCharging = false
+local charge = 0
+local maxCharge = 1
+local rewindActive = false
+
+-- === AFTERIMAGE FUNCTION ===
+local function createAfterimage()
+	local clone = character:Clone()
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.Transparency = 0.5
+		elseif d:IsA("Script") or d:IsA("LocalScript") then
+			d:Destroy()
 		end
 	end
-	ghost.Parent = workspace
-	task.delay(0.3, function() ghost:Destroy() end)
+	clone.Parent = workspace
+	game.Debris:AddItem(clone, 0.3)
 end
 
--- Capture Movement History
-RunService.Heartbeat:Connect(function(dt)
-	if not rewinding then
-		table.insert(positionHistory, 1, hrp.CFrame)
-		if #positionHistory > maxRecordTime * 60 then
-			table.remove(positionHistory)
-		end
-	end
-end)
-
--- Charging Logic
-UIS.InputBegan:Connect(function(input, gpe)
-	if input.KeyCode == Enum.KeyCode.Space and not gpe then
-		charging = true
-	end
-end)
-
-UIS.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.Space then
-		if filled then
-			-- Begin rewind
-			charging = false
-			filled = false
-			label.Text = ""
-			fill.BackgroundColor3 = Color3.fromRGB(50, 200, 255)
-			fillAmount = 0
-			rewinding = true
-
-			-- Freeze controls
-			local rewindIndex = 1
-			while rewinding and rewindIndex <= #positionHistory do
-				if not character or not character.Parent then break end
-
-				-- Apply afterimage
-				spawnAfterimage()
-
-				-- Move backwards
-				local index = rewindIndex
-				local cframe = positionHistory[index]
-				hrp.CFrame = cframe
-
-				rewindIndex += rewindSpeed
-				RunService.RenderStepped:Wait()
-			end
-
-			rewinding = false
-			positionHistory = {}
-		else
-			charging = false
-		end
-	end
-end)
-
--- UI Fill Update
+-- === MAIN LOOP ===
 RunService.RenderStepped:Connect(function(dt)
-	if charging and not rewinding then
-		fillAmount = math.clamp(fillAmount + dt * 0.25, 0, 1) -- 4 sec fill
-	else
-		fillAmount = math.clamp(fillAmount - dt * 0.25, 0, 1)
+	if isCharging and not rewindActive then
+		charge = math.min(charge + dt / 2.5, maxCharge) -- ~2.5 sec full
+		bar.Size = UDim2.new(charge, 0, 1, 0)
+
+		if charge >= maxCharge then
+			bar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+			barText.Text = "RELEASE!!!"
+		else
+			bar.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+			barText.Text = ""
+		end
+	end
+end)
+
+-- === REVERSE MOVEMENT ===
+local function rewind()
+	if rewindActive then return end
+	rewindActive = true
+
+	local rewindPath = table.clone(positionLog)
+	local rewindIndex = 1
+
+	while rewindIndex < #rewindPath do
+		local current = hrp.Position
+		local target = rewindPath[rewindIndex + 1]
+		if not target then break end
+
+		local direction = (target - current).Unit
+		local distance = (target - current).Magnitude
+		local travelTime = (distance / 50) / 1.5 -- speed = 50 * 1.5
+
+		local tween = TweenService:Create(hrp, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {
+			CFrame = CFrame.new(target, current) -- look toward previous pos
+		})
+		tween:Play()
+
+		createAfterimage()
+		task.wait(travelTime)
+		rewindIndex += 1
 	end
 
-	fill.Size = UDim2.new(fillAmount, 0, 1, 0)
+	rewindActive = false
+end
 
-	if fillAmount >= 1 and not filled then
-		filled = true
-		fill.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
-		label.Text = "RELEASE!!!"
+-- === INPUT HANDLING ===
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.Space and not isCharging then
+		isCharging = true
 	end
+end)
 
-	if fillAmount < 1 and filled then
-		filled = false
-		label.Text = ""
-		fill.BackgroundColor3 = Color3.fromRGB(50, 200, 255)
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.Space and isCharging then
+		isCharging = false
+		if charge >= maxCharge then
+			rewind()
+		end
+		charge = 0
+		bar.Size = UDim2.new(0, 0, 1, 0)
+		barText.Text = ""
 	end
 end)
