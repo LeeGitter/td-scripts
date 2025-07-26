@@ -224,25 +224,6 @@ local function getNearbySounds(dt)
     return sounds
 end
 
--- Highlight setup
-local function createHighlight()
-    if highlight then return end
-    highlight = Instance.new("SelectionBox")
-    highlight.Adornee = character
-    highlight.Parent = character
-    highlight.LineThickness = 0.05
-    highlight.Transparency = 0
-    highlight.Color3 = Color3.new(1,1,1)
-    highlight.SurfaceTransparency = 0.8
-end
-
-local function removeHighlight()
-    if highlight then
-        highlight:Destroy()
-        highlight = nil
-    end
-end
-
 RunService.Heartbeat:Connect(function(dt)
     local headCFrame = head.CFrame
     local pitch, roll = headCFrame:ToEulerAnglesXYZ()
@@ -410,6 +391,89 @@ end
 -- Monitor crown growth to trigger speed boost
 local crownBoostCooldown = 0
 local crownBoostDelay = 5 -- minimum time between boosts
+
+RunService.Heartbeat:Connect(function(dt)
+	for _, scale in ipairs(partScales) do
+		if scale >= (maxPartHeight * 0.5) and tick() - crownBoostCooldown > crownBoostDelay then
+			crownBoostCooldown = tick()
+			applySpeedBoost()
+			break
+		end
+	end
+end)
+-- Speed Boost & Afterimage System
+local humanoid = character:WaitForChild("Humanoid")
+local isBoosted = false
+local boostDuration = 4
+local boostAmount = 1.1 -- 10% amplification
+local afterimageFadeTime = 0.3
+local afterimageInterval = 0.05
+local lastAfterimage = 0
+local lastBoostTime = 0
+
+local function applyAfterimage()
+	local clone = Instance.new("Model")
+	clone.Name = "Afterimage"
+	clone.Parent = workspace
+	clone.Archivable = true
+
+	local function clonePart(original)
+		if original:IsA("BasePart") and original.Transparency < 1 then
+			local newPart = Instance.new("Part")
+			newPart.Anchored = true
+			newPart.CanCollide = false
+			newPart.Transparency = 0.4
+			newPart.Size = original.Size * 0.95
+			newPart.CFrame = original.CFrame
+			newPart.Color = Color3.fromHSV((tick() % 5) / 5, 0.6, 1)
+			newPart.Material = Enum.Material.Neon
+			newPart.Name = original.Name
+			newPart.Parent = clone
+		end
+	end
+
+	for _, part in ipairs(character:GetDescendants()) do
+		clonePart(part)
+	end
+
+	task.spawn(function()
+		local elapsed = 0
+		while elapsed < afterimageFadeTime do
+			elapsed += RunService.RenderStepped:Wait()
+			for _, p in ipairs(clone:GetChildren()) do
+				if p:IsA("BasePart") then
+					p.Transparency = 0.4 + (elapsed / afterimageFadeTime) * 0.6
+				end
+			end
+		end
+		clone:Destroy()
+	end)
+end
+
+local function applySpeedBoost()
+	if isBoosted then return end
+	isBoosted = true
+	local originalSpeed = humanoid.WalkSpeed
+	humanoid.WalkSpeed = originalSpeed * boostAmount
+	lastBoostTime = tick()
+
+	local afterimageConnection
+	afterimageConnection = RunService.RenderStepped:Connect(function()
+		if tick() - lastBoostTime > boostDuration then
+			afterimageConnection:Disconnect()
+			humanoid.WalkSpeed = originalSpeed
+			isBoosted = false
+			return
+		end
+		if tick() - lastAfterimage >= afterimageInterval then
+			lastAfterimage = tick()
+			applyAfterimage()
+		end
+	end)
+end
+
+local crownBoostCooldown = 0
+local crownBoostDelay = 5
 
 RunService.Heartbeat:Connect(function(dt)
 	for _, scale in ipairs(partScales) do
