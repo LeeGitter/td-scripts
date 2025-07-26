@@ -304,94 +304,86 @@ for _, part in ipairs(character:GetChildren()) do
 	end
 end
 
--- Rainbow pastel colors
-local pastelColors = {
-	Color3.fromRGB(255, 192, 203), -- pink
-	Color3.fromRGB(173, 216, 230), -- light blue
-	Color3.fromRGB(144, 238, 144), -- light green
-	Color3.fromRGB(255, 255, 224), -- light yellow
-	Color3.fromRGB(221, 160, 221), -- plum
-	Color3.fromRGB(255, 182, 193), -- light pink
-	Color3.fromRGB(135, 206, 250), -- sky blue
-}
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
-local function getRandomPastel()
-	return pastelColors[math.random(1, #pastelColors)]
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+local normalWalkSpeed = 16
+local boostedWalkSpeed = normalWalkSpeed * 1.2
+local boostDuration = 1
+local fadeTime = 0.3
+local cloneSizeScale = 0.95
+
+local visualizerFolder = character:WaitForChild("CrownVisualizer", 5) or character:FindFirstChild("CrownVisualizer")
+if not visualizerFolder then
+	warn("CrownVisualizer not found in character!")
+	return
 end
+
+local isBoosting = false
+local pastelColors = {
+	Color3.fromRGB(255, 182, 193), -- Light pink
+	Color3.fromRGB(144, 238, 144), -- Light green
+	Color3.fromRGB(173, 216, 230), -- Light blue
+	Color3.fromRGB(221, 160, 221), -- Plum
+	Color3.fromRGB(255, 255, 224), -- Light yellow
+	Color3.fromRGB(240, 128, 128), -- Light coral
+}
 
 local function createAfterimage()
 	local clone = Instance.new("Model")
-	clone.Name = "Afterimage"
+	clone.Name = "AfterImage"
 
-	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") and part.Transparency < 1 and part.Name:lower():find("crown") == nil then
-			local newPart = part:Clone()
-			newPart.Anchored = true
-			newPart.CanCollide = false
-			newPart.Transparency = 0
-			newPart.Color = getRandomPastel()
-			newPart.Material = Enum.Material.Neon
-			newPart.Size = part.Size * cloneScale
-			newPart.CFrame = part.CFrame
-			newPart.Parent = clone
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 then
+			if not part:IsDescendantOf(visualizerFolder) then
+				local pClone = part:Clone()
+				pClone.Anchored = true
+				pClone.CanCollide = false
+				pClone.CFrame = part.CFrame
+				pClone.Size *= cloneSizeScale
+				pClone.Color = pastelColors[math.random(1, #pastelColors)]
+				pClone.Material = Enum.Material.Neon
+				pClone.Transparency = 0
+				pClone.Parent = clone
+
+				TweenService:Create(pClone, TweenInfo.new(fadeTime), { Transparency = 1 }):Play()
+				game.Debris:AddItem(pClone, fadeTime)
+			end
 		end
-	end
-
-	for _, tail in ipairs(tailParts) do
-		local tailClone = tail:Clone()
-		tailClone.Anchored = true
-		tailClone.CanCollide = false
-		tailClone.Color = getRandomPastel()
-		tailClone.Material = Enum.Material.Neon
-		tailClone.Size = tail.Size * cloneScale
-		tailClone.CFrame = tail.CFrame
-		tailClone.Parent = clone
 	end
 
 	clone.Parent = workspace
+	game.Debris:AddItem(clone, fadeTime)
+end
 
-	-- Fade out
-	for _, p in ipairs(clone:GetChildren()) do
-		if p:IsA("BasePart") then
-			local tween = TweenService:Create(p, TweenInfo.new(afterimageFadeTime), {Transparency = 1})
-			tween:Play()
-		end
+local function triggerBoost()
+	if isBoosting then return end
+	isBoosting = true
+
+	humanoid.WalkSpeed = boostedWalkSpeed
+	local boostStart = tick()
+
+	while tick() - boostStart < boostDuration do
+		createAfterimage()
+		RunService.Heartbeat:Wait()
 	end
 
-	game.Debris:AddItem(clone, afterimageLifetime)
+	humanoid.WalkSpeed = normalWalkSpeed
+	isBoosting = false
 end
 
-local canBoost = true
-local boosting = false
-
-local function applySpeedBoost()
-	if not canBoost or boosting then return end
-	boosting = true
-	local originalSpeed = humanoid.WalkSpeed
-	humanoid.WalkSpeed = originalSpeed * boostMultiplier
-
-	createAfterimage()
-
-	task.delay(speedBoostDuration, function()
-		if humanoid and humanoid.Parent then
-			humanoid.WalkSpeed = originalSpeed
-		end
-		boosting = false
-	end)
-end
-
--- Constantly check crown parts for height
-RunService.RenderStepped:Connect(function()
-	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") and part.Name:lower():find("crown") then
-			local height = part.Size.Y
-			local currentY = part.Position.Y - part.Size.Y / 2
-			local worldHeight = (workspace.CurrentCamera.CFrame.Position.Y - currentY) / height
-
-			if worldHeight >= checkHeight then
-				applySpeedBoost()
-				break
-			end
+-- Crown trigger check
+RunService.Heartbeat:Connect(function()
+	for _, part in ipairs(visualizerFolder:GetChildren()) do
+		if part:IsA("BasePart") and part.Size.Y >= 0.5 then
+			triggerBoost()
+			break
 		end
 	end
 end)
