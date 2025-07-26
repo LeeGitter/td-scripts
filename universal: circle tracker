@@ -277,88 +277,92 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
--------------------------------
--- Speed Boost & Afterimage Logic
--------------------------------
-local humanoid = character:WaitForChild("Humanoid")
-local isBoosted = false
-local boostDuration = 4
-local boostAmount = 1.1
-local afterimageFadeTime = 0.3
-local afterimageInterval = 0.05
-local lastAfterimage = 0
-local lastBoostTime = 0
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
-local function applyAfterimage()
-	local clone = Instance.new("Model")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local head = character:WaitForChild("Head")
+
+local segmentCount = 10
+local radius = 2
+local heightOffset = 3
+local basePartSize = Vector3.new(0.3, 0.3, 0.3)
+
+local parts = {}
+
+for i = 1, segmentCount do
+	local part = Instance.new("Part")
+	part.Size = basePartSize
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.BrickColor = BrickColor.new("Bright yellow")
+	part.Parent = workspace
+	table.insert(parts, part)
+end
+
+RunService.RenderStepped:Connect(function()
+	local camCF = workspace.CurrentCamera.CFrame
+	local basePos = head.Position + Vector3.new(0, heightOffset, 0)
+
+	for i, part in ipairs(parts) do
+		local angle = math.rad((360 / segmentCount) * i)
+		local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		offset = camCF:VectorToWorldSpace(offset)
+		local targetPos = basePos + offset
+		part.Position = targetPos
+	end
+end)
+
+-------------------------------
+-- Afterimage Trail Effect
+-------------------------------
+
+local function createAfterimage()
+	local clone = character:Clone()
 	clone.Name = "Afterimage"
-	clone.Parent = workspace
-	clone.Archivable = true
 
-	local function clonePart(original)
-		if original:IsA("BasePart") and original.Transparency < 1 then
-			local newPart = Instance.new("Part")
-			newPart.Anchored = true
-			newPart.CanCollide = false
-			newPart.Transparency = 0.4
-			newPart.Size = original.Size * 0.95
-			newPart.CFrame = original.CFrame
-			newPart.Color = Color3.fromHSV((tick() % 5) / 5, 0.6, 1)
-			newPart.Material = Enum.Material.Neon
-			newPart.Name = original.Name
-			newPart.Parent = clone
-		end
-	end
-
-	for _, part in ipairs(character:GetDescendants()) do
-		clonePart(part)
-	end
-
-	task.spawn(function()
-		local elapsed = 0
-		while elapsed < afterimageFadeTime do
-			elapsed += RunService.RenderStepped:Wait()
-			for _, p in ipairs(clone:GetChildren()) do
-				if p:IsA("BasePart") then
-					p.Transparency = 0.4 + (elapsed / afterimageFadeTime) * 0.6
-				end
+	-- Clean up transparency 1+ parts and make remaining ones anchored and non-functional
+	for _, part in clone:GetDescendants() do
+		if part:IsA("BasePart") then
+			if part.Transparency >= 1 then
+				part:Destroy()
+			else
+				part.Anchored = true
+				part.CanCollide = false
+				part.Massless = true
 			end
+		elseif part:IsA("Humanoid") or part:IsA("Animator") then
+			part:Destroy()
 		end
-		clone:Destroy()
-	end)
+	end
+
+	-- Parent to workspace
+	clone.Parent = workspace
+
+	-- Tween fade out
+	local TweenService = game:GetService("TweenService")
+	local fadeTime = 0.3
+
+	for _, part in clone:GetDescendants() do
+		if part:IsA("BasePart") then
+			local goal = {}
+			goal.Transparency = 1
+
+			local tween = TweenService:Create(part, TweenInfo.new(fadeTime), goal)
+			tween:Play()
+		end
+	end
+
+	-- Auto-remove after fade
+	game.Debris:AddItem(clone, fadeTime)
 end
 
-local function applySpeedBoost()
-	if isBoosted then return end
-	isBoosted = true
-	local originalSpeed = humanoid.WalkSpeed
-	humanoid.WalkSpeed = originalSpeed * boostAmount
-	lastBoostTime = tick()
-
-	local afterimageConnection
-	afterimageConnection = RunService.RenderStepped:Connect(function()
-		if tick() - lastBoostTime > boostDuration then
-			afterimageConnection:Disconnect()
-			humanoid.WalkSpeed = originalSpeed
-			isBoosted = false
-			return
-		end
-		if tick() - lastAfterimage >= afterimageInterval then
-			lastAfterimage = tick()
-			applyAfterimage()
-		end
-	end)
-end
-
-local crownBoostCooldown = 0
-local crownBoostDelay = 5
-
-RunService.Heartbeat:Connect(function(dt)
-	for _, scale in ipairs(partScales) do
-		if scale >= (maxPartHeight * 0.5) and tick() - crownBoostCooldown > crownBoostDelay then
-			crownBoostCooldown = tick()
-			applySpeedBoost()
-			break
-		end
+-- Spawn afterimage trail continuously
+task.spawn(function()
+	while true do
+		createAfterimage()
+		task.wait(0.05)
 	end
 end)
