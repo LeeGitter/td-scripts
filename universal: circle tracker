@@ -277,55 +277,6 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local head = character:WaitForChild("Head")
-
-local segmentCount = 10
-local radius = 2
-local heightOffset = 3
-local basePartSize = Vector3.new(0.3, 0.3, 0.3)
-
-local parts = {}
-
-for i = 1, segmentCount do
-	local part = Instance.new("Part")
-	part.Size = basePartSize
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.BrickColor = BrickColor.new("Bright yellow")
-	part.Parent = workspace
-	table.insert(parts, part)
-end
-
-RunService.RenderStepped:Connect(function()
-	local camCF = workspace.CurrentCamera.CFrame
-	local basePos = head.Position + Vector3.new(0, heightOffset, 0)
-
-	for i, part in ipairs(parts) do
-		local angle = math.rad((360 / segmentCount) * i)
-		local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-		offset = camCF:VectorToWorldSpace(offset)
-		local targetPos = basePos + offset
-		part.Position = targetPos
-	end
-end)
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local head = character:WaitForChild("Head")
-local humanoid = character:WaitForChild("Humanoid")
-
--- Afterimage + Speed Boost system triggered by crown height
-
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
@@ -353,9 +304,8 @@ local function createAfterimage()
     local clone = Instance.new("Model")
     clone.Name = "Afterimage"
 
-    -- Clone all character BaseParts except fully transparent & crown parts
     for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Transparency < 1 then
+        if part:IsA("BasePart") and part.Transparency < 1 and part.Name ~= "HumanoidRootPart" then
             if not part.Name:lower():find("crown") then
                 local pClone = part:Clone()
                 pClone.Anchored = true
@@ -370,7 +320,7 @@ local function createAfterimage()
         end
     end
 
-    -- Clone tail accessories (named with 'tail')
+    -- Clone tail accessories only
     for _, acc in ipairs(character:GetChildren()) do
         if acc:IsA("Accessory") and acc.Name:lower():find("tail") then
             local accClone = acc:Clone()
@@ -380,9 +330,9 @@ local function createAfterimage()
 
     clone.Parent = workspace
 
-    -- Tween parts to fade out over afterimageFadeTime
     for _, p in ipairs(clone:GetChildren()) do
         if p:IsA("BasePart") then
+            p.Transparency = 0
             local tween = TweenService:Create(p, TweenInfo.new(afterimageFadeTime), {Transparency = 1})
             tween:Play()
         end
@@ -394,26 +344,27 @@ end
 RunService.Heartbeat:Connect(function(dt)
     local now = tick()
 
-    -- If boost active and duration expired, remove boost
     if boostActive and now - boostStartTime > boostDuration then
         boostActive = false
-        humanoid.WalkSpeed /= speedMultiplier
+        if humanoid and humanoid.Parent then
+            humanoid.WalkSpeed /= speedMultiplier
+        end
     end
 
-    -- If not boosted, check if any crown part reaches 50% height to trigger boost
     if not boostActive then
         for _, scale in ipairs(partScales) do
             if scale >= maxPartHeight * 0.5 then
                 boostActive = true
                 boostStartTime = now
-                humanoid.WalkSpeed *= speedMultiplier
+                if humanoid and humanoid.Parent then
+                    humanoid.WalkSpeed *= speedMultiplier
+                end
                 lastAfterimageTime = 0
                 break
             end
         end
     end
 
-    -- Spawn afterimages while boost is active, limited by interval
     if boostActive and now - lastAfterimageTime > afterimageInterval then
         lastAfterimageTime = now
         createAfterimage()
