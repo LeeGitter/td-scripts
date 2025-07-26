@@ -278,108 +278,54 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
-local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-
+local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local head = character:WaitForChild("Head")
 
-local MAX_VOLUME = 1000
-local AFTERIMAGE_INTERVAL = 0.1
-local AFTERIMAGE_FADE = 0.3
-local AFTERIMAGE_SIZE_MULT = 0.95
+-- Create UI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ChargeBarGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-local BASE_SPEED_BOOST = 0.1 -- 10%
-local MAX_ADDITIONAL_SPEED_BOOST = 0.2 -- up to +20%
+local barBackground = Instance.new("Frame")
+barBackground.Name = "BarBackground"
+barBackground.Size = UDim2.new(0.4, 0, 0.05, 0)
+barBackground.Position = UDim2.new(0.3, 0, 0.9, 0)
+barBackground.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+barBackground.BorderSizePixel = 0
+barBackground.Parent = screenGui
 
-local BASE_AFTERIMAGE_VISIBILITY = 0.01 -- 1%
-local MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY = 0.5 -- 50%
+local fillBar = Instance.new("Frame")
+fillBar.Name = "FillBar"
+fillBar.Size = UDim2.new(0, 0, 1, 0)
+fillBar.Position = UDim2.new(0, 0, 0, 0)
+fillBar.BackgroundColor3 = Color3.fromRGB(50, 200, 255)
+fillBar.BorderSizePixel = 0
+fillBar.Parent = barBackground
 
-local defaultWalkSpeed = humanoid.WalkSpeed
+-- Fill logic
+local filling = false
+local fillPercent = 0
 
-local lastAfterimageTime = 0
-
-local function getSoundPosition(sound)
-	if sound.Parent and sound.Parent:IsA("BasePart") then
-		return sound.Parent.Position
-	elseif sound.Parent and sound.Parent:IsA("Model") then
-		local hrp = sound.Parent:FindFirstChild("HumanoidRootPart")
-		if hrp then return hrp.Position end
-		for _, d in pairs(sound.Parent:GetDescendants()) do
-			if d:IsA("BasePart") then return d.Position end
-		end
-	end
-	return head.Position
-end
-
-local function getLoudestSoundVolume()
-	local loudest = 0
-	for _, sound in ipairs(workspace:GetDescendants()) do
-		if sound:IsA("Sound") and sound.IsPlaying then
-			local pos = getSoundPosition(sound)
-			if (pos - head.Position).Magnitude <= 60 then
-				local loudness = sound.PlaybackLoudness or 0
-				if loudness > loudest then
-					loudest = loudness
-				end
-			end
-		end
-	end
-	return loudest
-end
-
-local function createAfterimage(visibility)
-	local ghost = Instance.new("Model")
-	ghost.Name = "Afterimage"
-
-	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") and part.Transparency < 1 then
-			local clone = part:Clone()
-			clone.Anchored = true
-			clone.CanCollide = false
-			clone.Transparency = 1 - visibility
-			clone.Material = Enum.Material.Neon
-			clone.Color = part.Color
-			clone.Size = part.Size * AFTERIMAGE_SIZE_MULT
-			clone.CFrame = part.CFrame
-			clone.Parent = ghost
-
-			TweenService:Create(clone, TweenInfo.new(AFTERIMAGE_FADE), {
-				Transparency = 1
-			}):Play()
-		end
-	end
-
-	ghost.Parent = workspace
-	game.Debris:AddItem(ghost, AFTERIMAGE_FADE)
-end
-
-RunService.Heartbeat:Connect(function(dt)
-	local loudest = getLoudestSoundVolume()
-	local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
-
-	-- Calculate target walk speed
-	local targetSpeed = defaultWalkSpeed * (1 + BASE_SPEED_BOOST + MAX_ADDITIONAL_SPEED_BOOST * loudnessPercent)
-	
-	-- Smoothly lerp humanoid.WalkSpeed towards targetSpeed to avoid snaps
-	humanoid.WalkSpeed = humanoid.WalkSpeed + (targetSpeed - humanoid.WalkSpeed) * 0.1
-
-	-- Afterimage visibility
-	local visibility = BASE_AFTERIMAGE_VISIBILITY + MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY * loudnessPercent
-	visibility = math.clamp(visibility, 0, 1)
-
-	if tick() - lastAfterimageTime > AFTERIMAGE_INTERVAL then
-		lastAfterimageTime = tick()
-		createAfterimage(visibility)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.Space and not gameProcessed then
+		filling = true
 	end
 end)
 
-player.CharacterAdded:Connect(function(newChar)
-	character = newChar
-	humanoid = character:WaitForChild("Humanoid")
-	head = character:WaitForChild("Head")
-	defaultWalkSpeed = humanoid.WalkSpeed
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.Space then
+		filling = false
+	end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+	if filling then
+		fillPercent = math.clamp(fillPercent + dt * 0.25, 0, 1) -- fills in 4 seconds
+	else
+		fillPercent = math.clamp(fillPercent - dt * 0.25, 0, 1)
+	end
+	fillBar.Size = UDim2.new(fillPercent, 0, 1, 0)
 end)
