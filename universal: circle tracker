@@ -281,89 +281,110 @@ end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local player = Players.LocalPlayer
 
+local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 local head = character:WaitForChild("Head")
 
 -- Config
-local CHECK_INTERVAL = 0.05
+local MAX_VOLUME = 1000 -- max expected PlaybackLoudness
+local MAX_DISTANCE = 60
 local AFTERIMAGE_INTERVAL = 0.1
-local MAX_VOLUME = 1000  -- Max playback loudness expected
-local MIN_VOLUME = 50    -- Minimum playback loudness to start afterimages
-local FADE_TIME = 0.4
-local MAX_DISTANCE = 60  -- Max distance to hear sounds
+local AFTERIMAGE_FADE = 0.3
+local AFTERIMAGE_SIZE_MULT = 0.95
+
+local BASE_SPEED_BOOST = 0.10 -- 10% base speed boost
+local MAX_ADDITIONAL_SPEED_BOOST = 0.20 -- up to +20% speed boost based on volume
+
+local BASE_AFTERIMAGE_VISIBILITY = 0.01 -- 1% visibility base
+local MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY = 0.5 -- up to +50% visibility
 
 local lastAfterimageTime = 0
-local lastCheck = 0
 
 local function getSoundPosition(sound)
-    if sound.Parent and sound.Parent:IsA("BasePart") then
-        return sound.Parent.Position
-    elseif sound.Parent and sound.Parent:IsA("Model") then
-        local hrp = sound.Parent:FindFirstChild("HumanoidRootPart")
-        if hrp then return hrp.Position end
-        for _, d in pairs(sound.Parent:GetDescendants()) do
-            if d:IsA("BasePart") then return d.Position end
-        end
-    end
-    return head.Position
+	if sound.Parent and sound.Parent:IsA("BasePart") then
+		return sound.Parent.Position
+	elseif sound.Parent and sound.Parent:IsA("Model") then
+		local hrp = sound.Parent:FindFirstChild("HumanoidRootPart")
+		if hrp then return hrp.Position end
+		for _, d in pairs(sound.Parent:GetDescendants()) do
+			if d:IsA("BasePart") then return d.Position end
+		end
+	end
+	return head.Position
 end
 
-local function getLoudestSoundPlaybackLoudness()
-    local loudest = 0
-    for _, sound in ipairs(workspace:GetDescendants()) do
-        if sound:IsA("Sound") and sound.IsPlaying then
-            local pos = getSoundPosition(sound)
-            if (pos - head.Position).Magnitude <= MAX_DISTANCE then
-                local loudness = sound.PlaybackLoudness or 0
-                if loudness > loudest then
-                    loudest = loudness
-                end
-            end
-        end
-    end
-    return loudest
+local function getLoudestSoundVolume()
+	local loudest = 0
+	for _, sound in ipairs(workspace:GetDescendants()) do
+		if sound:IsA("Sound") and sound.IsPlaying then
+			local pos = getSoundPosition(sound)
+			if (pos - head.Position).Magnitude <= MAX_DISTANCE then
+				local loudness = sound.PlaybackLoudness or 0
+				if loudness > loudest then
+					loudest = loudness
+				end
+			end
+		end
+	end
+	return loudest
 end
 
-local function createAfterimageFrom(char, loudnessPercent)
-    local ghost = Instance.new("Model")
-    ghost.Name = "Afterimage"
+local bodyVelocity = Instance.new("BodyVelocity")
+bodyVelocity.MaxForce = Vector3.new(1e5, 0, 1e5)
+bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+bodyVelocity.Parent = rootPart
 
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.Transparency < 1 then
-            local clone = part:Clone()
-            clone.Anchored = true
-            clone.CanCollide = false
-            clone.Transparency = 1 - loudnessPercent -- more visible when louder
-            clone.Material = Enum.Material.ForceField
-            clone.Color = part.Color
-            clone.Size = part.Size * 0.95 -- slightly smaller to prevent clipping
-            clone.CFrame = part.CFrame
-            clone.Parent = ghost
+local function createAfterimage(visibility)
+	local ghost = Instance.new("Model")
+	ghost.Name = "Afterimage"
 
-            -- Fade out
-            TweenService:Create(clone, TweenInfo.new(FADE_TIME), {
-                Transparency = 1
-            }):Play()
-        end
-    end
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 then
+			local clone = part:Clone()
+			clone.Anchored = true
+			clone.CanCollide = false
+			clone.Transparency = 1 - visibility
+			clone.Material = Enum.Material.Neon
+			clone.Color = part.Color
+			clone.Size = part.Size * AFTERIMAGE_SIZE_MULT
+			clone.CFrame = part.CFrame
+			clone.Parent = ghost
 
-    ghost.Parent = workspace
-    game.Debris:AddItem(ghost, FADE_TIME)
+			TweenService:Create(clone, TweenInfo.new(AFTERIMAGE_FADE), {
+				Transparency = 1
+			}):Play()
+		end
+	end
+
+	ghost.Parent = workspace
+	game.Debris:AddItem(ghost, AFTERIMAGE_FADE)
 end
 
 RunService.RenderStepped:Connect(function()
-    if tick() - lastCheck < CHECK_INTERVAL then return end
-    lastCheck = tick()
+	local loudest = getLoudestSoundVolume()
+	local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
 
-    local loudest = getLoudestSoundPlaybackLoudness()
-    if loudest >= MIN_VOLUME then
-        local loudnessPercent = math.clamp(loudest / MAX_VOLUME, 0, 1)
-        if tick() - lastAfterimageTime >= AFTERIMAGE_INTERVAL * (1 - loudnessPercent) then
-            lastAfterimageTime = tick()
-            createAfterimageFrom(character, loudnessPercent)
-        end
-    end
+	-- Calculate total speed boost
+	local totalSpeedBoost = BASE_SPEED_BOOST + MAX_ADDITIONAL_SPEED_BOOST * loudnessPercent
+
+	local moveDir = humanoid.MoveDirection
+	if moveDir.Magnitude > 0 then
+		local baseSpeed = humanoid.WalkSpeed
+		local addedSpeed = baseSpeed * totalSpeedBoost
+		bodyVelocity.Velocity = moveDir.Unit * addedSpeed
+	else
+		bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	end
+
+	-- Calculate total afterimage visibility
+	local totalVisibility = BASE_AFTERIMAGE_VISIBILITY + MAX_ADDITIONAL_AFTERIMAGE_VISIBILITY * loudnessPercent
+	totalVisibility = math.clamp(totalVisibility, 0, 1)
+
+	if tick() - lastAfterimageTime > AFTERIMAGE_INTERVAL then
+		lastAfterimageTime = tick()
+		createAfterimage(totalVisibility)
+	end
 end)
-
