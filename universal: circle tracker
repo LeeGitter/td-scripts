@@ -282,108 +282,112 @@ end)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
 local head = character:WaitForChild("Head")
-local hrp = character:WaitForChild("HumanoidRootPart")
+local tail = character:FindFirstChild("Tail") -- optional
+local speedBoostActive = false
+local lastTriggerTime = 0
 
--- Settings
-local checkHeight = 0.6 -- 60%
-local speedBoostDuration = 1
-local afterimageLifetime = 1
-local afterimageFadeTime = 0.3
-local boostMultiplier = 1.2
-local cloneScale = 0.95
+local BOOST_DURATION = 1
+local SPEED_MULTIPLIER = 1.2
+local AFTERIMAGE_LIFETIME = 0.3
+local CHECK_INTERVAL = 0.1
 
--- Tail detection (optional)
-local tailParts = {}
-for _, part in ipairs(character:GetChildren()) do
-	if part:IsA("BasePart") and part.Name:lower():find("tail") then
-		table.insert(tailParts, part)
-	end
+-- Rainbow pastel color generator
+local function getPastelRainbowColor(index)
+	local hue = (tick() * 60 + index * 30) % 360
+	return Color3.fromHSV(hue / 360, 0.4, 1)
 end
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
-
-local normalWalkSpeed = 16
-local boostedWalkSpeed = normalWalkSpeed * 1.2
-local boostDuration = 1
-local fadeTime = 0.3
-local cloneSizeScale = 0.95
-
-local visualizerFolder = character:WaitForChild("CrownVisualizer", 5) or character:FindFirstChild("CrownVisualizer")
-if not visualizerFolder then
-	warn("CrownVisualizer not found in character!")
-	return
-end
-
-local isBoosting = false
-local pastelColors = {
-	Color3.fromRGB(255, 182, 193), -- Light pink
-	Color3.fromRGB(144, 238, 144), -- Light green
-	Color3.fromRGB(173, 216, 230), -- Light blue
-	Color3.fromRGB(221, 160, 221), -- Plum
-	Color3.fromRGB(255, 255, 224), -- Light yellow
-	Color3.fromRGB(240, 128, 128), -- Light coral
-}
-
-local function createAfterimage()
+local function createAfterImage()
 	local clone = Instance.new("Model")
 	clone.Name = "AfterImage"
+	clone.Parent = workspace
 
-	for _, part in pairs(character:GetDescendants()) do
+	for _, part in ipairs(character:GetDescendants()) do
 		if part:IsA("BasePart") and part.Transparency < 1 then
-			if not part:IsDescendantOf(visualizerFolder) then
-				local pClone = part:Clone()
-				pClone.Anchored = true
-				pClone.CanCollide = false
-				pClone.CFrame = part.CFrame
-				pClone.Size *= cloneSizeScale
-				pClone.Color = pastelColors[math.random(1, #pastelColors)]
-				pClone.Material = Enum.Material.Neon
-				pClone.Transparency = 0
-				pClone.Parent = clone
+			if not part:IsDescendantOf(head:FindFirstChild("Crown") or Instance.new("Folder")) then
+				local partClone = part:Clone()
+				partClone.Anchored = true
+				partClone.CanCollide = false
+				partClone.Material = Enum.Material.Neon
+				partClone.Color = getPastelRainbowColor(math.random(1, 20))
+				partClone.Transparency = 0.2
+				partClone.Size *= 0.9
+				partClone.CFrame = part.CFrame
+				partClone.Parent = clone
 
-				TweenService:Create(pClone, TweenInfo.new(fadeTime), { Transparency = 1 }):Play()
-				game.Debris:AddItem(pClone, fadeTime)
+				TweenService:Create(partClone, TweenInfo.new(AFTERIMAGE_LIFETIME), {
+					Transparency = 1
+				}):Play()
 			end
 		end
 	end
 
-	clone.Parent = workspace
-	game.Debris:AddItem(clone, fadeTime)
-end
+	if tail and tail:IsA("BasePart") then
+		local tailClone = tail:Clone()
+		tailClone.Anchored = true
+		tailClone.CanCollide = false
+		tailClone.Material = Enum.Material.Neon
+		tailClone.Color = getPastelRainbowColor(math.random(1, 20))
+		tailClone.Transparency = 0.2
+		tailClone.Size *= 0.9
+		tailClone.CFrame = tail.CFrame
+		tailClone.Parent = clone
 
-local function triggerBoost()
-	if isBoosting then return end
-	isBoosting = true
-
-	humanoid.WalkSpeed = boostedWalkSpeed
-	local boostStart = tick()
-
-	while tick() - boostStart < boostDuration do
-		createAfterimage()
-		RunService.Heartbeat:Wait()
+		TweenService:Create(tailClone, TweenInfo.new(AFTERIMAGE_LIFETIME), {
+			Transparency = 1
+		}):Play()
 	end
 
-	humanoid.WalkSpeed = normalWalkSpeed
-	isBoosting = false
+	game.Debris:AddItem(clone, AFTERIMAGE_LIFETIME)
 end
 
--- Crown trigger check
-RunService.Heartbeat:Connect(function()
-	for _, part in ipairs(visualizerFolder:GetChildren()) do
-		if part:IsA("BasePart") and part.Size.Y >= 0.5 then
-			triggerBoost()
-			break
+local function getCrownParts()
+	local crown = head:FindFirstChild("Crown")
+	if not crown then return {} end
+	return crown:GetDescendants()
+end
+
+local function shouldTrigger()
+	for _, part in ipairs(getCrownParts()) do
+		if part:IsA("BasePart") and part.Size.Y >= 4 then
+			return true
+		end
+	end
+	return false
+end
+
+-- Speed boost logic
+RunService.RenderStepped:Connect(function()
+	if not character or not character.Parent then return end
+
+	if shouldTrigger() then
+		if tick() - lastTriggerTime > BOOST_DURATION then
+			lastTriggerTime = tick()
+			if not speedBoostActive then
+				speedBoostActive = true
+				local originalSpeed = humanoid.WalkSpeed
+				humanoid.WalkSpeed = originalSpeed * SPEED_MULTIPLIER
+
+				-- Spawn afterimages repeatedly during boost
+				local afterImageConnection
+				local boostStart = tick()
+				afterImageConnection = RunService.RenderStepped:Connect(function()
+					if tick() - boostStart > BOOST_DURATION then
+						humanoid.WalkSpeed = originalSpeed
+						speedBoostActive = false
+						afterImageConnection:Disconnect()
+					else
+						createAfterImage()
+					end
+				end)
+			end
 		end
 	end
 end)
