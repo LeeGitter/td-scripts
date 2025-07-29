@@ -1,189 +1,141 @@
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
 
+-- Player
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local head = char:WaitForChild("Head")
-local hrp = char:WaitForChild("HumanoidRootPart")
-local humanoid = char:WaitForChild("Humanoid")
+local character = player.Character or player.CharacterAdded:Wait()
+local head = character:WaitForChild("Head")
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- SETTINGS
-local numCrownParts = 12
-local crownRadius = 3
-local tailLength = 14
-local tailSpacing = 0.6
-local hopCooldown = 0.5
-local rainbowColors = {}
-for i = 0, 360, 30 do
-	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
-end
-
--- CLEANUP
-for _, obj in ipairs(char:GetChildren()) do
-	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
-		obj:Destroy()
-	end
-end
-
--- STORAGE
-local crownFolder = Instance.new("Folder", char)
-crownFolder.Name = "RainbowCrown"
-local crownParts = {}
-
-local tailFolder = Instance.new("Folder", char)
-tailFolder.Name = "RainbowTail"
+-- Tail Config
+local SEGMENTS = 16
+local TAIL_RADIUS = 0.6
+local TAIL_LENGTH = 6
 local tailParts = {}
 
--- CREATE CROWN (Block Parts)
-for i = 1, numCrownParts do
+-- Crown Config
+local crownParts = {}
+local CROWN_RADIUS = 5
+local CROWN_SEGMENTS = 12
+local CROWN_HEIGHT = 4
+
+-- Animation
+local hopAnimation = Instance.new("Animation")
+hopAnimation.AnimationId = "rbxassetid://125869734469543"
+local hopTrack = humanoid:LoadAnimation(hopAnimation)
+hopTrack.Priority = Enum.AnimationPriority.Action
+
+-- Utility
+local lastHop = 0
+local HOP_COOLDOWN = 0.5
+local HOP_DURATION = 0.1
+local AFTERIMAGE_FADE = 0.4
+
+-- === Tail Setup ===
+for i = 1, SEGMENTS do
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.4, 0.4, 0.4)
+	part.Shape = Enum.PartType.Block
+	part.Size = Vector3.new(TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[(i % #rainbowColors) + 1]
-	part.Parent = crownFolder
-	table.insert(crownParts, part)
+	part.Color = Color3.fromHSV(i / SEGMENTS, 1, 1)
+	part.Parent = workspace
+	tailParts[#tailParts + 1] = part
 end
 
--- CREATE TAIL
-for i = 1, tailLength do
+-- === Crown Setup ===
+for i = 1, CROWN_SEGMENTS do
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.5, 0.5, 0.5)
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.new(0.6, 0.6, 0.6)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
-	part.Parent = tailFolder
-	table.insert(tailParts, part)
+	part.Color = Color3.fromHSV(i / CROWN_SEGMENTS, 1, 1)
+	part.Parent = workspace
+	crownParts[#crownParts + 1] = part
 end
 
--- CREATE AFTERIMAGE (with Meshes)
+-- === Afterimage Function ===
 local function createAfterimage()
-	local clone = Instance.new("Model")
-	clone.Name = "Afterimage"
-
-	for _, part in ipairs(char:GetChildren()) do
-		if part:IsA("BasePart") then
-			local newPart = part:Clone()
-			newPart.Anchored = true
-			newPart.CanCollide = false
-			newPart.Transparency = 0.6
-			newPart.Material = Enum.Material.Neon
-			newPart.Color = rainbowColors[math.random(1, #rainbowColors)]
-			newPart.Velocity = Vector3.zero
-
-			for _, child in ipairs(newPart:GetChildren()) do
-				if child:IsA("Decal") or child:IsA("Texture") then
-					child:Destroy()
-				end
-			end
-
-			newPart.Parent = clone
+	local clone = character:Clone()
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.Material = Enum.Material.ForceField
+			descendant.Color = Color3.fromHSV(tick() % 5 / 5, 0.7, 1)
+			local tween = TweenService:Create(descendant, TweenInfo.new(AFTERIMAGE_FADE), {Transparency = 1})
+			tween:Play()
+			game.Debris:AddItem(descendant, AFTERIMAGE_FADE)
+		elseif descendant:IsA("Decal") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+			descendant:Destroy()
 		end
 	end
-
 	clone.Parent = workspace
-	Debris:AddItem(clone, 0.3)
+	game.Debris:AddItem(clone, AFTERIMAGE_FADE)
 end
 
--- Hop logic
+-- === Hop Logic ===
 local isHopping = false
-local lastHop = 0
-local anim = Instance.new("Animation")
-anim.AnimationId = "rbxassetid://125869734469543"
 
 UserInputService.InputBegan:Connect(function(input, gp)
-	if gp or input.KeyCode ~= Enum.KeyCode.Space then return end
-	if tick() - lastHop < hopCooldown then return end
-	if not char or not char.Parent then return end
-	lastHop = tick()
+	if gp then return end
+	if input.KeyCode == Enum.KeyCode.Space and tick() - lastHop >= HOP_COOLDOWN then
+		lastHop = tick()
+		isHopping = true
+		hopTrack:Play()
 
-	local animTrack = humanoid:LoadAnimation(anim)
-	animTrack:Play(0, 1, 1.5)
-	animTrack.Priority = Enum.AnimationPriority.Action
+		local startPos = hrp.Position
+		local dir = hrp.CFrame.LookVector
+		local endPos = startPos + Vector3.new(0, 2, 0) + dir * 5
 
-	local duration = 0.1
-	local start = tick()
-	local dir = hrp.CFrame.LookVector
-	local hopStart = hrp.Position
-	local upwardVelocity = Vector3.new(0, 2, 0)
-	local forwardVelocity = dir * 5
+		local tween = TweenService:Create(hrp, TweenInfo.new(HOP_DURATION, Enum.EasingStyle.Linear), {CFrame = CFrame.new(endPos)})
+		tween:Play()
 
-	isHopping = true
-	local afterimagesSpawned = 0
-
-	RunService.RenderStepped:Connect(function()
-		if not isHopping then return end
-		local now = tick()
-		local delta = now - start
-		if delta >= duration then
-			isHopping = false
-			return
-		end
-
-		local t = delta / duration
-		hrp.Velocity = upwardVelocity + forwardVelocity
-
-		if afterimagesSpawned < 5 and t >= (afterimagesSpawned * 0.02) then
+		local elapsed = 0
+		RunService:BindToRenderStep("HopAfterimages", Enum.RenderPriority.Character.Value + 1, function(dt)
+			elapsed += dt
 			createAfterimage()
-			afterimagesSpawned += 1
-		end
-	end)
-
-	task.delay(0.15, function()
-		animTrack:Stop()
-	end)
+			if elapsed >= HOP_DURATION then
+				RunService:UnbindFromRenderStep("HopAfterimages")
+				isHopping = false
+			end
+		end)
+	end
 end)
 
--- AUDIO DETECTION
-local loudness = 0
-local isBuff = false
-local lastSoundScan = tick()
-
--- MAIN LOOP
+-- === Main Loop ===
 RunService.RenderStepped:Connect(function(dt)
-	local now = tick()
-
-	-- === AUDIO INTENSITY CHECK ===
-	if now - lastSoundScan > 0.1 then
-		lastSoundScan = now
-		local volume = 0
-
-		for _, sound in ipairs(head:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += sound.PlaybackLoudness or 0
-			end
-		end
-
-		for _, sound in ipairs(SoundService:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += (sound.PlaybackLoudness or 0) * 0.3
-			end
-		end
-
-		loudness = volume
-		isBuff = loudness > 60
-	end
-
-	-- === CROWN UPDATE ===
-	for i, part in ipairs(crownParts) do
-		local angle = math.rad((360 / #crownParts) * i + tick() * 60)
-		local wobble = math.sin(tick() * 3 + i) * 0.3
-		local offset = Vector3.new(math.cos(angle) * (crownRadius + wobble), 2 + wobble, math.sin(angle) * (crownRadius + wobble))
-		part.Position = head.Position + offset
-		part.Color = rainbowColors[(i + math.floor(tick() * 10)) % #rainbowColors + 1]
-	end
-
-	-- === TAIL UPDATE ===
-	local rootCF = hrp.CFrame
+	-- Tail Update
+	local basePos = hrp.Position - Vector3.new(0, 1, 0)
 	for i, part in ipairs(tailParts) do
-		local offset = Vector3.new(0, -0.4, -i * tailSpacing)
-		local worldPos = rootCF:PointToWorldSpace(offset)
-		part.Position = part.Position:Lerp(worldPos, dt * 10)
-		part.Color = rainbowColors[((i + math.floor(tick() * 15)) % #rainbowColors) + 1]
+		local offset = hrp.CFrame * CFrame.new(0, 0, -i * 0.5)
+		local targetPos = offset.Position
+		part.CFrame = CFrame.new(targetPos)
+		part.Color = Color3.fromHSV((tick() + i * 0.05) % 1, 1, 1)
+	end
+
+	-- Crown Update
+	local soundLevel = 0
+	for _, s in ipairs(SoundService:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying and s.PlaybackState == Enum.PlaybackState.Playing then
+			soundLevel += s.PlaybackLoudness or 0
+		end
+	end
+	soundLevel = math.clamp(soundLevel / 800, 0, 1)
+
+	for i, part in ipairs(crownParts) do
+		local angle = math.rad((i / CROWN_SEGMENTS) * 360 + tick() * 120)
+		local height = 2 + math.sin(tick() * 4 + i) * soundLevel * CROWN_HEIGHT
+		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * CROWN_RADIUS
+		part.Position = head.Position + Vector3.new(0, height, 0) + offset
+		part.Color = Color3.fromHSV((tick() + i / CROWN_SEGMENTS) % 1, 1, 1)
 	end
 end)
