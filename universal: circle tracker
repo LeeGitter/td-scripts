@@ -1,191 +1,167 @@
--- Services
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
-local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
--- Player setup
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local torso = character:WaitForChild("Torso")
-local head = character:WaitForChild("Head")
+local char = player.Character or player.CharacterAdded:Wait()
+local head = char:WaitForChild("Head")
+local hrp = char:WaitForChild("HumanoidRootPart")
+local humanoid = char:WaitForChild("Humanoid")
 
---------------------------------------------------------
--- DYNAMIC TAIL
---------------------------------------------------------
-local NUM_SEGMENTS = 16
-local BASE_SIZE = Vector3.new(0.5, 0.5, 0.7)
-local SEGMENT_LENGTH = 0.7
-local BASE_OFFSET = Vector3.new(0, -1.5, 1.5)
-local MAX_PITCH_ANGLE = math.rad(30)
-
--- Clean up old tail
-if character:FindFirstChild("DynamicTailModel") then
-	character.DynamicTailModel:Destroy()
+-- SETTINGS
+local numCrownParts = 12
+local crownRadius = 3
+local tailLength = 14
+local tailSpacing = 0.6
+local rainbowColors = {}
+for i = 0, 360, 30 do
+	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
 end
 
-local tailModel = Instance.new("Model")
-tailModel.Name = "DynamicTailModel"
-tailModel.Parent = character
-
-local tailRootAttachment = Instance.new("Attachment")
-tailRootAttachment.Name = "TailRootAttachment"
-tailRootAttachment.Position = BASE_OFFSET
-tailRootAttachment.Parent = torso
-
-local segments, attachments = {}, {}
-
-for i = 1, NUM_SEGMENTS do
-	local segment = Instance.new("Part")
-	segment.Name = "TailSegment_" .. i
-	local scale = 1 + (i / NUM_SEGMENTS) * 1.5
-	segment.Size = Vector3.new(BASE_SIZE.X * scale, BASE_SIZE.Y * scale, SEGMENT_LENGTH)
-	segment.Material = Enum.Material.Neon
-	segment.CanCollide = false
-	segment.Anchored = false
-	segment.Massless = true
-	segment.CastShadow = false
-	segment.Color = Color3.fromHSV((i / NUM_SEGMENTS) % 1, 1, 1)
-	segment.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
-	segment.Parent = tailModel
-
-	local att0 = Instance.new("Attachment", segment)
-	att0.Name = "Attachment0"
-	att0.Position = Vector3.new(0, 0, -SEGMENT_LENGTH / 2)
-
-	local att1 = Instance.new("Attachment", segment)
-	att1.Name = "Attachment1"
-	att1.Position = Vector3.new(0, 0, SEGMENT_LENGTH / 2)
-
-	local prevAtt = i == 1 and tailRootAttachment or attachments[i - 1][2]
-
-	local alignPos = Instance.new("AlignPosition")
-	alignPos.Attachment0 = att0
-	alignPos.Attachment1 = prevAtt
-	alignPos.MaxForce = 10000
-	alignPos.Responsiveness = 50
-	alignPos.RigidityEnabled = false
-	alignPos.Parent = segment
-
-	local alignOri = Instance.new("AlignOrientation")
-	alignOri.Attachment0 = att0
-	alignOri.Attachment1 = prevAtt
-	alignOri.MaxTorque = 10000
-	alignOri.Responsiveness = 50
-	alignOri.Parent = segment
-
-	segments[i] = segment
-	attachments[i] = {att0, att1}
-end
-
--- Tail sway
-RunService.RenderStepped:Connect(function()
-	local velocity = torso.Velocity.Magnitude
-	local time = tick()
-	for i, part in ipairs(segments) do
-		local phase = time * 2 + i
-		local swayX = math.sin(phase) * 0.05 * (velocity / 20)
-		local swayY = math.cos(phase * 1.5) * 0.05 * (velocity / 20)
-		local att0 = attachments[i][1]
-		att0.Position = Vector3.new(0, 0, -SEGMENT_LENGTH / 2) + Vector3.new(swayX, swayY, 0)
+-- CLEANUP
+for _, obj in ipairs(char:GetChildren()) do
+	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
+		obj:Destroy()
 	end
-end)
-
---------------------------------------------------------
--- CROWN SOUND VISUALIZER
---------------------------------------------------------
-local CROWN_SEGMENTS = 10
-local CROWN_RADIUS = 2
-local CROWN_HEIGHT_OFFSET = 3
-local BASE_PART_SIZE = Vector3.new(0.3, 0.5, 0.3)
-local DETECTION_RADIUS = 60
-local MAX_LOUDNESS = 1000
-local MAX_HEIGHT = 5
-
--- Clean up old visualizer
-if workspace:FindFirstChild("VisualizerCrown") then
-	workspace.VisualizerCrown:Destroy()
 end
 
-local crownFolder = Instance.new("Folder", workspace)
-crownFolder.Name = "VisualizerCrown"
+-- STORAGE
+local crownFolder = Instance.new("Folder", char)
+crownFolder.Name = "RainbowCrown"
+local crownParts = {}
 
-local parts, partScales = {}, {}
+local tailFolder = Instance.new("Folder", char)
+tailFolder.Name = "RainbowTail"
+local tailParts = {}
 
-for i = 1, CROWN_SEGMENTS do
+-- CREATE CROWN (Part-based with physics wobble)
+for i = 1, numCrownParts do
 	local part = Instance.new("Part")
-	part.Name = "CrownPart_" .. i
+	part.Size = Vector3.new(0.3, 1.5, 0.3)
+	part.Anchored = false
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = rainbowColors[i % #rainbowColors + 1]
+	part.Name = "CrownSegment"
+	part.Massless = true
+	part.Parent = crownFolder
+
+	local attachment = Instance.new("Attachment", head)
+	local a2 = Instance.new("Attachment", part)
+
+	local spring = Instance.new("SpringConstraint")
+	spring.Attachment0 = attachment
+	spring.Attachment1 = a2
+	spring.Stiffness = 50
+	spring.Damping = 2
+	spring.Parent = part
+
+	table.insert(crownParts, {
+		part = part,
+		angleOffset = (360 / numCrownParts) * i
+	})
+end
+
+-- CREATE TAIL (Parts get bigger toward the tip)
+for i = 1, tailLength do
+	local size = 0.5 + (i / tailLength) * 0.8
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(size, size, size)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Size = BASE_PART_SIZE
-	part.Color = Color3.fromHSV(i / CROWN_SEGMENTS, 1, 1)
-	part.Parent = crownFolder
-	parts[i] = part
-	partScales[i] = BASE_PART_SIZE.Y
+	part.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
+	part.Name = "TailSegment"
+	part.Parent = tailFolder
+	table.insert(tailParts, part)
 end
 
-local cachedSounds, timeSinceLastScan = {}, 0
-local function getSoundPosition(sound)
-	local parent = sound.Parent
-	if parent:IsA("BasePart") then return parent.Position end
-	if parent:IsA("Model") then
-		local hrp = parent:FindFirstChild("HumanoidRootPart")
-		if hrp then return hrp.Position end
-		for _, part in pairs(parent:GetDescendants()) do
-			if part:IsA("BasePart") then return part.Position end
+-- AFTERIMAGE
+local function createAfterimage()
+	local clone = char:Clone()
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.Transparency = 0.65
+			d.Material = Enum.Material.Neon
+			d.Color = rainbowColors[math.random(1, #rainbowColors)]
+		elseif d:IsA("Humanoid") then
+			d:Destroy()
+		elseif d:IsA("Script") or d:IsA("LocalScript") then
+			d:Destroy()
 		end
 	end
-	return head.Position
+	clone:PivotTo(char:GetPivot())
+	clone.Parent = workspace
+	game:GetService("Debris"):AddItem(clone, 0.4)
 end
 
-local function scanSounds(dt)
-	timeSinceLastScan += dt
-	if timeSinceLastScan < 0.1 then return cachedSounds end
-	timeSinceLastScan = 0
-
-	local results = {}
-
-	for _, sound in ipairs(workspace:GetDescendants()) do
-		if sound:IsA("Sound") and sound.IsPlaying then
-			local pos = getSoundPosition(sound)
-			if (pos - head.Position).Magnitude <= DETECTION_RADIUS then
-				table.insert(results, {Instance = sound, IsFloating = not sound.Parent:IsA("BasePart")})
-			end
+-- AUDIO INTENSITY
+local loudness = 0
+RunService.RenderStepped:Connect(function()
+	local total = 0
+	for _, s in ipairs(SoundService:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying then
+			total += (s.PlaybackLoudness or 0) * 0.2
 		end
 	end
-
-	for _, root in pairs({player:FindFirstChild("PlayerGui"), character}) do
-		if root then
-			for _, s in pairs(root:GetDescendants()) do
-				if s:IsA("Sound") and s.IsPlaying then
-					table.insert(results, {Instance = s, IsFloating = false})
-				end
-			end
+	for _, s in ipairs(head:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying then
+			total += s.PlaybackLoudness or 0
 		end
 	end
+	loudness = math.clamp(total / 100, 0.8, 3)
+end)
 
-	cachedSounds = results
-	return results
-end
+-- CROWN + TAIL UPDATES
+RunService.RenderStepped:Connect(function(dt)
+	-- Crown: wobble with head and hover in circle
+	for _, data in ipairs(crownParts) do
+		local part = data.part
+		local angle = math.rad(data.angleOffset + tick() * 80)
+		local offset = Vector3.new(math.cos(angle), 0.5, math.sin(angle)) * crownRadius
+		local finalPos = head.Position + head.CFrame:VectorToWorldSpace(offset + Vector3.new(0, 2, 0))
+		part.AssemblyLinearVelocity = (finalPos - part.Position) * 10
+		part.Size = Vector3.new(0.3, 0.8 * loudness, 0.3)
+	end
 
-RunService.Heartbeat:Connect(function(dt)
-	local baseCFrame = head.CFrame * CFrame.new(0, CROWN_HEIGHT_OFFSET, 0)
-	local sounds = scanSounds(dt)
+	-- Tail: follow HRP with lag
+	local baseCF = hrp.CFrame
+	for i, part in ipairs(tailParts) do
+		local offset = Vector3.new(0, -0.4, -i * tailSpacing)
+		local targetPos = baseCF:PointToWorldSpace(offset)
+		part.Position = part.Position:Lerp(targetPos, dt * 12)
+	end
+end)
 
-	for i, part in ipairs(parts) do
-		local angle = (2 * math.pi / CROWN_SEGMENTS) * i
-		local offset = Vector3.new(math.cos(angle) * CROWN_RADIUS, 0, math.sin(angle) * CROWN_RADIUS)
-		local pos = baseCFrame.Position + baseCFrame:VectorToWorldSpace(offset)
+-- HOP LOGIC
+local lastHop = 0
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or input.KeyCode ~= Enum.KeyCode.Space then return end
+	local now = tick()
+	if now - lastHop < 0.5 then return end
+	lastHop = now
 
-		local sound = #sounds > 0 and sounds[(i - 1) % #sounds + 1]
-		local loudness = sound and (sound.Instance.PlaybackLoudness or 0) or 0
-		if sound and sound.IsFloating then loudness *= 2.5 end
+	-- Apply upward and forward velocity
+	local bv = Instance.new("BodyVelocity")
+	bv.Velocity = Vector3.new(0, 25, 0) + hrp.CFrame.LookVector * 50
+	bv.MaxForce = Vector3.new(1, 1, 1) * 1e5
+	bv.P = 1e4
+	bv.Parent = hrp
+	game.Debris:AddItem(bv, 0.1)
 
-		local height = 0.5 + math.clamp(loudness / MAX_LOUDNESS, 0, 1) * (MAX_HEIGHT - 0.5)
-		partScales[i] += (height - partScales[i]) * 0.25
-		part.Size = Vector3.new(BASE_PART_SIZE.X, partScales[i], BASE_PART_SIZE.Z)
-		part.Position = pos + Vector3.new(0, part.Size.Y / 2, 0)
-		part.Orientation = Vector3.new(0, math.deg(angle), 0)
+	-- Play animation
+	local anim = Instance.new("Animation")
+	anim.AnimationId = "rbxassetid://125869734469543"
+	local track = humanoid:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action
+	track:Play()
+	game.Debris:AddItem(anim, 1)
+
+	-- Afterimages (5 total)
+	for i = 1, 5 do
+		task.delay(i * 0.02, createAfterimage)
 	end
 end)
