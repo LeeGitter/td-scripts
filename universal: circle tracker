@@ -9,145 +9,131 @@ local head = char:WaitForChild("Head")
 local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
--- Settings
-local numCrownParts = 12
-local crownRadius = 3
-local tailLength = 14
-local tailSpacing = 0.6
+-- CONFIG
 local rainbowColors = {}
 for i = 0, 360, 30 do
 	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
 end
 
--- Cleanup
+local NUM_CROWN = 12
+local TAIL_SEGMENTS = 14
+local CROWN_RADIUS = 3
+local CROWN_HEIGHT = 1.5
+
+-- CLEANUP
 for _, obj in ipairs(char:GetChildren()) do
 	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
 		obj:Destroy()
 	end
 end
 
--- Storage
+-- STORAGE
 local crownFolder = Instance.new("Folder", char)
 crownFolder.Name = "RainbowCrown"
-local crownParts = {}
-local crownSprings = {}
-
 local tailFolder = Instance.new("Folder", char)
 tailFolder.Name = "RainbowTail"
+
+local crownParts = {}
 local tailParts = {}
 
--- Crown creation
-for i = 1, numCrownParts do
+-- CREATE CROWN BLOCKS
+for i = 1, NUM_CROWN do
 	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.3, 1.5, 0.3)
-	part.Anchored = false
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[(i % #rainbowColors) + 1]
-	part.Name = "CrownPart"
-	part.Parent = crownFolder
-
-	local attachment0 = Instance.new("Attachment", head)
-	local attachment1 = Instance.new("Attachment", part)
-	local spring = Instance.new("SpringConstraint")
-	spring.Attachment0 = attachment0
-	spring.Attachment1 = attachment1
-	spring.Stiffness = 30
-	spring.Damping = 2
-	spring.Parent = part
-
-	table.insert(crownParts, part)
-	table.insert(crownSprings, {spring = spring, baseAngle = (2 * math.pi / numCrownParts) * i})
-end
-
--- Tail creation
-for i = 1, tailLength do
-	local part = Instance.new("Part")
-	local sizeFactor = 0.3 + (i / tailLength) * 0.7
-	part.Size = Vector3.new(sizeFactor, sizeFactor, sizeFactor)
+	part.Size = Vector3.new(0.3, 1.2, 0.3)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
-	part.Name = "TailPart"
+	part.Color = rainbowColors[i % #rainbowColors + 1]
+	part.Name = "CrownPart"
+	part.Parent = crownFolder
+	table.insert(crownParts, part)
+end
+
+-- CREATE TAIL SEGMENTS
+for i = 1, TAIL_SEGMENTS do
+	local part = Instance.new("Part")
+	local scale = 0.5 + (i / TAIL_SEGMENTS) * 1.2
+	part.Size = Vector3.new(scale, scale, scale)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = rainbowColors[i % #rainbowColors + 1]
+	part.Name = "TailSegment"
 	part.Parent = tailFolder
 	table.insert(tailParts, part)
 end
 
--- Afterimage
-local function createAfterimage()
-	local clone = char:Clone()
-	for _, d in ipairs(clone:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-			d.CanCollide = false
-			d.Material = Enum.Material.Neon
-			d.Transparency = 0.6
-			d.Color = rainbowColors[math.random(1, #rainbowColors)]
-		elseif d:IsA("Humanoid") then
-			d:Destroy()
+-- AFTERIMAGE CREATION
+local function createAfterimages()
+	for i = 1, 5 do
+		local ghost = char:Clone()
+		ghost:PivotTo(char:GetPivot())
+		for _, d in ghost:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CanCollide = false
+				d.Material = Enum.Material.Neon
+				d.Transparency = 0.75
+			elseif d:IsA("Humanoid") then
+				d:Destroy()
+			end
 		end
+		ghost.Parent = workspace
+		Debris:AddItem(ghost, 0.3 + i * 0.03)
+		task.wait(0.03)
 	end
-	clone:PivotTo(char:GetPivot())
-	clone.Parent = workspace
-	Debris:AddItem(clone, 0.3)
 end
 
--- Audio detection
-local loudness = 0
-local lastSoundScan = tick()
-
--- Update loop
-local tailHistory = {}
-
-RunService.RenderStepped:Connect(function(dt)
-	local now = tick()
-
-	-- === AUDIO ===
-	if now - lastSoundScan > 0.1 then
-		lastSoundScan = now
-		local volume = 0
-
-		for _, sound in ipairs(head:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += sound.PlaybackLoudness or 0
-			end
-		end
-
-		for _, sound in ipairs(SoundService:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += (sound.PlaybackLoudness or 0) * 0.3
-			end
-		end
-
-		loudness = math.clamp(volume / 100, 0.5, 2.5)
-	end
-
-	-- === CROWN ===
-	for i, data in ipairs(crownSprings) do
-		local angle = data.baseAngle + tick() * 2
-		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * crownRadius
-		data.spring.Attachment1.WorldPosition = head.Position + Vector3.new(0, 1.5, 0) + offset
-		data.spring.Attachment1.Parent.Parent.Size = Vector3.new(0.3, loudness, 0.3)
-	end
-
-	-- === TAIL ===
-	table.insert(tailHistory, 1, hrp.Position)
-	if #tailHistory > tailLength then
-		table.remove(tailHistory)
-	end
-
-	for i, part in ipairs(tailParts) do
-		local pos = tailHistory[i + 1]
-		if pos then
-			part.Position = part.Position:Lerp(pos, dt * 10)
-		end
+-- JUMP DETECTION
+humanoid.StateChanged:Connect(function(old, new)
+	if new == Enum.HumanoidStateType.Jumping then
+		createAfterimages()
 	end
 end)
 
--- Hop effect: spawn 5 afterimages
-humanoid.Jumping:Connect(function()
-	for i = 1, 5 do
-		createAfterimage()
+-- AUDIO LEVEL CHECK
+local loudness = 0
+RunService.Stepped:Connect(function()
+	local total = 0
+	for _, s in head:GetDescendants() do
+		if s:IsA("Sound") and s.IsPlaying then
+			total += s.PlaybackLoudness or 0
+		end
+	end
+	for _, s in SoundService:GetDescendants() do
+		if s:IsA("Sound") and s.IsPlaying then
+			total += (s.PlaybackLoudness or 0) * 0.3
+		end
+	end
+	loudness = total
+end)
+
+-- UPDATE LOOP
+local lastTailPositions = {}
+
+RunService.RenderStepped:Connect(function(dt)
+	local t = tick()
+
+	-- Update Crown
+	for i, part in ipairs(crownParts) do
+		local angle = math.rad((360 / NUM_CROWN) * i + t * 60)
+		local localUp = head.CFrame:VectorToWorldSpace(Vector3.new(0, 1, 0))
+		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * CROWN_RADIUS
+		local worldPos = head.Position + localUp * CROWN_HEIGHT + offset
+		local scale = 1 + (loudness / 500) -- boost with audio
+		part.Size = Vector3.new(0.3, 1.2 * scale, 0.3)
+		part.CFrame = CFrame.lookAt(worldPos, head.Position) * CFrame.Angles(0, 0, math.sin(t * 2 + i) * 0.2)
+	end
+
+	-- Update Tail
+	local prevPos = hrp.Position
+	for i, part in ipairs(tailParts) do
+		if lastTailPositions[i] then
+			part.Position = part.Position:Lerp(lastTailPositions[i], dt * 15)
+		else
+			part.Position = prevPos
+		end
+		lastTailPositions[i] = prevPos
+		prevPos = part.Position
 	end
 end)
