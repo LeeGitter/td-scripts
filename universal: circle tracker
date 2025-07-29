@@ -279,125 +279,88 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
+local root = character:WaitForChild("HumanoidRootPart")
 
-local animation = Instance.new("Animation")
-animation.AnimationId = "rbxassetid://125869734469543"
-local animTrack = humanoid:LoadAnimation(animation)
+local dashAnim = Instance.new("Animation")
+dashAnim.AnimationId = "rbxassetid://125869734469543"
+local dashTrack = humanoid:LoadAnimation(dashAnim)
+dashTrack.Priority = Enum.AnimationPriority.Action
+dashTrack.Looped = true
 
 -- GUI Setup
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-gui.Name = "DashBarUI"
+local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+screenGui.ResetOnSpawn = false
 
-local barBackground = Instance.new("Frame", gui)
-barBackground.Position = UDim2.new(0.25, 0, 0.9, 0)
-barBackground.Size = UDim2.new(0.5, 0, 0.05, 0)
-barBackground.BackgroundColor3 = Color3.new(0, 0, 0)
-barBackground.BorderSizePixel = 0
-barBackground.Visible = false
+local bar = Instance.new("Frame", screenGui)
+bar.AnchorPoint = Vector2.new(0.5, 1)
+bar.Position = UDim2.new(0.5, 0, 1, -30)
+bar.Size = UDim2.new(0.4, 0, 0.05, 0)
+bar.BackgroundColor3 = Color3.new(0, 0, 0)
+bar.BorderSizePixel = 0
+bar.BackgroundTransparency = 0.3
+bar.Name = "DashBar"
+bar.ClipsDescendants = true
+bar.ZIndex = 1
+bar.UICorner = Instance.new("UICorner", bar)
+bar.UICorner.CornerRadius = UDim.new(1, 0)
 
-local barFill = Instance.new("Frame", barBackground)
-barFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-barFill.Size = UDim2.new(0, 0, 1, 0)
-barFill.BorderSizePixel = 0
+-- Fill bar
+local fill = Instance.new("Frame", bar)
+fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+fill.Size = UDim2.new(0, 0, 1, 0)
+fill.Position = UDim2.new(0, 0, 0, 0)
+fill.BorderSizePixel = 0
+fill.ZIndex = 0
+fill.BackgroundTransparency = 0.2
 
-local label = Instance.new("TextLabel", barBackground)
+-- Divider lines
+for i = 1, 5 do
+	local line = Instance.new("Frame", bar)
+	line.Size = UDim2.new(0, 2, 1, -4)
+	line.Position = UDim2.new(i/6, 0, 0, 2)
+	line.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	line.BorderSizePixel = 0
+	line.ZIndex = 2
+end
+
+-- Label
+local label = Instance.new("TextLabel", bar)
 label.Size = UDim2.new(1, 0, 1, 0)
-label.Text = ""
-label.TextColor3 = Color3.new(1, 1, 1)
 label.BackgroundTransparency = 1
+label.Text = "release!!!"
+label.TextColor3 = Color3.fromRGB(255, 255, 255)
 label.TextScaled = true
-label.Font = Enum.Font.GothamBold
+label.Font = Enum.Font.GothamBlack
+label.ZIndex = 3
 
--- State
-local holding = false
-local charging = false
-local chargeTime = 2
-local barTween
-
--- Afterimage Setup
-local function createAfterImage()
+-- Afterimage Function
+local function createAfterimage()
 	local clone = character:Clone()
-	for _, obj in pairs(clone:GetDescendants()) do
+	clone.Name = "AfterImage"
+	for _, obj in clone:GetDescendants() do
 		if obj:IsA("BasePart") then
-			obj.Anchored = true
-			obj.CanCollide = false
-			obj.Transparency = 0.3
-			obj.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1)
-			obj.Material = Enum.Material.Neon
-			obj.Size = obj.Size * 0.95
-		else
+			if obj.Transparency >= 1 or obj.Name:lower():find("crown") then
+				obj:Destroy()
+			else
+				obj.Anchored = true
+				obj.CanCollide = false
+				obj.Material = Enum.Material.Neon
+				obj.Color = Color3.fromHSV(math.random(), 0.7, 1)
+				obj.Size *= 0.95
+			end
+		elseif obj:IsA("Humanoid") or obj:IsA("Script") or obj:IsA("LocalScript") then
 			obj:Destroy()
 		end
 	end
+	clone:SetPrimaryPartCFrame(character:GetPrimaryPartCFrame())
 	clone.Parent = workspace
-	clone:PivotTo(character:GetPivot())
 
-	game:GetService("Debris"):AddItem(clone, 0.3)
-end
-
--- Boost Logic
-local function startDash()
-	local duration = 3
-	local speed = 30
-	local elapsed = 0
-
-	animTrack:Play()
-
-	local conn
-	conn = RunService.RenderStepped:Connect(function(dt)
-		elapsed += dt
-		if elapsed > duration then
-			conn:Disconnect()
-			animTrack:Stop()
-			return
-		end
-
-		local moveDir = humanoid.MoveDirection
-		if moveDir.Magnitude < 0.1 then
-			moveDir = hrp.CFrame.LookVector
-		end
-
-		-- move forward at fixed speed
-		hrp.Velocity = moveDir.Unit * speed
-
-		createAfterImage()
-	end)
-end
-
--- Input Logic
-UserInputService.InputBegan:Connect(function(input, processed)
-	if input.KeyCode == Enum.KeyCode.Space and not processed and not charging then
-		holding = true
-		charging = true
-
-		barBackground.Visible = true
-		label.Text = ""
-
-		barFill.Size = UDim2.new(0, 0, 1, 0)
-		if barTween then barTween:Cancel() end
-		barTween = TweenService:Create(barFill, TweenInfo.new(chargeTime), {Size = UDim2.new(1, 0, 1, 0)})
-		barTween:Play()
-
-		wait(chargeTime)
-		if holding then
-			label.Text = "RELEASE!!!"
-		end
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.Space and charging then
-		holding = false
-		charging = false
-		barBackground.Visible = false
-		startDash()
-	end
-end)
+	-- Fade out
+	for _, part in clone:GetDescendants()_
