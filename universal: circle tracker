@@ -1,55 +1,139 @@
-local RunService = game:GetService("RunService")
+-- Services
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
 
+-- Player
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local torso = character:WaitForChild("Torso")
+local head = character:WaitForChild("Head")
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Settings
-local SEGMENTS = 14
-local SPACING = 0.8
+-- Tail Config
+local SEGMENTS = 16
+local TAIL_RADIUS = 0.6
 local tailParts = {}
-local rainbowColors = {}
 
-for i = 0, 360, 30 do
-	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
-end
+-- Crown Config
+local crownParts = {}
+local CROWN_RADIUS = 5
+local CROWN_SEGMENTS = 12
+local CROWN_HEIGHT = 4
 
--- Remove old tail
-local old = character:FindFirstChild("RainbowTail")
-if old then old:Destroy() end
+-- Animation
+local hopAnimation = Instance.new("Animation")
+hopAnimation.AnimationId = "rbxassetid://125869734469543"
+local hopTrack = humanoid:LoadAnimation(hopAnimation)
+hopTrack.Priority = Enum.AnimationPriority.Action
 
--- Tail folder
-local tailFolder = Instance.new("Folder")
-tailFolder.Name = "RainbowTail"
-tailFolder.Parent = character
+-- Utility
+local lastHop = 0
+local HOP_COOLDOWN = 0.5
+local HOP_DURATION = 0.15
+local AFTERIMAGE_FADE = 0.4
 
--- Create segments
-local lastPos = torso.Position
+-- === Tail Setup ===
 for i = 1, SEGMENTS do
 	local part = Instance.new("Part")
+	part.Shape = Enum.PartType.Block
+	part.Size = Vector3.new(TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = Color3.fromHSV(i / SEGMENTS, 1, 1)
+	part.Parent = workspace
+	tailParts[#tailParts + 1] = part
+end
+
+-- === Crown Setup ===
+for i = 1, CROWN_SEGMENTS do
+	local part = Instance.new("Part")
+	part.Shape = Enum.PartType.Ball
 	part.Size = Vector3.new(0.6, 0.6, 0.6)
 	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[(i * 3) % #rainbowColors + 1]
-	part.CFrame = torso.CFrame * CFrame.new(0, 0, i * SPACING)
-	part.Parent = tailFolder
-	table.insert(tailParts, {
-		Part = part,
-		Position = part.Position
-	})
+	part.Color = Color3.fromHSV(i / CROWN_SEGMENTS, 1, 1)
+	part.Parent = workspace
+	crownParts[#crownParts + 1] = part
 end
 
--- Update tail visually
-RunService.RenderStepped:Connect(function(dt)
-	local targetPos = torso.Position
-	local last = targetPos
-	for i, segment in ipairs(tailParts) do
-		local t = 0.15 + i * 0.02 -- looser at the tip
-		local seg = segment
-		seg.Position = seg.Position:Lerp(last - (torso.CFrame.LookVector * SPACING), t)
-		seg.Part.CFrame = CFrame.new(seg.Position)
-		last = seg.Position
+-- === Afterimage Function ===
+local function createAfterimage()
+	local clone = character:Clone()
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			if descendant.Name == "CollisionHitbox" then
+				descendant:Destroy()
+			else
+				descendant.Anchored = true
+				descendant.CanCollide = false
+				descendant.Material = Enum.Material.ForceField
+				descendant.Color = Color3.fromHSV(tick() % 5 / 5, 0.7, 1)
+				local tween = TweenService:Create(descendant, TweenInfo.new(AFTERIMAGE_FADE), {Transparency = 1})
+				tween:Play()
+				game.Debris:AddItem(descendant, AFTERIMAGE_FADE)
+			end
+		elseif descendant:IsA("Decal") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+			descendant:Destroy()
+		end
+	end
+	clone.Parent = workspace
+	game.Debris:AddItem(clone, AFTERIMAGE_FADE)
+end
+
+-- === Hop Logic ===
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or input.KeyCode ~= Enum.KeyCode.Space then return end
+	if tick() - lastHop < HOP_COOLDOWN then return end
+
+	lastHop = tick()
+	hopTrack:Play()
+
+	-- Push Up and Forward
+	local direction = hrp.CFrame.LookVector
+	local hopVelocity = direction * 30 + Vector3.new(0, 35, 0) -- forward + upward push
+
+	local elapsed = 0
+	RunService:BindToRenderStep("HopPush", Enum.RenderPriority.Character.Value + 2, function(dt)
+		elapsed += dt
+		createAfterimage()
+		hrp.Velocity = hopVelocity
+
+		if elapsed >= HOP_DURATION then
+			RunService:UnbindFromRenderStep("HopPush")
+		end
+	end)
+end)
+
+-- === Main Loop ===
+RunService.RenderStepped:Connect(function()
+	-- Tail
+	local basePos = hrp.Position - Vector3.new(0, 1, 0)
+	for i, part in ipairs(tailParts) do
+		local offset = hrp.CFrame * CFrame.new(0, 0, -i * 0.5)
+		local targetPos = offset.Position
+		part.CFrame = CFrame.new(targetPos)
+		part.Color = Color3.fromHSV((tick() + i * 0.05) % 1, 1, 1)
+	end
+
+	-- Crown
+	local soundLevel = 0
+	for _, s in ipairs(SoundService:GetDescendants()) do
+		if s:IsA("Sound") and s.IsPlaying then
+			soundLevel += s.PlaybackLoudness or 0
+		end
+	end
+	soundLevel = math.clamp(soundLevel / 800, 0, 1)
+
+	for i, part in ipairs(crownParts) do
+		local angle = math.rad((i / CROWN_SEGMENTS) * 360 + tick() * 120)
+		local height = 2 + math.sin(tick() * 4 + i) * soundLevel * CROWN_HEIGHT
+		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * CROWN_RADIUS
+		part.Position = head.Position + Vector3.new(0, height, 0) + offset
+		part.Color = Color3.fromHSV((tick() + i / CROWN_SEGMENTS) % 1, 1, 1)
 	end
 end)
