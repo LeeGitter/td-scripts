@@ -278,37 +278,177 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+-- Animation Setup
+local dashAnim = Instance.new("Animation")
+dashAnim.AnimationId = "rbxassetid://125869734469543"
+local dashTrack = humanoid:LoadAnimation(dashAnim)
+dashTrack.Priority = Enum.AnimationPriority.Action
+
+-- GUI Setup
+local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+screenGui.Name = "DashBarGui"
+
+local outerBar = Instance.new("Frame", screenGui)
+outerBar.AnchorPoint = Vector2.new(0.5, 1)
+outerBar.Position = UDim2.new(0.5, 0, 1, -40)
+outerBar.Size = UDim2.new(0.5, 0, 0, 24)
+outerBar.BackgroundColor3 = Color3.new(0, 0, 0)
+outerBar.BorderSizePixel = 0
+outerBar.BackgroundTransparency = 0.3
+outerBar.ClipsDescendants = true
+outerBar.Name = "OuterBar"
+outerBar.ZIndex = 5
+outerBar:FindFirstChildOfClass("UICorner") or Instance.new("UICorner", outerBar).CornerRadius = UDim.new(1, 0)
+
+-- Add 5 vertical guide lines
+for i = 1, 4 do
+	local line = Instance.new("Frame", outerBar)
+	line.Size = UDim2.new(0, 2, 1, 0)
+	line.Position = UDim2.new(i / 5, -1, 0, 0)
+	line.BackgroundColor3 = Color3.new(1, 1, 1)
+	line.BackgroundTransparency = 0.5
+	line.BorderSizePixel = 0
+	line.ZIndex = 6
+end
+
+-- Fill bar
+local fill = Instance.new("Frame", outerBar)
+fill.Size = UDim2.new(0, 0, 1, 0)
+fill.Position = UDim2.new(0, 0, 0, 0)
+fill.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
+fill.BorderSizePixel = 0
+fill.ZIndex = 4
+
+-- Text label
+local textLabel = Instance.new("TextLabel", outerBar)
+textLabel.Size = UDim2.new(1, 0, 1, 0)
+textLabel.BackgroundTransparency = 1
+textLabel.TextColor3 = Color3.new(1, 1, 1)
+textLabel.Font = Enum.Font.GothamBold
+textLabel.TextSize = 16
+textLabel.Text = ""
+textLabel.ZIndex = 7
+
+-- Control variables
+local charging = false
+local chargeTime = 1
+local dashTime = 3
+local dashSpeed = 30
+local chargeStartTime = 0
+local isDashing = false
+local afterimageCooldown = 0
+
+-- Afterimage function
+local pastelColors = {
+	Color3.fromRGB(255, 180, 180),
+	Color3.fromRGB(180, 255, 180),
+	Color3.fromRGB(180, 180, 255),
+	Color3.fromRGB(255, 255, 180),
+	Color3.fromRGB(255, 180, 255),
+	Color3.fromRGB(180, 255, 255)
+}
+local colorIndex = 1
+
 local function createAfterimage()
-	local clone = Instance.new("Model")
-	clone.Name = "Afterimage"
-	for _, part in pairs(character:GetDescendants()) do
-		if part:IsA("BasePart") and part.Name ~= "CollisionHitbox" and part.Transparency < 1 and not part:IsDescendantOf(head:FindFirstChild("Crown")) then
-			local partClone = part:Clone()
-			partClone.Anchored = true
-			partClone.CanCollide = false
-			partClone.Massless = true
-			partClone.Transparency = part.Transparency
-			partClone.CFrame = part.CFrame
-			partClone.Size *= 0.9 -- slightly smaller
-			partClone.Material = Enum.Material.Neon
-			partClone.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1)
-			partClone.Parent = clone
+	local clone = character:Clone()
+	clone.Name = "AfterImage"
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			if desc.Transparency >= 1 or desc.Name == "CollisionHitbox" then
+				desc:Destroy()
+			else
+				desc.Anchored = true
+				desc.CanCollide = false
+				desc.Material = Enum.Material.Neon
+				desc.Color = pastelColors[colorIndex]
+				colorIndex = (colorIndex % #pastelColors) + 1
+				desc.Size *= 0.95
+			end
+		elseif desc:IsA("Decal") or desc:IsA("Script") or desc:IsA("LocalScript") then
+			desc:Destroy()
 		end
 	end
+	clone:SetPrimaryPartCFrame(hrp.CFrame)
 	clone.Parent = workspace
-
-	-- Fade and remove after 0.3s
-	task.spawn(function()
-		local duration = 0.3
-		local start = tick()
-		while tick() - start < duration do
-			for _, p in clone:GetChildren() do
-				if p:IsA("BasePart") then
-					p.Transparency = math.clamp(p.Transparency + 0.05, 0, 1)
-				end
-			end
-			task.wait(0.03)
+	Debris:AddItem(clone, 0.3)
+	for _, part in ipairs(clone:GetDescendants()) do
+		if part:IsA("BasePart") then
+			TweenService:Create(part, TweenInfo.new(0.3), {Transparency = 1}):Play()
 		end
-		clone:Destroy()
+	end
+end
+
+-- Dash function
+local function beginDash()
+	if isDashing then return end
+	isDashing = true
+	local startTime = tick()
+	dashTrack:Play()
+	RunService:BindToRenderStep("DashMovement", Enum.RenderPriority.Character.Value + 1, function(dt)
+		local now = tick()
+		if now - startTime >= dashTime then
+			RunService:UnbindFromRenderStep("DashMovement")
+			isDashing = false
+			dashTrack:Stop()
+			return
+		end
+
+		local cam = workspace.CurrentCamera
+		local forward = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+		local input = Vector3.new(0, 0, 0)
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then input = input + Vector3.new(0, 0, -1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then input = input + Vector3.new(0, 0, 1) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then input = input + Vector3.new(-1, 0, 0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then input = input + Vector3.new(1, 0, 0) end
+		input = input.Unit.Magnitude > 0 and input.Unit or Vector3.zero
+		local moveDirection = (cam.CFrame:VectorToWorldSpace(input)).Unit
+		local finalDirection = (forward + moveDirection * 0.4).Unit
+		hrp.Velocity = finalDirection * dashSpeed
+
+		if tick() - afterimageCooldown >= 0.05 then
+			createAfterimage()
+			afterimageCooldown = tick()
+		end
 	end)
 end
+
+-- Input handling
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe or input.KeyCode ~= Enum.KeyCode.Space or charging or isDashing then return end
+	charging = true
+	chargeStartTime = tick()
+end)
+
+UserInputService.InputEnded:Connect(function(input, gpe)
+	if gpe or input.KeyCode ~= Enum.KeyCode.Space or not charging then return end
+	charging = false
+	if tick() - chargeStartTime >= chargeTime then
+		fill.Size = UDim2.new(0, 0, 1, 0)
+		textLabel.Text = ""
+		beginDash()
+	else
+		fill:TweenSize(UDim2.new(0, 0, 1, 0), "Out", "Quad", 0.2, true)
+		textLabel.Text = ""
+	end
+end)
+
+-- Charge UI fill updater
+RunService.RenderStepped:Connect(function()
+	if charging and not isDashing then
+		local progress = math.clamp((tick() - chargeStartTime) / chargeTime, 0, 1)
+		fill.Size = UDim2.new(progress, 0, 1, 0)
+		if progress >= 1 then
+			textLabel.Text = "RELEASE!!!"
+		end
+	end
+end)
