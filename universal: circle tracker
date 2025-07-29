@@ -1,139 +1,198 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
-local head = char:WaitForChild("Head")
-local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
+local hrp = char:WaitForChild("HumanoidRootPart")
+local head = char:WaitForChild("Head")
 
--- SETTINGS
-local numCrownParts = 12
-local crownRadius = 3
+-----------------------------
+-- CONFIGURATION
+-----------------------------
+local crownParts = {}
+local tailParts = {}
 local tailLength = 14
 local tailSpacing = 0.6
+local lastPositions = {}
+local lastHop = 0
+local hopCooldown = 0.5
+local hopForceDuration = 0.1
+local hopAnim = Instance.new("Animation")
+hopAnim.AnimationId = "rbxassetid://125869734469543"
+
 local rainbowColors = {}
 for i = 0, 360, 30 do
 	local h = i / 360
 	table.insert(rainbowColors, Color3.fromHSV(h, 1, 1))
 end
 
--- CLEANUP
+-----------------------------
+-- CLEANUP OLD STUFF
+-----------------------------
 for _, obj in ipairs(char:GetChildren()) do
 	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
 		obj:Destroy()
 	end
 end
 
--- STORAGE
+-----------------------------
+-- CROWN CREATION
+-----------------------------
 local crownFolder = Instance.new("Folder", char)
 crownFolder.Name = "RainbowCrown"
-local crownParts = {}
+local numCrownParts = 12
+local crownRadius = 3
 
+for i = 1, numCrownParts do
+	local p = Instance.new("Part")
+	p.Name = "CrownPart"
+	p.Size = Vector3.new(0.4, 0.4, 0.4)
+	p.Shape = Enum.PartType.Block
+	p.Material = Enum.Material.Neon
+	p.Color = rainbowColors[(i % #rainbowColors) + 1]
+	p.Anchored = false
+	p.CanCollide = false
+	p.Massless = true
+	p.Parent = crownFolder
+	table.insert(crownParts, p)
+	
+	local att0 = Instance.new("Attachment", head)
+	local att1 = Instance.new("Attachment", p)
+	local constraint = Instance.new("AlignPosition")
+	constraint.Attachment0 = att1
+	constraint.Attachment1 = att0
+	constraint.Responsiveness = 100
+	constraint.RigidityEnabled = false
+	constraint.MaxForce = math.huge
+	constraint.Parent = p
+end
+
+-----------------------------
+-- TAIL CREATION
+-----------------------------
 local tailFolder = Instance.new("Folder", char)
 tailFolder.Name = "RainbowTail"
-local tailParts = {}
 
--- CREATE CROWN
-for i = 1, numCrownParts do
-	local part = Instance.new("Part")
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.new(0.3, 0.3, 0.3)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[(i % #rainbowColors) + 1]
-	part.Parent = crownFolder
-	table.insert(crownParts, part)
-end
-
--- CREATE TAIL
 for i = 1, tailLength do
-	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.5, 0.5, 0.5)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
-	part.Parent = tailFolder
-	table.insert(tailParts, part)
+	local p = Instance.new("Part")
+	local scale = 0.2 + (i / tailLength) * 0.6
+	p.Size = Vector3.new(scale, scale, scale)
+	p.Material = Enum.Material.Neon
+	p.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
+	p.Anchored = false
+	p.CanCollide = false
+	p.Massless = true
+	p.Name = "TailPart"
+	p.Position = hrp.Position - Vector3.new(0, 1, i * tailSpacing)
+	p.Parent = tailFolder
+	table.insert(tailParts, p)
+	
+	local bp = Instance.new("BodyPosition", p)
+	bp.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	bp.D = 1000
+	bp.P = 10000
 end
 
--- HELPER: Afterimage
+for i = 1, tailLength do
+	lastPositions[i] = hrp.Position
+end
+
+-----------------------------
+-- AUDIO SCAN
+-----------------------------
+local loudness = 0
+RunService.RenderStepped:Connect(function()
+	local volume = 0
+	for _, s in head:GetDescendants() do
+		if s:IsA("Sound") and s.IsPlaying then
+			volume += s.PlaybackLoudness
+		end
+	end
+	for _, s in SoundService:GetDescendants() do
+		if s:IsA("Sound") and s.IsPlaying then
+			volume += (s.PlaybackLoudness or 0) * 0.3
+		end
+	end
+	loudness = volume
+end)
+
+-----------------------------
+-- UPDATE CROWN + TAIL
+-----------------------------
+RunService.RenderStepped:Connect(function(dt)
+	-- CROWN
+	local headCF = head.CFrame
+	for i, part in ipairs(crownParts) do
+		local angle = math.rad((360 / #crownParts) * i + tick() * 60)
+		local offset = Vector3.new(math.cos(angle), 1.5, math.sin(angle)) * crownRadius
+		local targetPos = head.Position + headCF:VectorToWorldSpace(offset)
+		local scaleFactor = math.clamp(loudness / 150, 1, 3)
+		part.Size = Vector3.new(0.4, 0.4 * scaleFactor, 0.4)
+	end
+
+	-- TAIL
+	table.insert(lastPositions, 1, hrp.Position)
+	if #lastPositions > tailLength then
+		table.remove(lastPositions)
+	end
+	for i, part in ipairs(tailParts) do
+		local pos = lastPositions[math.clamp(i, 1, #lastPositions)]
+		local bp = part:FindFirstChildWhichIsA("BodyPosition")
+		if bp then
+			bp.Position = pos - Vector3.new(0, 1.5, 0)
+		end
+	end
+end)
+
+-----------------------------
+-- AFTERIMAGE
+-----------------------------
 local function createAfterimage()
 	local clone = char:Clone()
 	for _, d in ipairs(clone:GetDescendants()) do
 		if d:IsA("BasePart") then
 			d.Anchored = true
 			d.CanCollide = false
-			d.Transparency = 0.7
 			d.Material = Enum.Material.Neon
+			d.Transparency = 0.6
 			d.Color = rainbowColors[math.random(1, #rainbowColors)]
 		elseif d:IsA("Humanoid") then
 			d:Destroy()
 		end
 	end
 	clone.Parent = workspace
-	game:GetService("Debris"):AddItem(clone, 0.3)
+	Debris:AddItem(clone, 0.3)
 end
 
--- AUDIO DETECTION
-local loudness = 0
-local isBuff = false
-local lastSoundScan = tick()
+-----------------------------
+-- HOP INPUT
+-----------------------------
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or input.KeyCode ~= Enum.KeyCode.Space then return end
+	if tick() - lastHop < hopCooldown then return end
+	if humanoid.FloorMaterial == Enum.Material.Air then return end
 
--- DYNAMIC AUDIO VISUALIZER LOOP
-RunService.RenderStepped:Connect(function(dt)
-	local now = tick()
+	lastHop = tick()
+	
+	-- Hop force
+	local bv = Instance.new("BodyVelocity")
+	bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	bv.Velocity = hrp.CFrame.LookVector * 50 + Vector3.new(0, 25, 0)
+	bv.Parent = hrp
+	Debris:AddItem(bv, hopForceDuration)
+	
+	-- Animation
+	local track = humanoid:LoadAnimation(hopAnim)
+	track.Priority = Enum.AnimationPriority.Action
+	track:Play()
+	game:GetService("Debris"):AddItem(track, 0.2)
 
-	-- === 1. AUDIO REACTIVITY ===
-	if now - lastSoundScan > 0.1 then
-		lastSoundScan = now
-		local volume = 0
-
-		-- HEAD-BASED SOUNDS (LOCAL)
-		for _, sound in ipairs(head:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += sound.PlaybackLoudness or 0
-			end
-		end
-
-		-- GLOBAL SOUNDS
-		for _, sound in ipairs(SoundService:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += (sound.PlaybackLoudness or 0) * 0.3
-			end
-		end
-
-		loudness = volume
-		isBuff = loudness > 60
-	end
-
-	-- === 2. CROWN UPDATE ===
-	for i, part in ipairs(crownParts) do
-		local angle = math.rad((360 / #crownParts) * i + (tick() * 80))
-		local offset = Vector3.new(math.cos(angle), 1.5, math.sin(angle)) * crownRadius
-		part.Position = head.Position + offset
-		part.Color = rainbowColors[(i + math.floor(tick() * 10)) % #rainbowColors + 1]
-	end
-
-	-- === 3. TAIL UPDATE ===
-	local rootCF = hrp.CFrame
-	for i, part in ipairs(tailParts) do
-		local offset = Vector3.new(0, -0.4, -i * tailSpacing)
-		local worldPos = rootCF:PointToWorldSpace(offset)
-		part.Position = part.Position:Lerp(worldPos, dt * 10)
-		part.Color = rainbowColors[((i + math.floor(tick() * 15)) % #rainbowColors) + 1]
-	end
-
-	-- === 4. SPEED BOOST AND AFTERIMAGE ===
-	if isBuff then
-		humanoid.WalkSpeed = 18
-		if math.random() < 0.5 then
-			createAfterimage()
-		end
-	else
-		humanoid.WalkSpeed = 16
+	-- Afterimages
+	for i = 1, 5 do
+		task.delay(i * 0.02, createAfterimage)
 	end
 end)
