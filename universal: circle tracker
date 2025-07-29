@@ -278,194 +278,37 @@ RunService.Heartbeat:Connect(function(dt)
 		part.Orientation = Vector3.new(0, yawAngle, 0)
 	end
 end)
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
-
--- === UI SETUP === --
-local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-screenGui.Name = "DashBarGui"
-screenGui.ResetOnSpawn = false
-
-local bar = Instance.new("Frame", screenGui)
-bar.AnchorPoint = Vector2.new(0.5, 1)
-bar.Position = UDim2.new(0.5, 0, 1, -20)
-bar.Size = UDim2.new(0.4, 0, 0.04, 0)
-bar.BackgroundColor3 = Color3.new(0, 0, 0)
-bar.BorderSizePixel = 0
-bar.BackgroundTransparency = 0.3
-bar.Name = "ChargeBar"
-bar.ClipsDescendants = true
-bar.ZIndex = 1
-bar:ClearAllChildren()
-bar.UICorner = Instance.new("UICorner", bar)
-bar.UICorner.CornerRadius = UDim.new(0, 8)
-
-local fill = Instance.new("Frame", bar)
-fill.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
-fill.Size = UDim2.new(0, 0, 1, 0)
-fill.Position = UDim2.new(0, 0, 0, 0)
-fill.BorderSizePixel = 0
-fill.Name = "Fill"
-fill.ZIndex = 0
-
-local fillCorner = Instance.new("UICorner", fill)
-fillCorner.CornerRadius = UDim.new(0, 8)
-
--- Lines inside the bar
-for i = 1, 5 do
-	local line = Instance.new("Frame", bar)
-	line.Size = UDim2.new(0, 2, 1, -4)
-	line.Position = UDim2.new(i / 6, 0, 0, 2)
-	line.AnchorPoint = Vector2.new(0.5, 0)
-	line.BackgroundColor3 = Color3.new(1, 1, 1)
-	line.BackgroundTransparency = 0.5
-	line.BorderSizePixel = 0
-	line.ZIndex = 2
-end
-
-local label = Instance.new("TextLabel", bar)
-label.Size = UDim2.new(1, 0, 1, 0)
-label.Position = UDim2.new(0, 0, 0, 0)
-label.Text = ""
-label.TextColor3 = Color3.new(1, 1, 1)
-label.TextTransparency = 0.3
-label.BackgroundTransparency = 1
-label.Font = Enum.Font.GothamBlack
-label.TextScaled = true
-label.ZIndex = 3
-
--- === DASH SETUP === --
-local dashAnim = Instance.new("Animation")
-dashAnim.AnimationId = "rbxassetid://125869734469543"
-local animTrack
-
-local isCharging = false
-local chargeStart = 0
-local maxChargeTime = 1.5
-local dashDuration = 3
-local afterimageDelay = 0.05
-local dashSpeed = 30
-
-local isDashing = false
-local lastAfterimage = 0
-
--- === HELPERS === --
-local function rainbowColor(t)
-	local r = math.sin(t*2) * 0.5 + 0.5
-	local g = math.sin(t*2 + 2) * 0.5 + 0.5
-	local b = math.sin(t*2 + 4) * 0.5 + 0.5
-	return Color3.new(r, g, b)
-end
-
 local function createAfterimage()
-	local clone = character:Clone()
+	local clone = Instance.new("Model")
+	clone.Name = "Afterimage"
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name ~= "CollisionHitbox" and part.Transparency < 1 and not part:IsDescendantOf(head:FindFirstChild("Crown")) then
+			local partClone = part:Clone()
+			partClone.Anchored = true
+			partClone.CanCollide = false
+			partClone.Massless = true
+			partClone.Transparency = part.Transparency
+			partClone.CFrame = part.CFrame
+			partClone.Size *= 0.9 -- slightly smaller
+			partClone.Material = Enum.Material.Neon
+			partClone.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1)
+			partClone.Parent = clone
+		end
+	end
 	clone.Parent = workspace
-	for _, obj in ipairs(clone:GetDescendants()) do
-		if obj:IsA("BasePart") then
-			if obj.Transparency >= 1 or obj.Name:lower():find("crown") then
-				obj:Destroy()
-			else
-				obj.Anchored = true
-				obj.CanCollide = false
-				obj.Color = rainbowColor(time())
-				obj.Material = Enum.Material.Neon
-				obj.Size = obj.Size * 0.95
-			end
-		elseif obj:IsA("Humanoid") then
-			obj:Destroy()
-		end
-	end
 
-	local fade = TweenService:Create(clone, TweenInfo.new(0.3), {["ModelTransparency"] = 1})
-	fade:Play()
-	game.Debris:AddItem(clone, 0.35)
+	-- Fade and remove after 0.3s
+	task.spawn(function()
+		local duration = 0.3
+		local start = tick()
+		while tick() - start < duration do
+			for _, p in clone:GetChildren() do
+				if p:IsA("BasePart") then
+					p.Transparency = math.clamp(p.Transparency + 0.05, 0, 1)
+				end
+			end
+			task.wait(0.03)
+		end
+		clone:Destroy()
+	end)
 end
-
--- === MOVEMENT === --
-local velocity = Instance.new("BodyVelocity")
-velocity.MaxForce = Vector3.new(1, 0, 1) * 1e5
-velocity.Velocity = Vector3.zero
-velocity.P = 1e5
-velocity.Name = "DashVelocity"
-
--- === EVENTS === --
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if input.KeyCode == Enum.KeyCode.Space and not gameProcessed and not isCharging and not isDashing then
-		isCharging = true
-		chargeStart = tick()
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.Space and isCharging then
-		isCharging = false
-		local chargeTime = math.min(tick() - chargeStart, maxChargeTime)
-		local chargePercent = chargeTime / maxChargeTime
-		local dashTime = dashDuration
-
-		-- === BEGIN DASH === --
-		isDashing = true
-		label.Text = ""
-		fill.Size = UDim2.new(1, 0, 1, 0)
-
-		-- Play anim
-		animTrack = humanoid:LoadAnimation(dashAnim)
-		animTrack.Priority = Enum.AnimationPriority.Action4
-		animTrack.Looped = true
-		animTrack:Play()
-
-		-- Attach velocity
-		velocity.Parent = hrp
-
-		local dashStart = tick()
-		local connection
-		connection = RunService.RenderStepped:Connect(function(dt)
-			local now = tick()
-			local elapsed = now - dashStart
-			if elapsed >= dashTime then
-				connection:Disconnect()
-				velocity.Parent = nil
-				isDashing = false
-				if animTrack then animTrack:Stop() end
-				fill.Size = UDim2.new(0, 0, 1, 0)
-				return
-			end
-
-			-- Update velocity
-			local camera = workspace.CurrentCamera
-			local moveDir = (camera.CFrame.LookVector * UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0)
-			local dir = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
-			velocity.Velocity = dir * dashSpeed
-
-			-- Afterimage spawn
-			if now - lastAfterimage >= afterimageDelay then
-				createAfterimage()
-				lastAfterimage = now
-			end
-
-			-- Fill depletes
-			fill.Size = UDim2.new(1 - (elapsed / dashTime), 0, 1, 0)
-		end)
-	end
-end)
-
--- === UI UPDATE === --
-RunService.RenderStepped:Connect(function()
-	if isCharging and not isDashing then
-		local t = math.min((tick() - chargeStart) / maxChargeTime, 1)
-		fill.Size = UDim2.new(t, 0, 1, 0)
-		fill.BackgroundColor3 = rainbowColor(tick())
-		if t >= 1 then
-			label.Text = "release!!!"
-		else
-			label.Text = ""
-		end
-	end
-end)
