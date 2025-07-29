@@ -1,141 +1,153 @@
--- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
 
--- Player
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local head = character:WaitForChild("Head")
 local hrp = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
+local head = character:WaitForChild("Head")
 
--- Tail Config
-local SEGMENTS = 16
-local TAIL_RADIUS = 0.6
-local TAIL_LENGTH = 6
+-- Tail settings
+local TAIL_SEGMENTS = 16
 local tailParts = {}
+local tailRadius = 1
+local tailLength = 0.75
 
--- Crown Config
+-- Crown settings
 local crownParts = {}
-local CROWN_RADIUS = 5
-local CROWN_SEGMENTS = 12
-local CROWN_HEIGHT = 4
+local CROWN_RADIUS = 4
+local CROWN_PARTS = 12
 
--- Animation
-local hopAnimation = Instance.new("Animation")
-hopAnimation.AnimationId = "rbxassetid://125869734469543"
-local hopTrack = humanoid:LoadAnimation(hopAnimation)
-hopTrack.Priority = Enum.AnimationPriority.Action
+-- Hop cooldown and state
+local hopCooldown = false
+local isAirborne = false
 
--- Utility
-local lastHop = 0
-local HOP_COOLDOWN = 0.5
-local HOP_DURATION = 0.1
-local AFTERIMAGE_FADE = 0.4
-
--- === Tail Setup ===
-for i = 1, SEGMENTS do
-	local part = Instance.new("Part")
-	part.Shape = Enum.PartType.Block
-	part.Size = Vector3.new(TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5, TAIL_RADIUS + (i / SEGMENTS) * 1.5)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(i / SEGMENTS, 1, 1)
-	part.Parent = workspace
-	tailParts[#tailParts + 1] = part
-end
-
--- === Crown Setup ===
-for i = 1, CROWN_SEGMENTS do
-	local part = Instance.new("Part")
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.new(0.6, 0.6, 0.6)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Material = Enum.Material.Neon
-	part.Color = Color3.fromHSV(i / CROWN_SEGMENTS, 1, 1)
-	part.Parent = workspace
-	crownParts[#crownParts + 1] = part
-end
-
--- === Afterimage Function ===
-local function createAfterimage()
+-- Afterimage function
+local function spawnAfterImage()
 	local clone = character:Clone()
-	for _, descendant in ipairs(clone:GetDescendants()) do
+	clone.Name = "AfterImage"
+	for _, descendant in pairs(clone:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
 			descendant.CanCollide = false
-			descendant.Material = Enum.Material.ForceField
-			descendant.Color = Color3.fromHSV(tick() % 5 / 5, 0.7, 1)
-			local tween = TweenService:Create(descendant, TweenInfo.new(AFTERIMAGE_FADE), {Transparency = 1})
-			tween:Play()
-			game.Debris:AddItem(descendant, AFTERIMAGE_FADE)
-		elseif descendant:IsA("Decal") or descendant:IsA("Script") or descendant:IsA("LocalScript") then
+			descendant.Material = Enum.Material.Neon
+			descendant.Color = Color3.fromHSV(tick() % 5 / 5, 0.5, 1)
+		elseif descendant:IsA("Humanoid") then
 			descendant:Destroy()
 		end
 	end
 	clone.Parent = workspace
-	game.Debris:AddItem(clone, AFTERIMAGE_FADE)
+	game:GetService("Debris"):AddItem(clone, 0.4)
 end
 
--- === Hop Logic ===
-local isHopping = false
+-- Hop logic
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe or input.KeyCode ~= Enum.KeyCode.Space or hopCooldown then return end
+	hopCooldown = true
 
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.Space and tick() - lastHop >= HOP_COOLDOWN then
-		lastHop = tick()
-		isHopping = true
-		hopTrack:Play()
+	-- Play animation
+	local anim = Instance.new("Animation")
+	anim.AnimationId = "rbxassetid://125869734469543"
+	local track = humanoid:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action
+	track:Play()
+	task.delay(0.15, function()
+		if track then track:Stop() end
+	end)
 
-		local startPos = hrp.Position
-		local dir = hrp.CFrame.LookVector
-		local endPos = startPos + Vector3.new(0, 2, 0) + dir * 5
+	-- Launch upward & forward
+	local bodyVel = Instance.new("BodyVelocity")
+	bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	bodyVel.Velocity = (hrp.CFrame.LookVector * 50 + Vector3.new(0, 20, 0))
+	bodyVel.Parent = hrp
+	isAirborne = true
+	spawnAfterImage()
+	task.delay(0.1, function()
+		bodyVel:Destroy()
+	end)
 
-		local tween = TweenService:Create(hrp, TweenInfo.new(HOP_DURATION, Enum.EasingStyle.Linear), {CFrame = CFrame.new(endPos)})
-		tween:Play()
+	-- Stop afterimages after landing
+	task.delay(0.3, function()
+		isAirborne = false
+	end)
 
-		local elapsed = 0
-		RunService:BindToRenderStep("HopAfterimages", Enum.RenderPriority.Character.Value + 1, function(dt)
-			elapsed += dt
-			createAfterimage()
-			if elapsed >= HOP_DURATION then
-				RunService:UnbindFromRenderStep("HopAfterimages")
-				isHopping = false
-			end
-		end)
-	end
+	task.delay(0.5, function()
+		hopCooldown = false
+	end)
 end)
 
--- === Main Loop ===
+-- Tail setup
+for i = 1, TAIL_SEGMENTS do
+	local p = Instance.new("Part")
+	p.Size = Vector3.new(0.5, 0.5, 0.5)
+	p.Shape = Enum.PartType.Ball
+	p.Material = Enum.Material.Neon
+	p.Anchored = true
+	p.CanCollide = false
+	p.Color = Color3.fromHSV(i / TAIL_SEGMENTS, 1, 1)
+	p.Parent = workspace
+	table.insert(tailParts, p)
+end
+
+-- Special pastel cube at tip
+local pastelCube = Instance.new("Part")
+pastelCube.Size = Vector3.new(0.6, 0.6, 0.6)
+pastelCube.Shape = Enum.PartType.Block
+pastelCube.Material = Enum.Material.Neon
+pastelCube.Anchored = true
+pastelCube.CanCollide = false
+pastelCube.Color = Color3.new(1, 1, 1)
+pastelCube.Parent = workspace
+
+-- Crown setup
+for i = 1, CROWN_PARTS do
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(0.5, 2.5, 0.5)
+	part.Material = Enum.Material.Neon
+	part.Anchored = true
+	part.CanCollide = false
+	part.Parent = workspace
+	table.insert(crownParts, part)
+end
+
+-- Tail & Crown update
 RunService.RenderStepped:Connect(function(dt)
-	-- Tail Update
-	local basePos = hrp.Position - Vector3.new(0, 1, 0)
+	local baseCFrame = hrp.CFrame
+	local prevPos = baseCFrame.Position
+
 	for i, part in ipairs(tailParts) do
-		local offset = hrp.CFrame * CFrame.new(0, 0, -i * 0.5)
-		local targetPos = offset.Position
-		part.CFrame = CFrame.new(targetPos)
-		part.Color = Color3.fromHSV((tick() + i * 0.05) % 1, 1, 1)
+		local t = tick() + i
+		local offset = Vector3.new(
+			math.sin(t * 2) * 0.4,
+			math.cos(t * 2) * 0.4,
+			-i * tailLength
+		)
+		local worldPos = baseCFrame.Position + baseCFrame:VectorToWorldSpace(offset)
+		part.Position = part.Position:Lerp(worldPos, 0.5)
 	end
 
-	-- Crown Update
-	local soundLevel = 0
-	for _, s in ipairs(SoundService:GetDescendants()) do
-		if s:IsA("Sound") and s.IsPlaying and s.PlaybackState == Enum.PlaybackState.Playing then
-			soundLevel += s.PlaybackLoudness or 0
-		end
-	end
-	soundLevel = math.clamp(soundLevel / 800, 0, 1)
+	-- White pastel cube at tip (offset -5 studs behind tail tip)
+	local tip = tailParts[#tailParts]
+	local offsetDir = (tip.Position - tailParts[#tailParts - 1].Position).Unit
+	pastelCube.Position = tip.Position + offsetDir * -5
+	pastelCube.Color = Color3.fromHSV(tick() % 6 / 6, 0.4, 1)
+	pastelCube.Orientation += Vector3.new(0, 3, 1)
 
+	-- Crown logic
+	local soundLevel = SoundService:GetService("SoundService").AmbientReverb
 	for i, part in ipairs(crownParts) do
-		local angle = math.rad((i / CROWN_SEGMENTS) * 360 + tick() * 120)
-		local height = 2 + math.sin(tick() * 4 + i) * soundLevel * CROWN_HEIGHT
-		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * CROWN_RADIUS
-		part.Position = head.Position + Vector3.new(0, height, 0) + offset
-		part.Color = Color3.fromHSV((tick() + i / CROWN_SEGMENTS) % 1, 1, 1)
+		local angle = math.rad((360 / #crownParts) * i)
+		local height = math.sin(tick() * 3 + i) * 3 + 4
+		local radius = CROWN_RADIUS + math.sin(tick() * 2 + i) * 1.2
+		local offset = Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+		part.Position = head.Position + offset
+		part.Color = Color3.fromHSV((tick() + i / #crownParts) % 1, 1, 1)
+	end
+
+	-- Afterimage trail if airborne
+	if isAirborne then
+		spawnAfterImage()
 	end
 end)
