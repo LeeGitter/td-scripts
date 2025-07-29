@@ -1,65 +1,55 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local torso = character:WaitForChild("Torso")
 
 -- Settings
-local tailLength = 14
-local tailSpacing = 0.8
+local SEGMENTS = 14
+local SPACING = 0.8
 local tailParts = {}
 local rainbowColors = {}
 
 for i = 0, 360, 30 do
-	local h = i / 360
-	table.insert(rainbowColors, Color3.fromHSV(h, 1, 1))
+	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
 end
 
--- Cleanup
-local oldTail = character:FindFirstChild("RainbowTail")
-if oldTail then oldTail:Destroy() end
+-- Remove old tail
+local old = character:FindFirstChild("RainbowTail")
+if old then old:Destroy() end
 
--- Tail Folder
+-- Tail folder
 local tailFolder = Instance.new("Folder")
 tailFolder.Name = "RainbowTail"
 tailFolder.Parent = character
 
--- Create tail parts
-for i = 1, tailLength do
+-- Create segments
+local lastPos = torso.Position
+for i = 1, SEGMENTS do
 	local part = Instance.new("Part")
 	part.Size = Vector3.new(0.6, 0.6, 0.6)
-	part.Shape = Enum.PartType.Block
-	part.Anchored = false
+	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
 	part.Color = rainbowColors[(i * 3) % #rainbowColors + 1]
-	part.Massless = true
+	part.CFrame = torso.CFrame * CFrame.new(0, 0, i * SPACING)
 	part.Parent = tailFolder
-
-	local att0 = Instance.new("Attachment", part)
-	local constraint = Instance.new("AlignPosition")
-	constraint.Attachment0 = att0
-	constraint.RigidityEnabled = false
-	constraint.ReactionForceEnabled = false
-	constraint.MaxForce = math.huge
-	constraint.Responsiveness = 15 - (i * 0.8)
-	constraint.ApplyAtCenterOfMass = true
-	constraint.Parent = part
-
 	table.insert(tailParts, {
 		Part = part,
-		Constraint = constraint,
-		Attachment = att0,
+		Position = part.Position
 	})
 end
 
--- Update loop
-RunService.Stepped:Connect(function(_, dt)
-	local baseCF = torso.CFrame
-
+-- Update tail visually
+RunService.RenderStepped:Connect(function(dt)
+	local targetPos = torso.Position
+	local last = targetPos
 	for i, segment in ipairs(tailParts) do
-		local desiredPos = baseCF.Position - baseCF.LookVector * i * tailSpacing
-		segment.Constraint.Position = desiredPos
+		local t = 0.15 + i * 0.02 -- looser at the tip
+		local seg = segment
+		seg.Position = seg.Position:Lerp(last - (torso.CFrame.LookVector * SPACING), t)
+		seg.Part.CFrame = CFrame.new(seg.Position)
+		last = seg.Position
 	end
 end)
