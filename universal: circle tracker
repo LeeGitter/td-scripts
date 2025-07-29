@@ -1,8 +1,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
-local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
@@ -11,13 +9,10 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
 -- SETTINGS
-local crownRadius = 3
 local numCrownParts = 12
+local crownRadius = 3
 local tailLength = 14
 local tailSpacing = 0.6
-local baseTailSize = 0.4
-
--- Rainbow Colors
 local rainbowColors = {}
 for i = 0, 360, 30 do
 	local h = i / 360
@@ -25,164 +20,120 @@ for i = 0, 360, 30 do
 end
 
 -- CLEANUP
-for _, v in ipairs(char:GetChildren()) do
-	if v.Name == "RainbowCrown" or v.Name == "RainbowTail" then
-		v:Destroy()
+for _, obj in ipairs(char:GetChildren()) do
+	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
+		obj:Destroy()
 	end
 end
 
 -- STORAGE
 local crownFolder = Instance.new("Folder", char)
 crownFolder.Name = "RainbowCrown"
+local crownParts = {}
+
 local tailFolder = Instance.new("Folder", char)
 tailFolder.Name = "RainbowTail"
-
-local crownParts = {}
 local tailParts = {}
 
 -- CREATE CROWN
 for i = 1, numCrownParts do
 	local part = Instance.new("Part")
+	part.Shape = Enum.PartType.Ball
 	part.Size = Vector3.new(0.3, 0.3, 0.3)
-	part.Anchored = false
+	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
 	part.Color = rainbowColors[(i % #rainbowColors) + 1]
-	part.Massless = true
-	part.Name = "CrownPart"
 	part.Parent = crownFolder
-
-	local att = Instance.new("Attachment", part)
-	local bv = Instance.new("VectorForce", part)
-	bv.Attachment0 = att
-	bv.RelativeTo = Enum.ActuatorRelativeTo.World
-	bv.Force = Vector3.zero
-
-	table.insert(crownParts, {Part = part, Force = bv})
+	table.insert(crownParts, part)
 end
 
 -- CREATE TAIL
 for i = 1, tailLength do
 	local part = Instance.new("Part")
-	local scale = baseTailSize + (i / tailLength) * 0.6
-	part.Size = Vector3.new(scale, scale, scale)
-	part.Anchored = false
+	part.Size = Vector3.new(0.5, 0.5, 0.5)
+	part.Anchored = true
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
 	part.Color = rainbowColors[((i * 3) % #rainbowColors) + 1]
-	part.Massless = true
-	part.Name = "TailPart"
 	part.Parent = tailFolder
-
-	local att = Instance.new("Attachment", part)
-	local bv = Instance.new("VectorForce", part)
-	bv.Attachment0 = att
-	bv.RelativeTo = Enum.ActuatorRelativeTo.World
-	bv.Force = Vector3.zero
-
-	table.insert(tailParts, {Part = part, Force = bv, Index = i})
+	table.insert(tailParts, part)
 end
 
--- AFTERIMAGE CLONE
+-- HELPER: Afterimage
 local function createAfterimage()
 	local clone = char:Clone()
-	clone.Name = "Afterimage"
 	for _, d in ipairs(clone:GetDescendants()) do
 		if d:IsA("BasePart") then
 			d.Anchored = true
 			d.CanCollide = false
-			d.Transparency = 0.5
-			d.Color = rainbowColors[math.random(1, #rainbowColors)]
+			d.Transparency = 0.7
 			d.Material = Enum.Material.Neon
+			d.Color = rainbowColors[math.random(1, #rainbowColors)]
 		elseif d:IsA("Humanoid") then
 			d:Destroy()
 		end
 	end
 	clone.Parent = workspace
-	Debris:AddItem(clone, 0.3)
+	game:GetService("Debris"):AddItem(clone, 0.3)
 end
-
--- HOP LOGIC
-local hopping = false
-local lastHop = 0
-local hopCooldown = 0.5
-local hopAnimation = Instance.new("Animation")
-hopAnimation.AnimationId = "rbxassetid://125869734469543"
-local hopTrack = humanoid:LoadAnimation(hopAnimation)
-hopTrack.Priority = Enum.AnimationPriority.Action
-
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe or input.KeyCode ~= Enum.KeyCode.Space or hopping or tick() - lastHop < hopCooldown then return end
-	lastHop = tick()
-	hopping = true
-
-	hopTrack:Play()
-	task.delay(0.15, function()
-		hopTrack:Stop()
-	end)
-
-	local bodyVel = Instance.new("BodyVelocity")
-	bodyVel.Velocity = Vector3.new(0, 50, 0) + hrp.CFrame.LookVector * 50
-	bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-	bodyVel.P = 1e4
-	bodyVel.Parent = hrp
-	Debris:AddItem(bodyVel, 0.1)
-
-	for _ = 1, 5 do
-		createAfterimage()
-		task.wait(0.02)
-	end
-
-	task.wait(0.2)
-	hopping = false
-end)
 
 -- AUDIO DETECTION
 local loudness = 0
-local lastScan = 0
+local isBuff = false
+local lastSoundScan = tick()
 
--- UPDATE LOOP
+-- DYNAMIC AUDIO VISUALIZER LOOP
 RunService.RenderStepped:Connect(function(dt)
 	local now = tick()
 
-	-- Scan loudness every 0.1s
-	if now - lastScan > 0.1 then
-		lastScan = now
+	-- === 1. AUDIO REACTIVITY ===
+	if now - lastSoundScan > 0.1 then
+		lastSoundScan = now
 		local volume = 0
 
-		for _, s in ipairs(head:GetDescendants()) do
-			if s:IsA("Sound") and s.IsPlaying then
-				volume += s.PlaybackLoudness or 0
+		-- HEAD-BASED SOUNDS (LOCAL)
+		for _, sound in ipairs(head:GetDescendants()) do
+			if sound:IsA("Sound") and sound.IsPlaying then
+				volume += sound.PlaybackLoudness or 0
 			end
 		end
 
-		for _, s in ipairs(SoundService:GetDescendants()) do
-			if s:IsA("Sound") and s.IsPlaying then
-				volume += (s.PlaybackLoudness or 0) * 0.3
+		-- GLOBAL SOUNDS
+		for _, sound in ipairs(SoundService:GetDescendants()) do
+			if sound:IsA("Sound") and sound.IsPlaying then
+				volume += (sound.PlaybackLoudness or 0) * 0.3
 			end
 		end
 
-		loudness = math.clamp(volume, 0, 100)
+		loudness = volume
+		isBuff = loudness > 60
 	end
 
-	-- === Crown Update ===
-	for i, data in ipairs(crownParts) do
-		local angle = math.rad((360 / #crownParts) * i + tick() * 120)
-		local x = math.cos(angle) * crownRadius
-		local y = 2 + math.sin(tick() * 2 + i) * (loudness * 0.01)
-		local z = math.sin(angle) * crownRadius
-		local goal = head.Position + Vector3.new(x, y, z)
-		local force = (goal - data.Part.Position) * 80
-		data.Force.Force = force
+	-- === 2. CROWN UPDATE ===
+	for i, part in ipairs(crownParts) do
+		local angle = math.rad((360 / #crownParts) * i + (tick() * 80))
+		local offset = Vector3.new(math.cos(angle), 1.5, math.sin(angle)) * crownRadius
+		part.Position = head.Position + offset
+		part.Color = rainbowColors[(i + math.floor(tick() * 10)) % #rainbowColors + 1]
 	end
 
-	-- === Tail Update ===
-	local baseCF = hrp.CFrame
-	for _, data in ipairs(tailParts) do
-		local i = data.Index
-		local offset = Vector3.new(0, -0.3, i * tailSpacing)
-		local worldPos = baseCF:PointToWorldSpace(offset)
-		local force = (worldPos - data.Part.Position) * 60
-		data.Force.Force = force
+	-- === 3. TAIL UPDATE ===
+	local rootCF = hrp.CFrame
+	for i, part in ipairs(tailParts) do
+		local offset = Vector3.new(0, -0.4, -i * tailSpacing)
+		local worldPos = rootCF:PointToWorldSpace(offset)
+		part.Position = part.Position:Lerp(worldPos, dt * 10)
+		part.Color = rainbowColors[((i + math.floor(tick() * 15)) % #rainbowColors) + 1]
+	end
+
+	-- === 4. SPEED BOOST AND AFTERIMAGE ===
+	if isBuff then
+		humanoid.WalkSpeed = 18
+		if math.random() < 0.5 then
+			createAfterimage()
+		end
+	else
+		humanoid.WalkSpeed = 16
 	end
 end)
