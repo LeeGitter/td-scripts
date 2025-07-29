@@ -10,33 +10,29 @@ local hrp = char:WaitForChild("HumanoidRootPart")
 local humanoid = char:WaitForChild("Humanoid")
 
 -- CONFIG
-local rainbowColors = {}
-for i = 0, 360, 30 do
-	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
-end
-
 local NUM_CROWN = 12
 local TAIL_SEGMENTS = 14
 local CROWN_RADIUS = 3
 local CROWN_HEIGHT = 1.5
 
+local rainbowColors = {}
+for i = 0, 360, 30 do
+	table.insert(rainbowColors, Color3.fromHSV(i / 360, 1, 1))
+end
+
 -- CLEANUP
-for _, obj in ipairs(char:GetChildren()) do
-	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
+for _, obj in ipairs(workspace:GetChildren()) do
+	if obj.Name == player.Name .. "_CrownPart" or obj.Name == player.Name .. "_TailPart" then
 		obj:Destroy()
 	end
 end
 
 -- STORAGE
-local crownFolder = Instance.new("Folder", char)
-crownFolder.Name = "RainbowCrown"
-local tailFolder = Instance.new("Folder", char)
-tailFolder.Name = "RainbowTail"
-
 local crownParts = {}
 local tailParts = {}
+local lastTailPositions = {}
 
--- CREATE CROWN BLOCKS
+-- CREATE CROWN BLOCKS (IN WORKSPACE)
 for i = 1, NUM_CROWN do
 	local part = Instance.new("Part")
 	part.Size = Vector3.new(0.3, 1.2, 0.3)
@@ -44,12 +40,12 @@ for i = 1, NUM_CROWN do
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
 	part.Color = rainbowColors[i % #rainbowColors + 1]
-	part.Name = "CrownPart"
-	part.Parent = crownFolder
+	part.Name = player.Name .. "_CrownPart"
+	part.Parent = workspace
 	table.insert(crownParts, part)
 end
 
--- CREATE TAIL SEGMENTS
+-- CREATE TAIL SEGMENTS (IN WORKSPACE)
 for i = 1, TAIL_SEGMENTS do
 	local part = Instance.new("Part")
 	local scale = 0.5 + (i / TAIL_SEGMENTS) * 1.2
@@ -58,12 +54,12 @@ for i = 1, TAIL_SEGMENTS do
 	part.CanCollide = false
 	part.Material = Enum.Material.Neon
 	part.Color = rainbowColors[i % #rainbowColors + 1]
-	part.Name = "TailSegment"
-	part.Parent = tailFolder
+	part.Name = player.Name .. "_TailPart"
+	part.Parent = workspace
 	table.insert(tailParts, part)
 end
 
--- AFTERIMAGE CREATION
+-- AFTERIMAGES
 local function createAfterimages()
 	for i = 1, 5 do
 		local ghost = char:Clone()
@@ -84,14 +80,14 @@ local function createAfterimages()
 	end
 end
 
--- JUMP DETECTION
-humanoid.StateChanged:Connect(function(old, new)
+-- Jump listener
+humanoid.StateChanged:Connect(function(_, new)
 	if new == Enum.HumanoidStateType.Jumping then
 		createAfterimages()
 	end
 end)
 
--- AUDIO LEVEL CHECK
+-- Audio sensitivity
 local loudness = 0
 RunService.Stepped:Connect(function()
 	local total = 0
@@ -109,23 +105,21 @@ RunService.Stepped:Connect(function()
 end)
 
 -- UPDATE LOOP
-local lastTailPositions = {}
-
 RunService.RenderStepped:Connect(function(dt)
 	local t = tick()
 
-	-- Update Crown
+	-- CROWN
 	for i, part in ipairs(crownParts) do
 		local angle = math.rad((360 / NUM_CROWN) * i + t * 60)
-		local localUp = head.CFrame:VectorToWorldSpace(Vector3.new(0, 1, 0))
+		local up = head.CFrame:VectorToWorldSpace(Vector3.new(0, 1, 0))
 		local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * CROWN_RADIUS
-		local worldPos = head.Position + localUp * CROWN_HEIGHT + offset
-		local scale = 1 + (loudness / 500) -- boost with audio
+		local worldPos = head.Position + up * CROWN_HEIGHT + offset
+		local scale = 1 + (loudness / 500)
 		part.Size = Vector3.new(0.3, 1.2 * scale, 0.3)
 		part.CFrame = CFrame.lookAt(worldPos, head.Position) * CFrame.Angles(0, 0, math.sin(t * 2 + i) * 0.2)
 	end
 
-	-- Update Tail
+	-- TAIL
 	local prevPos = hrp.Position
 	for i, part in ipairs(tailParts) do
 		if lastTailPositions[i] then
