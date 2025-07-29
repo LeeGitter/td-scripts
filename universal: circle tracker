@@ -1,150 +1,65 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
-local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local head = char:WaitForChild("Head")
-local hrp = char:WaitForChild("HumanoidRootPart")
-local humanoid = char:WaitForChild("Humanoid")
+local character = player.Character or player.CharacterAdded:Wait()
+local torso = character:WaitForChild("Torso")
 
 -- Settings
-local numCrownParts = 12
 local tailLength = 14
 local tailSpacing = 0.8
-local rainbow = Color3.fromRGB(255, 0, 255)
+local tailParts = {}
+local rainbowColors = {}
+
+for i = 0, 360, 30 do
+	local h = i / 360
+	table.insert(rainbowColors, Color3.fromHSV(h, 1, 1))
+end
 
 -- Cleanup
-for _, obj in ipairs(char:GetChildren()) do
-	if obj.Name == "RainbowCrown" or obj.Name == "RainbowTail" then
-		obj:Destroy()
-	end
-end
+local oldTail = character:FindFirstChild("RainbowTail")
+if oldTail then oldTail:Destroy() end
 
--- Folders
-local crownFolder = Instance.new("Folder", char)
-crownFolder.Name = "RainbowCrown"
-
-local tailFolder = Instance.new("Folder", char)
+-- Tail Folder
+local tailFolder = Instance.new("Folder")
 tailFolder.Name = "RainbowTail"
+tailFolder.Parent = character
 
--- Create Crown (blocks, physics-based wobble)
-local crownParts = {}
-for i = 1, numCrownParts do
-	local part = Instance.new("Part")
-	part.Size = Vector3.new(0.4, 1.5, 0.4)
-	part.Material = Enum.Material.Neon
-	part.Color = rainbow
-	part.CanCollide = false
-	part.Anchored = false
-	part.Massless = true
-	part.Name = "CrownPart"
-	part.Parent = crownFolder
-
-	local att = Instance.new("Attachment", head)
-	att.Position = Vector3.new(math.cos(math.rad(i * (360/numCrownParts))) * 3, 1.5, math.sin(math.rad(i * (360/numCrownParts))) * 3)
-
-	local hinge = Instance.new("AlignPosition")
-	hinge.RigidityEnabled = false
-	hinge.MaxForce = 15000
-	hinge.Responsiveness = 10
-	hinge.Attachment0 = att
-	local moverAtt = Instance.new("Attachment", part)
-	hinge.Attachment1 = moverAtt
-	hinge.Parent = part
-
-	table.insert(crownParts, {part = part, att = att})
-end
-
--- Create Tail (blocks, trailing)
-local tailParts = {}
+-- Create tail parts
 for i = 1, tailLength do
 	local part = Instance.new("Part")
-	local sizeScale = 0.5 + (i / tailLength) * 1.2
-	part.Size = Vector3.new(sizeScale, sizeScale, sizeScale)
-	part.Material = Enum.Material.Neon
-	part.Color = rainbow
-	part.Anchored = true
+	part.Size = Vector3.new(0.6, 0.6, 0.6)
+	part.Shape = Enum.PartType.Block
+	part.Anchored = false
 	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = rainbowColors[(i * 3) % #rainbowColors + 1]
 	part.Massless = true
-	part.Name = "TailPart"
-	part.Position = hrp.Position
 	part.Parent = tailFolder
-	table.insert(tailParts, part)
+
+	local att0 = Instance.new("Attachment", part)
+	local constraint = Instance.new("AlignPosition")
+	constraint.Attachment0 = att0
+	constraint.RigidityEnabled = false
+	constraint.ReactionForceEnabled = false
+	constraint.MaxForce = math.huge
+	constraint.Responsiveness = 15 - (i * 0.8)
+	constraint.ApplyAtCenterOfMass = true
+	constraint.Parent = part
+
+	table.insert(tailParts, {
+		Part = part,
+		Constraint = constraint,
+		Attachment = att0,
+	})
 end
 
--- Helper: Clone afterimage
-local function createAfterimage()
-	local clone = char:Clone()
-	for _, d in ipairs(clone:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-			d.CanCollide = false
-			d.Transparency = 0.75
-			d.Material = Enum.Material.Neon
-			d.Color = rainbow
-		elseif d:IsA("Humanoid") then
-			d:Destroy()
-		end
-	end
-	clone.Parent = workspace
-	Debris:AddItem(clone, 0.4)
-end
+-- Update loop
+RunService.Stepped:Connect(function(_, dt)
+	local baseCF = torso.CFrame
 
--- Afterimage Hop Trigger (customize as needed)
-local UserInputService = game:GetService("UserInputService")
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.Space then
-		for _ = 1, 5 do
-			createAfterimage()
-		end
-	end
-end)
-
--- Audio detection
-local loudness = 0
-local lastSoundScan = tick()
-
--- Main loop
-RunService.RenderStepped:Connect(function(dt)
-	local now = tick()
-
-	-- === 1. AUDIO LOUDNESS ===
-	if now - lastSoundScan > 0.1 then
-		lastSoundScan = now
-		local volume = 0
-
-		for _, sound in ipairs(head:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += sound.PlaybackLoudness or 0
-			end
-		end
-		for _, sound in ipairs(SoundService:GetDescendants()) do
-			if sound:IsA("Sound") and sound.IsPlaying then
-				volume += (sound.PlaybackLoudness or 0) * 0.3
-			end
-		end
-
-		loudness = math.clamp(volume / 80, 0.5, 3)
-	end
-
-	-- === 2. CROWN UPDATE ===
-	local baseCF = head.CFrame
-	for i, info in ipairs(crownParts) do
-		local angle = math.rad((360 / numCrownParts) * i)
-		local x = math.cos(angle) * 3
-		local z = math.sin(angle) * 3
-		local offset = Vector3.new(x, 1.5, z)
-		info.att.Position = offset
-		info.part.Size = Vector3.new(0.4, 0.5 + loudness, 0.4)
-	end
-
-	-- === 3. TAIL UPDATE ===
-	local lastPos = hrp.Position - hrp.CFrame.LookVector * 0.5
-	for i, part in ipairs(tailParts) do
-		local follow = lastPos - hrp.CFrame.LookVector * tailSpacing * i
-		part.Position = part.Position:Lerp(follow, dt * 8)
+	for i, segment in ipairs(tailParts) do
+		local desiredPos = baseCF.Position - baseCF.LookVector * i * tailSpacing
+		segment.Constraint.Position = desiredPos
 	end
 end)
