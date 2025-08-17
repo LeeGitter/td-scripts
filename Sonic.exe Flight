@@ -21,10 +21,10 @@ local velocityDirection = Vector3.zero
 
 -- Animation IDs
 local anims = {
-	idle = "rbxassetid://101166618473023",
-	slow = "rbxassetid://81150683491044",
-	fast = "rbxassetid://131369481104313",
-	land = "rbxassetid://92837953970970"
+	idle = "rbxassetid://108955898314915",
+	slow = "rbxassetid://100813226138574",
+	fast = "rbxassetid://140005678886482",
+	land = "rbxassetid://117992827268820"
 }
 
 -- Animator setup
