@@ -9,6 +9,23 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 local animator = humanoid:WaitForChild("Animator")
 
+-- Initial WalkSpeed
+humanoid.WalkSpeed = 12
+
+-- Sprint toggle
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+        humanoid.WalkSpeed = 38
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+        humanoid.WalkSpeed = 12
+    end
+end)
+
 local alive = true
 local jumpPhase = nil
 local jumpStartTime = 0
@@ -49,7 +66,7 @@ local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpHeight = 10
+local jumpHeight = 15
 local ascendDuration = 3
 local apexHold = 0.5
 local descendDuration = 1
