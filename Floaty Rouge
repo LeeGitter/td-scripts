@@ -52,8 +52,8 @@ local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpHeight = 20
-local ascendDuration = 6
+local jumpHeight = 22
+local ascendDuration = 4
 local apexHold = 0.5
 local descendDuration = 1
 
