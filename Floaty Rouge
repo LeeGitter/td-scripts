@@ -13,6 +13,11 @@ local alive = true
 local jumpPhase = nil
 local jumpStartTime = 0
 local jumpStartY = 0
+local lastGroundY = hrp.Position.Y
+local fallPhase = false
+local fallStartY = 0
+local fallStartTime = 0
+local fallDuration = 0.5
 
 -- Load and lock animations
 local primaryAnim = Instance.new("Animation")
@@ -101,9 +106,18 @@ RunService.RenderStepped:Connect(function()
         local groundY = rayResult.Position.Y
         local baseY = groundY + offset
 
-        if not jumpPhase then
-            bodyPosition.Position = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
-        else
+        -- Detect fall off ledge
+        if not jumpPhase and not fallPhase then
+            if groundY < lastGroundY - 3 then
+                fallPhase = true
+                fallStartY = hrp.Position.Y
+                fallStartTime = time
+            end
+        end
+        lastGroundY = groundY
+
+        -- Handle jump phases
+        if jumpPhase then
             local elapsed = time - jumpStartTime
 
             if jumpPhase == "ascend" then
@@ -135,16 +149,24 @@ RunService.RenderStepped:Connect(function()
                     primaryTrack:AdjustSpeed(1)
                 end
             end
+
+        elseif fallPhase then
+            local elapsed = time - fallStartTime
+            if elapsed < fallDuration then
+                local progress = elapsed / fallDuration
+                local targetY = fallStartY + (baseY - fallStartY) * progress
+                bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
+            else
+                fallPhase = false
+            end
+
+        else
+            bodyPosition.Position = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
         end
     end
 
-    -- Floaty descent override
-    local velocity = hrp.Velocity
-    if velocity.Y < -2 and not jumpPhase then
-        hrp.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
-    end
-
     -- Blend animation logic
+    local velocity = hrp.Velocity
     local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
     if not jumpPhase then
         if horizontalSpeed > 1 then
