@@ -1,128 +1,144 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local hrp = character:WaitForChild("HumanoidRootPart")
+local active = true -- disables logic after respawn
 
--- === CONSTANT FALL ANIMATION ===
-local anim = Instance.new("Animation")
-anim.AnimationId = "rbxassetid://75355013469339"
-local animTrack = humanoid:LoadAnimation(anim)
-animTrack.Looped = true
-animTrack:Play()
-animTrack.Priority = Enum.AnimationPriority.Idle
-animTrack:AdjustSpeed(1)
+local function setupCharacter(character)
+    if not active then return end
 
--- === DISABLE DEFAULT WALKING ANIMATIONS ===
-for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-	if track ~= animTrack then
-		track:Stop()
-	end
+    local humanoid = character:WaitForChild("Humanoid")
+    local rootPart = character:WaitForChild("HumanoidRootPart")
+    local animator = humanoid:WaitForChild("Animator")
+
+    -- Load animations
+    local primaryAnim = Instance.new("Animation")
+    primaryAnim.AnimationId = "rbxassetid://75355013469339"
+    local primaryTrack = animator:LoadAnimation(primaryAnim)
+    primaryTrack.Priority = Enum.AnimationPriority.Action
+    primaryTrack:Play()
+    primaryTrack:AdjustSpeed(1)
+
+    local blendAnim = Instance.new("Animation")
+    blendAnim.AnimationId = "rbxassetid://92832499482627"
+    local blendTrack = animator:LoadAnimation(blendAnim)
+    blendTrack.Priority = Enum.AnimationPriority.Idle
+
+    -- Hover + oscillation parameters
+    local hoverOffset = 2.5
+    local oscillationAmplitude = 2
+    local oscillationSpeed = 2
+
+    -- Idle tilt parameters
+    local idleTiltAmplitude = 2 -- degrees
+    local idleTiltSpeed = 1.5
+
+    -- Jump control
+    local isJumping = false
+
+    -- Directional tilt while moving
+    local function updateTilt()
+        local velocity = rootPart.Velocity
+        local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
+        if horizontal.Magnitude > 1 then
+            local tiltAngle = math.clamp(horizontal.Magnitude / 20, 0, 1) * 15
+            local direction = horizontal.Unit
+            local tiltCFrame = CFrame.Angles(0, 0, -direction.X * tiltAngle * math.pi / 180)
+            rootPart.CFrame = rootPart.CFrame:Lerp(rootPart.CFrame * tiltCFrame, 0.1)
+        end
+    end
+
+    -- Jump logic with velocity-based ascent
+    local function handleJump()
+        if isJumping then return end
+        isJumping = true
+        blendTrack:Stop()
+        primaryTrack:AdjustSpeed(1.5)
+
+        local ascentDuration = 4
+        local ascentHeight = 20
+        local ascentStart = tick()
+        local ascentVelocity = ascentHeight / ascentDuration
+
+        local connection
+        connection = RunService.RenderStepped:Connect(function()
+            if not active then connection:Disconnect() return end
+
+            local elapsed = tick() - ascentStart
+            if elapsed < ascentDuration then
+                rootPart.Velocity = Vector3.new(0, ascentVelocity, 0)
+            else
+                connection:Disconnect()
+                isJumping = false
+                primaryTrack:AdjustSpeed(1)
+            end
+        end)
+    end
+
+    -- Oscillation + movement loop
+    local loopConnection
+    loopConnection = RunService.RenderStepped:Connect(function()
+        if not active then loopConnection:Disconnect() return end
+
+        local time = tick()
+        local oscillation = math.sin(time * oscillationSpeed) * oscillationAmplitude
+
+        -- Detect ground beneath
+        local rayOrigin = rootPart.Position
+        local rayDirection = Vector3.new(0, -50, 0)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        local groundY = result and result.Position.Y or rayOrigin.Y - 5
+        local targetY = groundY + hoverOffset + oscillation
+
+        -- Idle tilt (forward/backward pitch)
+        local velocity = rootPart.Velocity
+        local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+        local pitchAngle = math.sin(time * idleTiltSpeed) * (idleTiltAmplitude * math.pi / 180)
+        local pitchCFrame = CFrame.Angles(pitchAngle, 0, 0)
+
+        local currentPos = rootPart.Position
+        local newPos = Vector3.new(currentPos.X, targetY, currentPos.Z)
+        local lookDir = rootPart.CFrame.LookVector
+        local baseCFrame = CFrame.new(newPos, newPos + lookDir)
+
+        if horizontalSpeed < 1 and not isJumping then
+            rootPart.CFrame = baseCFrame * pitchCFrame
+        else
+            rootPart.CFrame = baseCFrame
+        end
+
+        -- Freeze vertical velocity
+        rootPart.Velocity = Vector3.new(rootPart.Velocity.X, 0, rootPart.Velocity.Z)
+
+        updateTilt()
+
+        if not isJumping then
+            if horizontalSpeed > 1 then
+                if not blendTrack.IsPlaying then blendTrack:Play() end
+            else
+                if blendTrack.IsPlaying then blendTrack:Stop() end
+            end
+        end
+    end)
+
+    -- Jump trigger
+    humanoid.StateChanged:Connect(function(_, state)
+        if state == Enum.HumanoidStateType.Jumping then
+            handleJump()
+        end
+    end)
 end
-humanoid.AnimationPlayed:Connect(function(track)
-	if track.Animation.AnimationId ~= anim.AnimationId then
-		track:Stop()
-	end
-end)
 
--- === SETTINGS ===
-local floatMin = 5
-local floatMax = 5.5
-local ascendHeight = 11
-local ascendDuration = 1.5
+-- Initial setup
+if player.Character then
+    setupCharacter(player.Character)
+end
 
--- === STATES ===
-local bounceTimer = 0
-local isAscending = false
-local ascendStartTime = 0
-local ascendStartY = 0
-local moveVector = Vector3.zero
-local alive = true
-
--- === CLEANUP ON DEATH ===
-humanoid.Died:Connect(function()
-	alive = false
-end)
-
--- === FORCE FALLING STATE TO TRIGGER FALL ANIMATION ===
-RunService.Stepped:Connect(function()
-	if alive then
-		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-	end
-end)
-
--- === MOVEMENT INPUT TRACKING FOR TILT ===
-UIS.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.Keyboard then
-		if input.KeyCode == Enum.KeyCode.W then moveVector = Vector3.new(0, 0, -1) end
-		if input.KeyCode == Enum.KeyCode.S then moveVector = Vector3.new(0, 0, 1) end
-		if input.KeyCode == Enum.KeyCode.A then moveVector = Vector3.new(-1, 0, 0) end
-		if input.KeyCode == Enum.KeyCode.D then moveVector = Vector3.new(1, 0, 0) end
-	end
-end)
-
-UIS.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.Keyboard then
-		if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.S or input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.D then
-			moveVector = Vector3.zero
-		end
-	end
-end)
-
--- === ASCEND ON SPACE ===
-UIS.InputBegan:Connect(function(input, gpe)
-	if gpe or input.KeyCode ~= Enum.KeyCode.Space or isAscending then return end
-	isAscending = true
-	ascendStartTime = tick()
-	ascendStartY = hrp.Position.Y
-
-	animTrack:AdjustSpeed(3)
-	animTrack.Priority = Enum.AnimationPriority.Action4
-end)
-
--- === FLOAT LOOP ===
-RunService.RenderStepped:Connect(function(dt)
-	if not alive or not character or not character.Parent then return end
-
-	local ray = Ray.new(hrp.Position, Vector3.new(0, -12, 0))
-	local hit, groundPos = workspace:FindPartOnRay(ray, character)
-
-	local targetY
-
-	if isAscending then
-		local elapsed = tick() - ascendStartTime
-		if elapsed < ascendDuration then
-			local alpha = elapsed / ascendDuration
-			targetY = math.clamp(ascendStartY + (ascendHeight - ascendStartY) * alpha, ascendStartY, ascendHeight)
-		else
-			isAscending = false
-			animTrack:AdjustSpeed(1)
-			animTrack.Priority = Enum.AnimationPriority.Idle
-			bounceTimer = 0 -- reset bounce phase
-		end
-	else
-		bounceTimer += dt * 2
-		targetY = floatMin + math.sin(bounceTimer) * ((floatMax - floatMin) / 2)
-	end
-
-	if hit then
-		local desiredY = groundPos.Y + targetY
-		local diff = desiredY - hrp.Position.Y
-		hrp.Velocity = Vector3.new(hrp.Velocity.X, diff * 10, hrp.Velocity.Z)
-	else
-		-- Fall at 3/5 speed
-		hrp.Velocity = Vector3.new(hrp.Velocity.X, hrp.Velocity.Y * 0.6, hrp.Velocity.Z)
-	end
-
-	-- Tilt based on movement
-	if moveVector.Magnitude > 0 then
-		local camera = workspace.CurrentCamera
-		local moveDirWorld = (camera.CFrame:VectorToWorldSpace(moveVector)).Unit
-		local tiltX = math.clamp(-moveDirWorld.Z, -1, 1) * math.rad(10)
-		local tiltZ = math.clamp(moveDirWorld.X, -1, 1) * math.rad(10)
-		hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(tiltX, hrp.Orientation.Y * math.pi / 180, tiltZ)
-	end
+-- Disable on respawn
+player.CharacterAdded:Connect(function()
+    active = false
 end)
