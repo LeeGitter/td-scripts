@@ -2,25 +2,23 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
-local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
 
 local active = false
 local highlights = {}
 local startTime = 0
 
--- Add green highlight to all other players
+-- Highlight all other players
 local function highlightPlayers()
     for _, otherPlayer in pairs(Players:GetPlayers()) do
         if otherPlayer ~= player and otherPlayer.Character then
-            local root = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                local highlight = Instance.new("Highlight")
-                highlight.FillColor = Color3.new(0, 1, 0) -- Green
-                highlight.OutlineColor = Color3.new(0, 1, 0)
-                highlight.Adornee = otherPlayer.Character
-                highlight.Parent = otherPlayer.Character
-                highlights[otherPlayer] = highlight
-            end
+            local highlight = Instance.new("Highlight")
+            highlight.FillColor = Color3.new(0, 1, 0)
+            highlight.OutlineColor = Color3.new(0, 1, 0)
+            highlight.Adornee = otherPlayer.Character
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = otherPlayer.Character
+            highlights[otherPlayer] = highlight
         end
     end
 end
@@ -37,44 +35,58 @@ end
 
 -- Teleport to a player
 local function teleportToPlayer(targetPlayer)
-    local char = player.Character
-    local targetRoot = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if char and char:FindFirstChild("HumanoidRootPart") and targetRoot then
-        char.HumanoidRootPart.CFrame = targetRoot.CFrame + Vector3.new(0, 5, 0)
+    local myChar = player.Character
+    local targetChar = targetPlayer.Character
+    if myChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+        myChar.HumanoidRootPart.CFrame = targetChar.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0)
     end
 end
 
--- Detect click on player
-mouse.Button1Down:Connect(function()
-    if active and tick() - startTime <= 10 then
-        local target = mouse.Target
-        if target then
-            local model = target:FindFirstAncestorOfClass("Model")
-            if model and Players:GetPlayerFromCharacter(model) and model ~= player.Character then
-                local targetPlayer = Players:GetPlayerFromCharacter(model)
+-- Detect click on player using raycast
+local function onClick()
+    if not active or tick() - startTime > 10 then return end
+
+    local mousePos = UserInputService:GetMouseLocation()
+    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {player.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+    if result and result.Instance then
+        local model = result.Instance:FindFirstAncestorOfClass("Model")
+        if model then
+            local targetPlayer = Players:GetPlayerFromCharacter(model)
+            if targetPlayer and targetPlayer ~= player then
                 teleportToPlayer(targetPlayer)
                 removeHighlights()
                 active = false
             end
         end
     end
-end)
+end
 
 -- Handle E key press
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-
     if input.KeyCode == Enum.KeyCode.E and not active then
         active = true
         startTime = tick()
         highlightPlayers()
 
-        -- Remove highlights after 10 seconds
         task.delay(10, function()
             if active then
                 removeHighlights()
                 active = false
             end
         end)
+    end
+end)
+
+-- Handle mouse click
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        onClick()
     end
 end)
