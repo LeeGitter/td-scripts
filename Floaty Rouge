@@ -24,10 +24,11 @@ local function setupCharacter(character)
     local blendTrack = animator:LoadAnimation(blendAnim)
     blendTrack.Priority = Enum.AnimationPriority.Idle
 
-    -- Hover + oscillation parameters
+    -- Hover + asymmetric oscillation
     local hoverOffset = 2.5
-    local oscillationAmplitude = 1.25 -- halved
     local oscillationSpeed = 2
+    local oscillationUp = 2
+    local oscillationDown = 1
 
     -- Idle tilt parameters
     local idleTiltAmplitude = 2
@@ -37,7 +38,7 @@ local function setupCharacter(character)
     local isJumping = false
     local jumpStartTime = 0
     local jumpDuration = 4
-    local jumpVelocity = 5 -- 20 studs / 4 seconds
+    local jumpVelocity = 5
 
     -- Directional tilt while moving
     local function updateTilt()
@@ -51,7 +52,7 @@ local function setupCharacter(character)
         end
     end
 
-    -- Jump logic with velocity override
+    -- Jump logic
     local function handleJump()
         if isJumping then return end
         isJumping = true
@@ -66,7 +67,8 @@ local function setupCharacter(character)
         if not active then loopConnection:Disconnect() return end
 
         local time = tick()
-        local oscillation = math.sin(time * oscillationSpeed) * oscillationAmplitude
+        local sinWave = math.sin(time * oscillationSpeed)
+        local oscillation = sinWave >= 0 and sinWave * oscillationUp or sinWave * oscillationDown
         local targetY = rootPart.Position.Y + hoverOffset + oscillation
 
         local velocity = rootPart.Velocity
@@ -85,12 +87,12 @@ local function setupCharacter(character)
             rootPart.CFrame = baseCFrame
         end
 
-        -- Floaty descent override
+        -- Floaty descent
         if velocity.Y < -2 and not isJumping then
             rootPart.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
         end
 
-        -- Jump ascent override
+        -- Jump ascent
         if isJumping then
             local elapsed = time - jumpStartTime
             if elapsed < jumpDuration then
@@ -112,7 +114,6 @@ local function setupCharacter(character)
         end
     end)
 
-    -- Jump trigger
     humanoid.StateChanged:Connect(function(_, state)
         if state == Enum.HumanoidStateType.Jumping then
             handleJump()
@@ -120,12 +121,10 @@ local function setupCharacter(character)
     end)
 end
 
--- Initial setup
 if player.Character then
     setupCharacter(player.Character)
 end
 
--- Disable on respawn
 player.CharacterAdded:Connect(function()
     active = false
 end)
