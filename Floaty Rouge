@@ -33,7 +33,8 @@ local function setupCharacter(character)
     local hoverOffset = 2.5
     local oscillationSpeed = 2
     local oscillationUp = 2
-    local oscillationDown = 0 -- no dip
+    local oscillationDown = 0
+    local baseY = rootPart.Position.Y
 
     -- Idle tilt parameters
     local idleTiltAmplitude = 2
@@ -74,7 +75,7 @@ local function setupCharacter(character)
         local time = tick()
         local sinWave = math.sin(time * oscillationSpeed)
         local oscillation = sinWave >= 0 and sinWave * oscillationUp or sinWave * oscillationDown
-        local targetY = rootPart.Position.Y + hoverOffset + oscillation
+        local targetY = baseY + hoverOffset + oscillation
 
         local velocity = rootPart.Velocity
         local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
@@ -101,7 +102,7 @@ local function setupCharacter(character)
         if isJumping then
             local elapsed = time - jumpStartTime
             if elapsed < jumpDuration then
-                rootPart.Velocity = Vector3.new(0, jumpVelocity, 0)
+                rootPart.Velocity = Vector3.new(velocity.X, jumpVelocity, velocity.Z)
             else
                 isJumping = false
                 primaryTrack:AdjustSpeed(1)
