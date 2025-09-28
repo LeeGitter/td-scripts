@@ -12,11 +12,22 @@ local animator = humanoid:WaitForChild("Animator")
 local alive = true
 local isJumping = false
 
+-- Disable all other animations every frame
+local function suppressAnimations()
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        if track.Animation.AnimationId ~= "rbxassetid://75355013469339" and
+           track.Animation.AnimationId ~= "rbxassetid://92832499482627" then
+            track:Stop(0)
+        end
+    end
+end
+
 -- Load and lock animations
 local primaryAnim = Instance.new("Animation")
 primaryAnim.AnimationId = "rbxassetid://75355013469339"
 local primaryTrack = animator:LoadAnimation(primaryAnim)
 primaryTrack.Priority = Enum.AnimationPriority.Action
+primaryTrack.Looped = true
 primaryTrack:Play()
 primaryTrack:AdjustSpeed(1)
 
@@ -24,6 +35,7 @@ local blendAnim = Instance.new("Animation")
 blendAnim.AnimationId = "rbxassetid://92832499482627"
 local blendTrack = animator:LoadAnimation(blendAnim)
 blendTrack.Priority = Enum.AnimationPriority.Idle
+blendTrack.Looped = true
 
 -- Create BodyPosition for hover
 local bodyPosition = Instance.new("BodyPosition")
@@ -69,16 +81,17 @@ end)
 RunService.RenderStepped:Connect(function()
     if not alive then return end
 
-    -- Kill all other animations
-    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-        if track ~= primaryTrack and track ~= blendTrack then
-            track:Stop()
-        end
+    -- Suppress all non-mythic animations
+    suppressAnimations()
+
+    -- Ensure primary stays alive
+    if not primaryTrack.IsPlaying then
+        primaryTrack:Play()
     end
 
     local time = tick()
     local sinWave = math.sin((2 * math.pi / oscillationPeriod) * time)
-    local oscillation = minOffset + ((sinWave + 1) / 2) * (maxOffset - minOffset)
+    local offset = minOffset + ((sinWave + 1) / 2) * (maxOffset - minOffset)
 
     -- Raycast to ground
     local rayOrigin = hrp.Position
@@ -87,7 +100,7 @@ RunService.RenderStepped:Connect(function()
 
     if rayResult then
         local groundY = rayResult.Position.Y
-        local targetY = groundY + oscillation
+        local targetY = groundY + offset
         bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
     end
 
