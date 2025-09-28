@@ -26,7 +26,7 @@ local function setupCharacter(character)
 
     -- Hover + oscillation parameters
     local hoverOffset = 2.5
-    local oscillationAmplitude = 2.5 -- stronger symbolic breath
+    local oscillationAmplitude = 1.25 -- halved
     local oscillationSpeed = 2
 
     -- Idle tilt parameters
@@ -35,6 +35,9 @@ local function setupCharacter(character)
 
     -- Jump control
     local isJumping = false
+    local jumpStartTime = 0
+    local jumpDuration = 4
+    local jumpVelocity = 5 -- 20 studs / 4 seconds
 
     -- Directional tilt while moving
     local function updateTilt()
@@ -48,31 +51,13 @@ local function setupCharacter(character)
         end
     end
 
-    -- Jump logic with velocity-based ascent
+    -- Jump logic with velocity override
     local function handleJump()
         if isJumping then return end
         isJumping = true
+        jumpStartTime = tick()
         blendTrack:Stop()
         primaryTrack:AdjustSpeed(1.5)
-
-        local ascentDuration = 4
-        local ascentHeight = 20
-        local ascentStart = tick()
-        local ascentVelocity = ascentHeight / ascentDuration
-
-        local connection
-        connection = RunService.RenderStepped:Connect(function()
-            if not active then connection:Disconnect() return end
-
-            local elapsed = tick() - ascentStart
-            if elapsed < ascentDuration then
-                rootPart.Velocity = Vector3.new(0, ascentVelocity, 0)
-            else
-                connection:Disconnect()
-                isJumping = false
-                primaryTrack:AdjustSpeed(1)
-            end
-        end)
     end
 
     -- Oscillation + movement loop
@@ -103,6 +88,17 @@ local function setupCharacter(character)
         -- Floaty descent override
         if velocity.Y < -2 and not isJumping then
             rootPart.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
+        end
+
+        -- Jump ascent override
+        if isJumping then
+            local elapsed = time - jumpStartTime
+            if elapsed < jumpDuration then
+                rootPart.Velocity = Vector3.new(0, jumpVelocity, 0)
+            else
+                isJumping = false
+                primaryTrack:AdjustSpeed(1)
+            end
         end
 
         updateTilt()
