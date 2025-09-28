@@ -1,120 +1,115 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local hrp = char:WaitForChild("HumanoidRootPart")
-
-local flying = false
-local cooldown = false
-local cooldownTime = 35
-local staminaTime = 6
-local baseSpeed = 16
-local maxSpeed = 75
-local speedGainRate = 20
-
-local staminaGui, bar, cooldownGui, cooldownLabel
-local conn, flyVel
-local stamina, currentSpeed
 
 -- Animation
 local glideAnim = Instance.new("Animation")
 glideAnim.AnimationId = "rbxassetid://100787184418636"
 local glideTrack = humanoid:LoadAnimation(glideAnim)
 
--- GUI
-local function makeGui()
-    staminaGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-    staminaGui.Name = "FlightStaminaGui"
-    local bg = Instance.new("Frame", staminaGui)
-    bg.AnchorPoint = Vector2.new(1, 0.5)
-    bg.Position = UDim2.new(1, -10, 0.5, 0)
-    bg.Size = UDim2.new(0, 12, 0, 200)
-    bg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    bar = Instance.new("Frame", bg)
-    bar.AnchorPoint = Vector2.new(0, 1)
-    bar.Size = UDim2.new(1, 0, 1, 0)
-    bar.Position = UDim2.new(0, 0, 1, 0)
-    bar.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+-- State
+local gliding = false
+local wallStuck = false
+local lastSpaceTap = 0
+local spaceTapCount = 0
+local flyVel
 
-    cooldownGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-    cooldownGui.Name = "FlightCooldownGui"
-    cooldownLabel = Instance.new("TextLabel", cooldownGui)
-    cooldownLabel.Size = UDim2.new(0, 60, 0, 20)
-    cooldownLabel.Position = UDim2.new(1, -70, 0.5, -110)
-    cooldownLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    cooldownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    cooldownLabel.Font = Enum.Font.Code
-    cooldownLabel.TextSize = 14
-    cooldownLabel.Text = "Ready"
+-- Wall detection
+local function touchingWall()
+    local ray = Ray.new(hrp.Position, hrp.CFrame.LookVector * 2)
+    local hit = workspace:FindPartOnRay(ray, char)
+    return hit and hit.CanCollide
 end
 
--- Reset
-local function stopFly()
-    flying = false
-    if conn then conn:Disconnect() end
+-- Start gliding
+local function startGlide()
+    if gliding then return end
+    if humanoid.FloorMaterial ~= Enum.Material.Air then return end
+
+    gliding = true
+    wallStuck = false
+    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    glideTrack:Play()
+
+    flyVel = Instance.new("BodyVelocity", hrp)
+    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyVel.P = 10000
+    flyVel.Velocity = Vector3.zero
+end
+
+-- Stop gliding
+local function stopGlide()
+    gliding = false
+    wallStuck = false
     if flyVel then flyVel:Destroy() end
     if glideTrack then glideTrack:Stop() end
-    humanoid.WalkSpeed = baseSpeed
-    if staminaGui then staminaGui:Destroy() end
-    cooldown = true
-    local t = cooldownTime
-    coroutine.wrap(function()
-        while t > 0 do
-            cooldownLabel.Text = string.format("%d(%d)", math.floor(t), math.floor((t % 1) * 10))
-            RunService.Heartbeat:Wait()
-            t -= RunService.Heartbeat:Wait()
-        end
-        cooldown = false
-        cooldownLabel.Text = "Ready"
-    end)()
 end
 
--- Start flying when Space is held midair
-RunService.RenderStepped:Connect(function(dt)
-    if cooldown or flying then return end
-    if humanoid.FloorMaterial == Enum.Material.Air and UIS:IsKeyDown(Enum.KeyCode.Space) then
-        -- Begin glide
-        makeGui()
-        flying = true
-        stamina = staminaTime
-        currentSpeed = baseSpeed
-        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-        humanoid.WalkSpeed = 0
+-- Stick to wall
+local function stickToWall()
+    wallStuck = true
+    gliding = false
+    if flyVel then flyVel:Destroy() end
+    if glideTrack then glideTrack:Stop() end
+    humanoid.WalkSpeed = 0
+end
 
-        glideTrack:Play()
+-- Launch from wall
+local function launchFromWall()
+    wallStuck = false
+    gliding = true
+    glideTrack:Play()
 
-        flyVel = Instance.new("BodyVelocity", hrp)
-        flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-        flyVel.P = 10000
-        flyVel.Velocity = Vector3.zero
+    flyVel = Instance.new("BodyVelocity", hrp)
+    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyVel.P = 10000
 
-        conn = RunService.RenderStepped:Connect(function(dt)
-            if not flying then return end
+    local reverse = -hrp.CFrame.LookVector * 50
+    local downward = Vector3.new(0, -2.5, 0)
+    flyVel.Velocity = reverse + downward
+end
 
-            if humanoid.FloorMaterial ~= Enum.Material.Air then
-                stopFly()
-                return
-            end
+-- Input detection
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        local now = tick()
+        if now - lastSpaceTap <= 1 then
+            spaceTapCount += 1
+        else
+            spaceTapCount = 1
+        end
+        lastSpaceTap = now
 
-            if UIS:IsKeyDown(Enum.KeyCode.Space) then
-                stamina -= dt
-                currentSpeed = math.min(currentSpeed + speedGainRate * dt, maxSpeed)
-                local forward = hrp.CFrame.LookVector * currentSpeed
-                local downward = Vector3.new(0, -2.5, 0)
-                flyVel.Velocity = forward + downward
-            else
-                stamina -= dt
-                flyVel.Velocity = Vector3.zero
-            end
+        if wallStuck then
+            launchFromWall()
+        elseif spaceTapCount >= 2 then
+            startGlide()
+        end
+    end
+end)
 
-            bar.Size = UDim2.new(1, 0, math.clamp(stamina / staminaTime, 0, 1), 0)
+-- Main loop
+RunService.RenderStepped:Connect(function()
+    if gliding then
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
+            stopGlide()
+            return
+        end
 
-            if stamina <= 0 then
-                stopFly()
-            end
-        end)
+        local moveDir = humanoid.MoveDirection
+        local horizontal = moveDir.Magnitude > 0 and moveDir.Unit * 50 or Vector3.zero
+        local downward = Vector3.new(0, -2.5, 0)
+        if flyVel then
+            flyVel.Velocity = horizontal + downward
+        end
+
+        if touchingWall() then
+            stickToWall()
+        end
     end
 end)
