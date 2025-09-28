@@ -10,17 +10,9 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 local animator = humanoid:WaitForChild("Animator")
 
 local alive = true
-local isJumping = false
-
--- Disable all other animations every frame
-local function suppressAnimations()
-    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-        if track.Animation.AnimationId ~= "rbxassetid://75355013469339" and
-           track.Animation.AnimationId ~= "rbxassetid://92832499482627" then
-            track:Stop(0)
-        end
-    end
-end
+local jumpPhase = nil
+local jumpStartTime = 0
+local jumpStartY = 0
 
 -- Load and lock animations
 local primaryAnim = Instance.new("Animation")
@@ -47,14 +39,15 @@ bodyPosition.Position = hrp.Position
 bodyPosition.Parent = hrp
 
 -- Oscillation parameters
-local minOffset = 3
-local maxOffset = 4
+local minOffset = 4
+local maxOffset = 5
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpDuration = 4
-local jumpVelocity = 5
-local jumpStartTime = 0
+local jumpHeight = 10
+local ascendDuration = 3
+local apexHold = 0.5
+local descendDuration = 1
 
 -- Ground detection
 local rayParams = RaycastParams.new()
@@ -64,11 +57,12 @@ rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 -- Input: spacebar triggers jump
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or input.KeyCode ~= Enum.KeyCode.Space then return end
-    if isJumping then return end
-    isJumping = true
+    if jumpPhase then return end
+    jumpPhase = "ascend"
     jumpStartTime = tick()
+    jumpStartY = hrp.Position.Y
     blendTrack:Stop()
-    primaryTrack:AdjustSpeed(1.5)
+    primaryTrack:AdjustSpeed(2)
 end)
 
 -- Death cleanup
@@ -77,17 +71,22 @@ humanoid.Died:Connect(function()
     bodyPosition:Destroy()
 end)
 
+-- Suppress rogue animations
+local function suppressAnimations()
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        if track.Animation.AnimationId ~= "rbxassetid://75355013469339" and
+           track.Animation.AnimationId ~= "rbxassetid://92832499482627" then
+            track:Stop(0)
+        end
+    end
+end
+
 -- Main loop
 RunService.RenderStepped:Connect(function()
     if not alive then return end
 
-    -- Suppress all non-mythic animations
     suppressAnimations()
-
-    -- Ensure primary stays alive
-    if not primaryTrack.IsPlaying then
-        primaryTrack:Play()
-    end
+    if not primaryTrack.IsPlaying then primaryTrack:Play() end
 
     local time = tick()
     local sinWave = math.sin((2 * math.pi / oscillationPeriod) * time)
@@ -100,34 +99,51 @@ RunService.RenderStepped:Connect(function()
 
     if rayResult then
         local groundY = rayResult.Position.Y
-        local targetY = groundY + offset
-        bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
+        local baseY = groundY + offset
+
+        if not jumpPhase then
+            bodyPosition.Position = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
+        else
+            local elapsed = time - jumpStartTime
+
+            if jumpPhase == "ascend" then
+                if elapsed < ascendDuration then
+                    local progress = elapsed / ascendDuration
+                    local targetY = jumpStartY + (jumpHeight * progress)
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
+                else
+                    jumpPhase = "hold"
+                    jumpStartTime = time
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight, hrp.Position.Z)
+                end
+
+            elseif jumpPhase == "hold" then
+                if elapsed < apexHold then
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight, hrp.Position.Z)
+                else
+                    jumpPhase = "descend"
+                    jumpStartTime = time
+                end
+
+            elseif jumpPhase == "descend" then
+                if elapsed < descendDuration then
+                    local progress = elapsed / descendDuration
+                    local targetY = jumpStartY + jumpHeight * (1 - progress)
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
+                else
+                    jumpPhase = nil
+                    primaryTrack:AdjustSpeed(1)
+                end
+            end
+        end
     end
 
     -- Floaty descent
     local velocity = hrp.Velocity
-    if velocity.Y < -2 and not isJumping then
+    if velocity.Y < -2 and not jumpPhase then
         hrp.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
-    end
-
-    -- Jump override
-    if isJumping then
-        local elapsed = time - jumpStartTime
-        if elapsed < jumpDuration then
-            hrp.Velocity = Vector3.new(velocity.X, jumpVelocity, velocity.Z)
-        else
-            isJumping = false
-            primaryTrack:AdjustSpeed(1)
-        end
     end
 
     -- Blend animation logic
     local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-    if not isJumping then
-        if horizontalSpeed > 1 then
-            if not blendTrack.IsPlaying then blendTrack:Play() end
-        else
-            if blendTrack.IsPlaying then blendTrack:Stop() end
-        end
-    end
-end)
+    if
