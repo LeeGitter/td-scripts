@@ -192,16 +192,18 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Tilt logic
-    local pitchAngle = math.sin((2 * math.pi / oscillationPeriod) * time) * 10
-    local moveDir = humanoid.MoveDirection
-    local rollAngle = moveDir.Magnitude > 0 and moveDir.X * -15 or 0
-    local tiltCFrame = CFrame.Angles(math.rad(pitchAngle), 0, math.rad(rollAngle))
-    bodyGyro.CFrame = hrp.CFrame * tiltCFrame
-
-    -- Blend animation logic
+    -- Tilt logic (only during idle)
     local velocity = hrp.Velocity
     local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+    if not jumpPhase and not fallPhase and horizontalSpeed < 1 then
+        local pitchAngle = math.sin((2 * math.pi / oscillationPeriod) * time) * 4
+        local tiltCFrame = CFrame.Angles(math.rad(pitchAngle), 0, 0)
+        bodyGyro.CFrame = hrp.CFrame * tiltCFrame
+    else
+        bodyGyro.CFrame = hrp.CFrame
+    end
+
+    -- Blend animation logic
     if not jumpPhase then
         if horizontalSpeed > 1 then
             if not blendTrack.IsPlaying then blendTrack:Play() end
