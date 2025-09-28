@@ -1,136 +1,119 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local active = true
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+local animator = humanoid:WaitForChild("Animator")
 
-local function setupCharacter(character)
-    if not active then return end
+local alive = true
+local isJumping = false
 
-    local humanoid = character:WaitForChild("Humanoid")
-    local rootPart = character:WaitForChild("HumanoidRootPart")
-    local animator = humanoid:WaitForChild("Animator")
+-- Disable all other animations
+for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+    track:Stop()
+end
 
-    -- Disable all existing animations
-    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-        track:Stop()
+-- Load your animations
+local primaryAnim = Instance.new("Animation")
+primaryAnim.AnimationId = "rbxassetid://75355013469339"
+local primaryTrack = animator:LoadAnimation(primaryAnim)
+primaryTrack.Priority = Enum.AnimationPriority.Action
+primaryTrack:Play()
+primaryTrack:AdjustSpeed(1)
+
+local blendAnim = Instance.new("Animation")
+blendAnim.AnimationId = "rbxassetid://92832499482627"
+local blendTrack = animator:LoadAnimation(blendAnim)
+blendTrack.Priority = Enum.AnimationPriority.Idle
+
+-- Create BodyPosition for hover
+local bodyPosition = Instance.new("BodyPosition")
+bodyPosition.Name = "MythicOscillator"
+bodyPosition.MaxForce = Vector3.new(0, math.huge, 0)
+bodyPosition.P = 2000
+bodyPosition.D = 100
+bodyPosition.Position = hrp.Position
+bodyPosition.Parent = hrp
+
+-- Oscillation parameters
+local baseOffset = 1
+local oscillationAmplitude = 3
+local oscillationPeriod = 2
+
+-- Jump parameters
+local jumpDuration = 4
+local jumpVelocity = 5
+local jumpStartTime = 0
+
+-- Ground detection
+local rayParams = RaycastParams.new()
+rayParams.FilterDescendantsInstances = {character}
+rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+-- Input: spacebar triggers jump
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or input.KeyCode ~= Enum.KeyCode.Space then return end
+    if isJumping then return end
+    isJumping = true
+    jumpStartTime = tick()
+    blendTrack:Stop()
+    primaryTrack:AdjustSpeed(1.5)
+end)
+
+-- Death cleanup
+humanoid.Died:Connect(function()
+    alive = false
+    bodyPosition:Destroy()
+end)
+
+-- Main loop
+RunService.RenderStepped:Connect(function()
+    if not alive then return end
+
+    local time = tick()
+    local sinWave = math.sin((2 * math.pi / oscillationPeriod) * time)
+    local oscillation = math.max(sinWave * oscillationAmplitude, 0)
+    local targetOffset = baseOffset + oscillation
+
+    -- Raycast to ground
+    local rayOrigin = hrp.Position
+    local rayDir = Vector3.new(0, -100, 0)
+    local rayResult = Workspace:Raycast(rayOrigin, rayDir, rayParams)
+
+    if rayResult then
+        local groundY = rayResult.Position.Y
+        local targetY = groundY + targetOffset
+        bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
     end
 
-    -- Load and lock animations
-    local primaryAnim = Instance.new("Animation")
-    primaryAnim.AnimationId = "rbxassetid://75355013469339"
-    local primaryTrack = animator:LoadAnimation(primaryAnim)
-    primaryTrack.Priority = Enum.AnimationPriority.Action
-    primaryTrack:Play()
-    primaryTrack:AdjustSpeed(1)
-
-    local blendAnim = Instance.new("Animation")
-    blendAnim.AnimationId = "rbxassetid://92832499482627"
-    local blendTrack = animator:LoadAnimation(blendAnim)
-    blendTrack.Priority = Enum.AnimationPriority.Idle
-
-    -- Hover + oscillation parameters
-    local hoverOffset = 2.5
-    local oscillationSpeed = 2
-    local oscillationUp = 2
-    local oscillationDown = 0
-    local baseY = rootPart.Position.Y
-
-    -- Idle tilt parameters
-    local idleTiltAmplitude = 2
-    local idleTiltSpeed = 1.5
-
-    -- Jump control
-    local isJumping = false
-    local jumpStartTime = 0
-    local jumpDuration = 4
-    local jumpVelocity = 5
-
-    -- Directional tilt while moving
-    local function updateTilt()
-        local velocity = rootPart.Velocity
-        local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
-        if horizontal.Magnitude > 1 then
-            local tiltAngle = math.clamp(horizontal.Magnitude / 20, 0, 1) * 15
-            local direction = horizontal.Unit
-            local tiltCFrame = CFrame.Angles(0, 0, -direction.X * tiltAngle * math.pi / 180)
-            rootPart.CFrame = rootPart.CFrame:Lerp(rootPart.CFrame * tiltCFrame, 0.1)
-        end
+    -- Floaty descent
+    local velocity = hrp.Velocity
+    if velocity.Y < -2 and not isJumping then
+        hrp.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
     end
 
-    -- Jump logic
-    local function handleJump()
-        if isJumping then return end
-        isJumping = true
-        jumpStartTime = tick()
-        blendTrack:Stop()
-        primaryTrack:AdjustSpeed(1.5)
-    end
-
-    -- Oscillation + movement loop
-    local loopConnection
-    loopConnection = RunService.RenderStepped:Connect(function()
-        if not active then loopConnection:Disconnect() return end
-
-        local time = tick()
-        local sinWave = math.sin(time * oscillationSpeed)
-        local oscillation = sinWave >= 0 and sinWave * oscillationUp or sinWave * oscillationDown
-        local targetY = baseY + hoverOffset + oscillation
-
-        local velocity = rootPart.Velocity
-        local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-        local pitchAngle = math.sin(time * idleTiltSpeed) * (idleTiltAmplitude * math.pi / 180)
-        local pitchCFrame = CFrame.Angles(pitchAngle, 0, 0)
-
-        local currentPos = rootPart.Position
-        local newPos = Vector3.new(currentPos.X, targetY, currentPos.Z)
-        local lookDir = rootPart.CFrame.LookVector
-        local baseCFrame = CFrame.new(newPos, newPos + lookDir)
-
-        if horizontalSpeed < 1 and not isJumping then
-            rootPart.CFrame = baseCFrame * pitchCFrame
+    -- Jump override
+    if isJumping then
+        local elapsed = time - jumpStartTime
+        if elapsed < jumpDuration then
+            hrp.Velocity = Vector3.new(velocity.X, jumpVelocity, velocity.Z)
         else
-            rootPart.CFrame = baseCFrame
+            isJumping = false
+            primaryTrack:AdjustSpeed(1)
         end
+    end
 
-        -- Floaty descent
-        if velocity.Y < -2 and not isJumping then
-            rootPart.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
+    -- Blend animation logic
+    local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+    if not isJumping then
+        if horizontalSpeed > 1 then
+            if not blendTrack.IsPlaying then blendTrack:Play() end
+        else
+            if blendTrack.IsPlaying then blendTrack:Stop() end
         end
-
-        -- Jump ascent
-        if isJumping then
-            local elapsed = time - jumpStartTime
-            if elapsed < jumpDuration then
-                rootPart.Velocity = Vector3.new(velocity.X, jumpVelocity, velocity.Z)
-            else
-                isJumping = false
-                primaryTrack:AdjustSpeed(1)
-            end
-        end
-
-        updateTilt()
-
-        if not isJumping then
-            if horizontalSpeed > 1 then
-                if not blendTrack.IsPlaying then blendTrack:Play() end
-            else
-                if blendTrack.IsPlaying then blendTrack:Stop() end
-            end
-        end
-    end)
-
-    humanoid.StateChanged:Connect(function(_, state)
-        if state == Enum.HumanoidStateType.Jumping then
-            handleJump()
-        end
-    end)
-end
-
-if player.Character then
-    setupCharacter(player.Character)
-end
-
-player.CharacterAdded:Connect(function()
-    active = false
+    end
 end)
