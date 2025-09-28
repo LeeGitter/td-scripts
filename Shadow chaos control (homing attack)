@@ -1,44 +1,72 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
+local mouse = LocalPlayer:GetMouse()
 
-local active = false
 local highlights = {}
+local active = false
 
--- Wait for character to load
-repeat wait() until player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-
--- Highlight all other players
-local function highlightPlayers()
-    for _, otherPlayer in pairs(Players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character then
-            local highlight = Instance.new("Highlight")
-            highlight.FillColor = Color3.new(0, 1, 0)
-            highlight.OutlineColor = Color3.new(0, 1, 0)
-            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            highlight.Adornee = otherPlayer.Character
-            highlight.Parent = otherPlayer.Character
-            highlights[otherPlayer] = highlight
+-- Highlight all humanoid models except your own
+local function highlightHumanoids()
+    for _, model in pairs(workspace:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("Humanoid") and model:FindFirstChild("HumanoidRootPart") then
+            local isLocalPlayer = Players:GetPlayerFromCharacter(model) == LocalPlayer
+            if not isLocalPlayer then
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Color3.new(0, 1, 0)
+                highlight.OutlineColor = Color3.new(0, 1, 0)
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Adornee = model
+                highlight.Parent = model
+                highlights[model] = highlight
+            end
         end
     end
 end
 
 -- Remove all highlights
 local function removeHighlights()
-    for _, highlight in pairs(highlights) do
-        if highlight then
-            highlight:Destroy()
-        end
+    for _, h in pairs(highlights) do
+        if h then h:Destroy() end
     end
     highlights = {}
 end
 
--- Handle E key press
+-- Teleport repeatedly to target model
+local function spamTeleportTo(model)
+    local myChar = LocalPlayer.Character
+    local targetHRP = model:FindFirstChild("HumanoidRootPart")
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not (targetHRP and myHRP) then return end
+
+    local start = tick()
+    while tick() - start < 0.2 do
+        myHRP.CFrame = targetHRP.CFrame + Vector3.new(0, 5, 0)
+        task.wait(0.05)
+    end
+end
+
+-- Handle mouse click
+mouse.Button1Down:Connect(function()
+    if not active then return end
+
+    local target = mouse.Target
+    if target then
+        local model = target:FindFirstAncestorOfClass("Model")
+        if model and model:FindFirstChild("Humanoid") then
+            spamTeleportTo(model)
+            removeHighlights()
+            active = false
+        end
+    end
+end)
+
+-- Activate with E key
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.E and not active then
         active = true
-        highlightPlayers()
+        highlightHumanoids()
 
         task.delay(10, function()
             if active then
