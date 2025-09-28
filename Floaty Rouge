@@ -10,7 +10,7 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 local animator = humanoid:WaitForChild("Animator")
 
 -- Constant WalkSpeed
-humanoid.WalkSpeed = 34
+humanoid.WalkSpeed = 30
 
 local alive = true
 local jumpPhase = nil
@@ -126,7 +126,8 @@ RunService.RenderStepped:Connect(function()
             if jumpPhase == "ascend" then
                 if elapsed < ascendDuration then
                     local progress = elapsed / ascendDuration
-                    local targetY = jumpStartY + (jumpHeight * progress)
+                    local easedProgress = progress * progress
+                    local targetY = jumpStartY + (jumpHeight * easedProgress)
                     bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
                 else
                     jumpPhase = "hold"
