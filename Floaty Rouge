@@ -12,12 +12,7 @@ local animator = humanoid:WaitForChild("Animator")
 local alive = true
 local isJumping = false
 
--- Disable all other animations
-for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-    track:Stop()
-end
-
--- Load your animations
+-- Load and lock animations
 local primaryAnim = Instance.new("Animation")
 primaryAnim.AnimationId = "rbxassetid://75355013469339"
 local primaryTrack = animator:LoadAnimation(primaryAnim)
@@ -40,8 +35,8 @@ bodyPosition.Position = hrp.Position
 bodyPosition.Parent = hrp
 
 -- Oscillation parameters
-local baseOffset = 1
-local oscillationAmplitude = 3
+local minOffset = 3
+local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
@@ -74,10 +69,16 @@ end)
 RunService.RenderStepped:Connect(function()
     if not alive then return end
 
+    -- Kill all other animations
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        if track ~= primaryTrack and track ~= blendTrack then
+            track:Stop()
+        end
+    end
+
     local time = tick()
     local sinWave = math.sin((2 * math.pi / oscillationPeriod) * time)
-    local oscillation = math.max(sinWave * oscillationAmplitude, 0)
-    local targetOffset = baseOffset + oscillation
+    local oscillation = minOffset + ((sinWave + 1) / 2) * (maxOffset - minOffset)
 
     -- Raycast to ground
     local rayOrigin = hrp.Position
@@ -86,7 +87,7 @@ RunService.RenderStepped:Connect(function()
 
     if rayResult then
         local groundY = rayResult.Position.Y
-        local targetY = groundY + targetOffset
+        local targetY = groundY + oscillation
         bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
     end
 
