@@ -39,8 +39,8 @@ bodyPosition.Position = hrp.Position
 bodyPosition.Parent = hrp
 
 -- Oscillation parameters
-local minOffset = 4
-local maxOffset = 5
+local minOffset = 3
+local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
@@ -138,7 +138,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Floaty descent
+    -- Floaty descent override
     local velocity = hrp.Velocity
     if velocity.Y < -2 and not jumpPhase then
         hrp.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
@@ -146,4 +146,11 @@ RunService.RenderStepped:Connect(function()
 
     -- Blend animation logic
     local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-    if
+    if not jumpPhase then
+        if horizontalSpeed > 1 then
+            if not blendTrack.IsPlaying then blendTrack:Play() end
+        else
+            if blendTrack.IsPlaying then blendTrack:Stop() end
+        end
+    end
+end)
