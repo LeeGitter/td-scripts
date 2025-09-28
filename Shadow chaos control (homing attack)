@@ -3,8 +3,10 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 local active = false
-local startTime = 0
 local highlights = {}
+
+-- Wait for character to load
+repeat wait() until player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 
 -- Highlight all other players
 local function highlightPlayers()
@@ -36,7 +38,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.E and not active then
         active = true
-        startTime = tick()
         highlightPlayers()
 
         task.delay(10, function()
