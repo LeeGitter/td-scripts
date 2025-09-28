@@ -9,7 +9,7 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 
 -- === CONSTANT FALL ANIMATION ===
 local anim = Instance.new("Animation")
-anim.AnimationId = "rbxassetid://104113642912910"
+anim.AnimationId = "rbxassetid://75355013469339"
 local animTrack = humanoid:LoadAnimation(anim)
 animTrack.Looped = true
 animTrack:Play()
