@@ -14,7 +14,6 @@ local glideTrack = humanoid:LoadAnimation(glideAnim)
 
 -- State
 local gliding = false
-local wallStuck = false
 local lastSpaceTap = 0
 local spaceTapCount = 0
 local glideStartTime = 0
@@ -31,16 +30,9 @@ local maxSpeed = 65
 local accelerationTime = 7
 local descentRate = 2.5
 
--- Wall detection
-local function touchingWall()
-    local ray = Ray.new(hrp.Position, hrp.CFrame.LookVector * 2)
-    local hit = workspace:FindPartOnRay(ray, char)
-    return hit and hit.CanCollide
-end
-
 -- Start gliding
 local function startGlide()
-    if gliding or wallStuck then return end
+    if gliding then return end
     if humanoid.FloorMaterial ~= Enum.Material.Air then return end
 
     gliding = true
@@ -62,31 +54,13 @@ local function stopGlide()
     if glideTrack then glideTrack:Stop() end
 end
 
--- Stick to wall at exact spot
-local function stickToWall()
-    wallStuck = true
-    stopGlide()
-
-    flyVel = Instance.new("BodyVelocity")
-    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    flyVel.P = 10000
-    flyVel.Velocity = Vector3.zero
-    flyVel.Parent = hrp
-end
-
--- Jump off wall in opposite direction
-local function jumpOffWall()
-    wallStuck = false
-    gliding = true
+-- Bounce off wall
+local function bounceOffWall()
+    if not gliding then return end
     glideStartTime = tick()
-    glideTrack:Play()
-
-    if flyVel then flyVel:Destroy() end
-    flyVel = Instance.new("BodyVelocity")
-    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    flyVel.P = 10000
-    flyVel.Velocity = (-hrp.CFrame.LookVector * maxSpeed) + Vector3.new(0, 5, 0)
-    flyVel.Parent = hrp
+    if flyVel then
+        flyVel.Velocity = (-hrp.CFrame.LookVector * maxSpeed) + Vector3.new(0, 5, 0)
+    end
 end
 
 -- Dash forward and upward
@@ -115,9 +89,7 @@ UIS.InputBegan:Connect(function(input, gpe)
         end
         lastSpaceTap = now
 
-        if wallStuck then
-            jumpOffWall()
-        elseif spaceTapCount >= 2 then
+        if spaceTapCount >= 2 then
             startGlide()
         end
     end
@@ -160,8 +132,11 @@ RunService.RenderStepped:Connect(function()
             flyVel.Velocity = forward + steer + downward
         end
 
-        if touchingWall() then
-            stickToWall()
+        -- Wall bounce detection
+        local ray = Ray.new(hrp.Position, hrp.CFrame.LookVector * 2)
+        local hit = workspace:FindPartOnRay(ray, char)
+        if hit and hit.CanCollide then
+            bounceOffWall()
         end
     end
 end)
