@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
-local mouse = player:GetMouse()
 
 local active = false
 local startTime = 0
@@ -31,33 +30,6 @@ local function removeHighlights()
     end
     highlights = {}
 end
-
--- Teleport to a player
-local function teleportToPlayer(targetPlayer)
-    local myChar = player.Character
-    local targetChar = targetPlayer.Character
-    if myChar and targetChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("HumanoidRootPart") then
-        myChar.HumanoidRootPart.CFrame = targetChar.HumanoidRootPart.CFrame + Vector3.new(0, 5, 0)
-    end
-end
-
--- Handle mouse click
-mouse.Button1Down:Connect(function()
-    if not active or tick() - startTime > 10 then return end
-
-    local target = mouse.Target
-    if target then
-        local model = target:FindFirstAncestorOfClass("Model")
-        if model then
-            local targetPlayer = Players:GetPlayerFromCharacter(model)
-            if targetPlayer and targetPlayer ~= player then
-                teleportToPlayer(targetPlayer)
-                removeHighlights()
-                active = false
-            end
-        end
-    end
-end)
 
 -- Handle E key press
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
