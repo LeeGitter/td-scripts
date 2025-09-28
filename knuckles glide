@@ -54,15 +54,6 @@ local function stopGlide()
     if glideTrack then glideTrack:Stop() end
 end
 
--- Bounce off wall
-local function bounceOffWall()
-    if not gliding then return end
-    glideStartTime = tick()
-    if flyVel then
-        flyVel.Velocity = (-hrp.CFrame.LookVector * maxSpeed) + Vector3.new(0, 5, 0)
-    end
-end
-
 -- Dash forward and upward
 local function dash()
     if dashActive then return end
@@ -130,13 +121,6 @@ RunService.RenderStepped:Connect(function()
 
         if flyVel then
             flyVel.Velocity = forward + steer + downward
-        end
-
-        -- Wall bounce detection
-        local ray = Ray.new(hrp.Position, hrp.CFrame.LookVector * 2)
-        local hit = workspace:FindPartOnRay(ray, char)
-        if hit and hit.CanCollide then
-            bounceOffWall()
         end
     end
 end)
