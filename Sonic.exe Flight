@@ -7,13 +7,14 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
+local animateScript = character:FindFirstChild("Animate")
 
 -- State
 local flying = false
 local descending = false
 local maxSpeed = 75
 local startSpeed = 10
-local acceleration = 40  -- studs per second²
+local acceleration = 40
 local deceleration = 60
 local descentSpeed = 70
 local currentSpeed = 0
@@ -21,158 +22,157 @@ local velocityDirection = Vector3.zero
 
 -- Animation IDs
 local anims = {
-	idle = "rbxassetid://180426354",
-	slow = "rbxassetid://97023167750961",
-	fast = "rbxassetid://92735680749355",
-	land = "rbxassetid://114484421969636"
+    idle = "rbxassetid://180426354",
+    slow = "rbxassetid://97023167750961",
+    fast = "rbxassetid://92735680749355",
+    land = "rbxassetid://114484421969636"
 }
 
 -- Animator setup
 local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
 local tracks = {}
 for name, id in pairs(anims) do
-	local anim = Instance.new("Animation")
-	anim.AnimationId = id
-	tracks[name] = animator:LoadAnimation(anim)
-end
-local function stopAllAnims()
-	for _, tr in pairs(tracks) do
-		tr:Stop()
-	end
+    local anim = Instance.new("Animation")
+    anim.AnimationId = id
+    tracks[name] = animator:LoadAnimation(anim)
 end
 
--- AlignOrientation setup (created on flight start)
+local function stopAllAnims()
+    for _, tr in pairs(tracks) do
+        tr:Stop()
+    end
+    for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
+        tr:Stop()
+    end
+end
+
+-- AlignOrientation setup
 local align = nil
 
 -- Input tracking
-local keys = {
-	W = 0,
-	S = 0,
-	A = 0,
-	D = 0,
-}
+local keys = { W = 0, S = 0, A = 0, D = 0 }
 local function getInputDir()
-	local camCF = workspace.CurrentCamera.CFrame
-	local look = camCF.LookVector.Unit
-	local right = camCF.RightVector
-	local dir = Vector3.zero
-	if keys.W == 1 then dir += look end
-	if keys.S == 1 then dir -= look end
-	if keys.A == 1 then dir -= right end
-	if keys.D == 1 then dir += right end
-	return dir.Magnitude > 0 and dir.Unit or Vector3.zero
+    local camCF = workspace.CurrentCamera.CFrame
+    local look = camCF.LookVector.Unit
+    local right = camCF.RightVector
+    local dir = Vector3.zero
+    if keys.W == 1 then dir += look end
+    if keys.S == 1 then dir -= look end
+    if keys.A == 1 then dir -= right end
+    if keys.D == 1 then dir += right end
+    return dir.Magnitude > 0 and dir.Unit or Vector3.zero
 end
 
 UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	local name = input.KeyCode.Name
-	if keys[name] ~= nil then keys[name] = 1 end
-	if input.KeyCode == Enum.KeyCode.T then
-		if not flying then
-			startFlight()
-		elseif not descending then
-			startDescent()
-		end
-	end
+    if gpe then return end
+    local name = input.KeyCode.Name
+    if keys[name] ~= nil then keys[name] = 1 end
+    if input.KeyCode == Enum.KeyCode.T then
+        if not flying then
+            startFlight()
+        elseif not descending then
+            startDescent()
+        end
+    end
 end)
+
 UserInputService.InputEnded:Connect(function(input)
-	local name = input.KeyCode.Name
-	if keys[name] ~= nil then keys[name] = 0 end
+    local name = input.KeyCode.Name
+    if keys[name] ~= nil then keys[name] = 0 end
 end)
 
 -- Start flight
 function startFlight()
-	if flying then return end
-	flying = true
-	descending = false
-	currentSpeed = startSpeed
+    if flying then return end
+    flying = true
+    descending = false
+    currentSpeed = startSpeed
 
-	-- Boost upward 4 studs
-	local float = TweenService:Create(hrp, TweenInfo.new(0.15), {CFrame = hrp.CFrame + Vector3.new(0, 4, 0)})
-	float:Play()
-	float.Completed:Wait()
+    stopAllAnims()
+    if animateScript then animateScript.Disabled = true end
 
-	humanoid.AutoRotate = false
-	humanoid.WalkSpeed = 0
+    local float = TweenService:Create(hrp, TweenInfo.new(0.15), {CFrame = hrp.CFrame + Vector3.new(0, 4, 0)})
+    float:Play()
+    float.Completed:Wait()
 
-	-- Set up AlignOrientation
-	align = Instance.new("AlignOrientation")
-	local attachment = Instance.new("Attachment", hrp)
-	align.Attachment0 = attachment
-	align.RigidityEnabled = false
-	align.Responsiveness = 15
-	align.MaxTorque = math.huge
-	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
-	align.Parent = hrp
+    humanoid.AutoRotate = false
+    humanoid.WalkSpeed = 0
 
-	RunService:BindToRenderStep("FlightControl", Enum.RenderPriority.Input.Value, function(dt)
-		local inputDir = getInputDir()
+    align = Instance.new("AlignOrientation")
+    local attachment = Instance.new("Attachment", hrp)
+    align.Attachment0 = attachment
+    align.RigidityEnabled = false
+    align.Responsiveness = 15
+    align.MaxTorque = math.huge
+    align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    align.Parent = hrp
 
-		if inputDir.Magnitude > 0 then
-			currentSpeed = math.min(currentSpeed + acceleration * dt, maxSpeed)
-			velocityDirection = inputDir
-		else
-			currentSpeed = math.max(currentSpeed - deceleration * dt, 0)
-		end
+    RunService:BindToRenderStep("FlightControl", Enum.RenderPriority.Input.Value, function(dt)
+        local inputDir = getInputDir()
 
-		local velocity = velocityDirection * currentSpeed
-		hrp.Velocity = velocity
+        if inputDir.Magnitude > 0 then
+            currentSpeed = math.min(currentSpeed + acceleration * dt, maxSpeed)
+            velocityDirection = inputDir
+        else
+            currentSpeed = math.max(currentSpeed - deceleration * dt, 0)
+        end
 
-		-- Tilt avatar using AlignOrientation
-		if velocity.Magnitude > 1 and align then
-			align.CFrame = CFrame.new(Vector3.zero, velocity)
-		end
+        local velocity = velocityDirection * currentSpeed
+        hrp.Velocity = velocity
 
-		-- Handle flight animations
-		stopAllAnims()
-		if currentSpeed < 1 then
-			tracks.idle:Play()
-		elseif currentSpeed < 30 then
-			tracks.slow:Play()
-		else
-			tracks.fast:Play()
-		end
-	end)
+        if velocity.Magnitude > 1 and align then
+            align.CFrame = CFrame.new(Vector3.zero, velocity)
+        end
+
+        stopAllAnims()
+        if currentSpeed < 1 then
+            tracks.idle:Play()
+        elseif currentSpeed < 30 then
+            tracks.slow:Play()
+        else
+            tracks.fast:Play()
+        end
+    end)
 end
 
 -- Start descent
 function startDescent()
-	if not flying or descending then return end
-	descending = true
-	RunService:UnbindFromRenderStep("FlightControl")
+    if not flying or descending then return end
+    descending = true
+    RunService:UnbindFromRenderStep("FlightControl")
 
-	local camDir = workspace.CurrentCamera.CFrame.LookVector
-	local descendVec = (camDir.Unit + Vector3.new(0, -1, 0)).Unit
+    local camDir = workspace.CurrentCamera.CFrame.LookVector
+    local descendVec = (camDir.Unit + Vector3.new(0, -1, 0)).Unit
 
-	RunService:BindToRenderStep("DescentControl", Enum.RenderPriority.Input.Value, function(dt)
-		hrp.Velocity = descendVec * descentSpeed
-		if align then
-			align.CFrame = CFrame.new(Vector3.zero, descendVec)
-		end
+    RunService:BindToRenderStep("DescentControl", Enum.RenderPriority.Input.Value, function(dt)
+        hrp.Velocity = descendVec * descentSpeed
+        if align then
+            align.CFrame = CFrame.new(Vector3.zero, descendVec)
+        end
 
-		local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
-		local hit = workspace:FindPartOnRay(ray, character)
-		if hit then
-			stopAllAnims()
-			RunService:UnbindFromRenderStep("DescentControl")
+        local ray = Ray.new(hrp.Position, Vector3.new(0, -3, 0))
+        local hit = workspace:FindPartOnRay(ray, character)
+        if hit then
+            stopAllAnims()
+            RunService:UnbindFromRenderStep("DescentControl")
 
-			-- Play land animation
-			tracks.land:Play()
+            tracks.land:Play()
 
-			-- Cleanup and restore default orientation
-			if align then
-				align:Destroy()
-				align = nil
-			end
-			humanoid.AutoRotate = true
+            if align then
+                align:Destroy()
+                align = nil
+            end
+            humanoid.AutoRotate = true
 
-			task.wait(tracks.land.Length or 1)
+            task.wait(tracks.land.Length or 1)
 
-			humanoid.WalkSpeed = 45
-			flying = false
-			descending = false
-			currentSpeed = 0
-			velocityDirection = Vector3.zero
-		end
-	end)
+            humanoid.WalkSpeed = 45
+            flying = false
+            descending = false
+            currentSpeed = 0
+            velocityDirection = Vector3.zero
+
+            if animateScript then animateScript.Disabled = false end
+        end
+    end)
 end
