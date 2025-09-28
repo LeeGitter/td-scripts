@@ -1,0 +1,102 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+
+-- Animations
+local glideAnim = Instance.new("Animation")
+glideAnim.AnimationId = "rbxassetid://116698179866438"
+local wallAnim = Instance.new("Animation")
+wallAnim.AnimationId = "rbxassetid://75521855154388"
+
+local glideTrack = humanoid:LoadAnimation(glideAnim)
+local wallTrack = humanoid:LoadAnimation(wallAnim)
+
+-- State
+local gliding = false
+local wallStuck = false
+local spaceHeld = false
+local glideStart = 0
+
+-- Constants
+local glideStartSpeed = 16
+local glideMaxSpeed = 65
+local glideTime = 15
+local glideFallRate = 1 / 1.5
+
+-- Input
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+    end
+end)
+
+-- Wall detection
+local function touchingWall()
+    local ray = Ray.new(root.Position, root.CFrame.LookVector * 2)
+    local hit = workspace:FindPartOnRay(ray, character)
+    return hit and hit.CanCollide
+end
+
+-- Glide
+local function startGlide()
+    if not gliding and not wallStuck then
+        gliding = true
+        glideStart = tick()
+        glideTrack:Play()
+    end
+end
+
+local function stopGlide()
+    if gliding then
+        gliding = false
+        glideTrack:Stop()
+    end
+end
+
+local function stickWall()
+    stopGlide()
+    wallStuck = true
+    wallTrack:Play()
+    humanoid.WalkSpeed = 0
+    root.Velocity = Vector3.zero
+end
+
+local function unstickWall()
+    if wallStuck then
+        wallStuck = false
+        wallTrack:Stop()
+    end
+end
+
+-- Main loop
+RS.RenderStepped:Connect(function()
+    if spaceHeld and not humanoid.FloorMaterial and not wallStuck then
+        startGlide()
+    end
+
+    if gliding then
+        local elapsed = tick() - glideStart
+        local speed = math.clamp(glideStartSpeed + ((glideMaxSpeed - glideStartSpeed) * (elapsed / glideTime)), glideStartSpeed, glideMaxSpeed)
+        humanoid.WalkSpeed = speed
+        root.Velocity = Vector3.new(root.Velocity.X, -glideFallRate, root.Velocity.Z)
+
+        if touchingWall() then
+            stickWall()
+        end
+    end
+
+    if wallStuck and spaceHeld then
+        unstickWall()
+        startGlide()
+    end
+end)
