@@ -10,7 +10,7 @@ local hrp = character:WaitForChild("HumanoidRootPart")
 local animator = humanoid:WaitForChild("Animator")
 
 -- Constant WalkSpeed
-humanoid.WalkSpeed = 38
+humanoid.WalkSpeed = 34
 
 local alive = true
 local jumpPhase = nil
@@ -52,8 +52,8 @@ local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpHeight = 25
-local ascendDuration = 2
+local jumpHeight = 20
+local ascendDuration = 3
 local apexHold = 0.5
 local descendDuration = 1
 
