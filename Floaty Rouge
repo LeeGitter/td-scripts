@@ -9,22 +9,8 @@ local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 local animator = humanoid:WaitForChild("Animator")
 
--- Initial WalkSpeed
-humanoid.WalkSpeed = 12
-
--- Sprint toggle
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-        humanoid.WalkSpeed = 38
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-        humanoid.WalkSpeed = 12
-    end
-end)
+-- Constant WalkSpeed
+humanoid.WalkSpeed = 38
 
 local alive = true
 local jumpPhase = nil
@@ -60,23 +46,14 @@ bodyPosition.D = 100
 bodyPosition.Position = hrp.Position
 bodyPosition.Parent = hrp
 
--- Create BodyGyro for tilt
-local bodyGyro = Instance.new("BodyGyro")
-bodyGyro.Name = "MythicTilt"
-bodyGyro.MaxTorque = Vector3.new(400000, 0, 400000)
-bodyGyro.P = 10000
-bodyGyro.D = 200
-bodyGyro.CFrame = hrp.CFrame
-bodyGyro.Parent = hrp
-
 -- Oscillation parameters
 local minOffset = 3
 local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpHeight = 15
-local ascendDuration = 3
+local jumpHeight = 25
+local ascendDuration = 2
 local apexHold = 0.5
 local descendDuration = 1
 
@@ -100,7 +77,6 @@ end)
 humanoid.Died:Connect(function()
     alive = false
     bodyPosition:Destroy()
-    bodyGyro:Destroy()
 end)
 
 -- Suppress rogue animations
@@ -192,18 +168,9 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- Tilt logic (only during idle)
+    -- Blend animation logic
     local velocity = hrp.Velocity
     local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-    if not jumpPhase and not fallPhase and horizontalSpeed < 1 then
-        local pitchAngle = math.sin((2 * math.pi / oscillationPeriod) * time) * 4
-        local tiltCFrame = CFrame.Angles(math.rad(pitchAngle), 0, 0)
-        bodyGyro.CFrame = hrp.CFrame * tiltCFrame
-    else
-        bodyGyro.CFrame = hrp.CFrame
-    end
-
-    -- Blend animation logic
     if not jumpPhase then
         if horizontalSpeed > 1 then
             if not blendTrack.IsPlaying then blendTrack:Play() end
