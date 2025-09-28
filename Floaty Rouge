@@ -60,6 +60,15 @@ bodyPosition.D = 100
 bodyPosition.Position = hrp.Position
 bodyPosition.Parent = hrp
 
+-- Create BodyGyro for tilt
+local bodyGyro = Instance.new("BodyGyro")
+bodyGyro.Name = "MythicTilt"
+bodyGyro.MaxTorque = Vector3.new(400000, 0, 400000)
+bodyGyro.P = 10000
+bodyGyro.D = 200
+bodyGyro.CFrame = hrp.CFrame
+bodyGyro.Parent = hrp
+
 -- Oscillation parameters
 local minOffset = 3
 local maxOffset = 4
@@ -91,6 +100,7 @@ end)
 humanoid.Died:Connect(function()
     alive = false
     bodyPosition:Destroy()
+    bodyGyro:Destroy()
 end)
 
 -- Suppress rogue animations
@@ -181,6 +191,13 @@ RunService.RenderStepped:Connect(function()
             bodyPosition.Position = Vector3.new(hrp.Position.X, baseY, hrp.Position.Z)
         end
     end
+
+    -- Tilt logic
+    local pitchAngle = math.sin((2 * math.pi / oscillationPeriod) * time) * 10
+    local moveDir = humanoid.MoveDirection
+    local rollAngle = moveDir.Magnitude > 0 and moveDir.X * -15 or 0
+    local tiltCFrame = CFrame.Angles(math.rad(pitchAngle), 0, math.rad(rollAngle))
+    bodyGyro.CFrame = hrp.CFrame * tiltCFrame
 
     -- Blend animation logic
     local velocity = hrp.Velocity
