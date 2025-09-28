@@ -11,7 +11,12 @@ local function setupCharacter(character)
     local rootPart = character:WaitForChild("HumanoidRootPart")
     local animator = humanoid:WaitForChild("Animator")
 
-    -- Load animations
+    -- Disable all existing animations
+    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+        track:Stop()
+    end
+
+    -- Load and lock animations
     local primaryAnim = Instance.new("Animation")
     primaryAnim.AnimationId = "rbxassetid://75355013469339"
     local primaryTrack = animator:LoadAnimation(primaryAnim)
@@ -24,11 +29,11 @@ local function setupCharacter(character)
     local blendTrack = animator:LoadAnimation(blendAnim)
     blendTrack.Priority = Enum.AnimationPriority.Idle
 
-    -- Hover + asymmetric oscillation
+    -- Hover + oscillation parameters
     local hoverOffset = 2.5
     local oscillationSpeed = 2
     local oscillationUp = 2
-    local oscillationDown = 1
+    local oscillationDown = 0 -- no dip
 
     -- Idle tilt parameters
     local idleTiltAmplitude = 2
