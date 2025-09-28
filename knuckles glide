@@ -7,32 +7,35 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local hrp = char:WaitForChild("HumanoidRootPart")
 
--- Animation
+-- Animations
 local glideAnim = Instance.new("Animation")
 glideAnim.AnimationId = "rbxassetid://100787184418636"
 local glideTrack = humanoid:LoadAnimation(glideAnim)
 
+local dropAnim = Instance.new("Animation")
+dropAnim.AnimationId = "rbxassetid://136757453797365"
+local dropTrack = humanoid:LoadAnimation(dropAnim)
+
 -- State
 local gliding = false
+local dropping = false
+local dashingToCamera = false
 local lastSpaceTap = 0
 local spaceTapCount = 0
 local glideStartTime = 0
 local flyVel
-
--- Dash
-local dashActive = false
-local dashDuration = 0.5
-local dashStartTime = 0
-local dashVel
+local cameraDashStart = 0
+local cameraDashDuration = 10
 
 -- Constants
 local maxSpeed = 65
 local accelerationTime = 7
 local descentRate = 2.5
+local cameraDashSpeed = 50
 
 -- Start gliding
 local function startGlide()
-    if gliding then return end
+    if gliding or dropping then return end
     if humanoid.FloorMaterial ~= Enum.Material.Air then return end
 
     gliding = true
@@ -54,17 +57,32 @@ local function stopGlide()
     if glideTrack then glideTrack:Stop() end
 end
 
--- Dash forward and upward
-local function dash()
-    if dashActive then return end
-    dashActive = true
-    dashStartTime = tick()
+-- Start dropping
+local function startDrop()
+    if not gliding then return end
+    stopGlide()
+    dropping = true
+    dropTrack:Play()
 
-    dashVel = Instance.new("BodyVelocity")
-    dashVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-    dashVel.P = 10000
-    dashVel.Velocity = (hrp.CFrame.LookVector * 25) + Vector3.new(0, 5, 0)
-    dashVel.Parent = hrp
+    flyVel = Instance.new("BodyVelocity")
+    flyVel.MaxForce = Vector3.new(0, 1e5, 0)
+    flyVel.P = 10000
+    flyVel.Velocity = Vector3.new(0, -50, 0)
+    flyVel.Parent = hrp
+end
+
+-- Start camera dash
+local function startCameraDash()
+    dropping = false
+    dashingToCamera = true
+    cameraDashStart = tick()
+    dropTrack:Play()
+
+    if flyVel then flyVel:Destroy() end
+    flyVel = Instance.new("BodyVelocity")
+    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyVel.P = 10000
+    flyVel.Parent = hrp
 end
 
 -- Input detection
@@ -85,8 +103,8 @@ UIS.InputBegan:Connect(function(input, gpe)
         end
     end
 
-    if input.KeyCode == Enum.KeyCode.F then
-        dash()
+    if input.KeyCode == Enum.KeyCode.T then
+        startDrop()
     end
 end)
 
@@ -98,11 +116,24 @@ end)
 
 -- Main loop
 RunService.RenderStepped:Connect(function()
-    if dashActive then
-        if tick() - dashStartTime >= dashDuration then
-            dashActive = false
-            if dashVel then dashVel:Destroy() end
+    if dashingToCamera then
+        if tick() - cameraDashStart >= cameraDashDuration then
+            dashingToCamera = false
+            if flyVel then flyVel:Destroy() end
+            return
         end
+
+        local cam = workspace.CurrentCamera
+        local direction = (cam.CFrame.Position - hrp.Position).Unit
+        flyVel.Velocity = direction * cameraDashSpeed
+        return
+    end
+
+    if dropping then
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
+            startCameraDash()
+        end
+        return
     end
 
     if gliding then
