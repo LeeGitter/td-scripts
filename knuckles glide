@@ -20,6 +20,12 @@ local spaceTapCount = 0
 local glideStartTime = 0
 local flyVel
 
+-- Dash
+local dashActive = false
+local dashDuration = 0.5
+local dashStartTime = 0
+local dashVel
+
 -- Constants
 local maxSpeed = 65
 local accelerationTime = 7
@@ -55,32 +61,39 @@ local function stopGlide()
     if glideTrack then glideTrack:Stop() end
 end
 
--- Stick to wall
+-- Stick to wall at exact spot
 local function stickToWall()
     wallStuck = true
     stopGlide()
     humanoid.WalkSpeed = 0
+
+    flyVel = Instance.new("BodyVelocity", hrp)
+    flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    flyVel.P = 10000
+    flyVel.Velocity = Vector3.zero
 end
 
--- Launch from wall
-local function launchFromWall()
+-- Jump off wall in opposite direction
+local function jumpOffWall()
     wallStuck = false
     gliding = true
     glideStartTime = tick()
     glideTrack:Play()
 
+    if flyVel then flyVel:Destroy() end
     flyVel = Instance.new("BodyVelocity", hrp)
     flyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
     flyVel.P = 10000
 
     local reverse = -hrp.CFrame.LookVector * maxSpeed
-    local downward = Vector3.new(0, -descentRate, 0)
-    flyVel.Velocity = reverse + downward
+    local upward = Vector3.new(0, 5, 0)
+    flyVel.Velocity = reverse + upward
 end
 
 -- Input detection
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
+
     if input.KeyCode == Enum.KeyCode.Space then
         local now = tick()
         if now - lastSpaceTap <= 1 then
@@ -91,21 +104,42 @@ UIS.InputBegan:Connect(function(input, gpe)
         lastSpaceTap = now
 
         if wallStuck then
-            launchFromWall()
+            jumpOffWall()
         elseif spaceTapCount >= 2 then
             startGlide()
         end
+    end
+
+    if input.KeyCode == Enum.KeyCode.F and not dashActive then
+        dashActive = true
+        dashStartTime = tick()
+
+        local forward = hrp.CFrame.LookVector * 25
+        local upward = Vector3.new(0, 5, 0)
+        local dashSpeed = forward + upward
+
+        dashVel = Instance.new("BodyVelocity", hrp)
+        dashVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        dashVel.P = 10000
+        dashVel.Velocity = dashSpeed
     end
 end)
 
 UIS.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Space then
-        stopGlide()
+        if gliding then stopGlide() end
     end
 end)
 
 -- Main loop
 RunService.RenderStepped:Connect(function()
+    if dashActive then
+        if tick() - dashStartTime >= dashDuration then
+            dashActive = false
+            if dashVel then dashVel:Destroy() end
+        end
+    end
+
     if gliding then
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             stopGlide()
