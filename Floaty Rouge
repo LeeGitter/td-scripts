@@ -22,6 +22,12 @@ local fallStartY = 0
 local fallStartTime = 0
 local fallDuration = 0.5
 
+-- Extra jump
+local extraJumpTriggered = false
+local extraJumpStartTime = 0
+local extraJumpDuration = 0.6
+local extraJumpHeight = 3
+
 -- Load and lock animations
 local primaryAnim = Instance.new("Animation")
 primaryAnim.AnimationId = "rbxassetid://75355013469339"
@@ -52,7 +58,7 @@ local maxOffset = 4
 local oscillationPeriod = 2
 
 -- Jump parameters
-local jumpHeight = 22
+local jumpHeight = 18
 local ascendDuration = 4
 local apexHold = 0.5
 local descendDuration = 1
@@ -62,15 +68,24 @@ local rayParams = RaycastParams.new()
 rayParams.FilterDescendantsInstances = {character}
 rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 
--- Input: spacebar triggers jump
+-- Input: spacebar triggers jump or extra jump
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or input.KeyCode ~= Enum.KeyCode.Space then return end
-    if jumpPhase then return end
-    jumpPhase = "ascend"
-    jumpStartTime = tick()
-    jumpStartY = hrp.Position.Y
-    blendTrack:Stop()
-    primaryTrack:AdjustSpeed(2)
+
+    if jumpPhase then
+        if not extraJumpTriggered then
+            extraJumpTriggered = true
+            extraJumpStartTime = tick()
+            primaryTrack:AdjustSpeed(3)
+        end
+    else
+        jumpPhase = "ascend"
+        jumpStartTime = tick()
+        jumpStartY = hrp.Position.Y
+        extraJumpTriggered = false
+        blendTrack:Stop()
+        primaryTrack:AdjustSpeed(2)
+    end
 end)
 
 -- Death cleanup
@@ -128,16 +143,27 @@ RunService.RenderStepped:Connect(function()
                     local progress = elapsed / ascendDuration
                     local easedProgress = progress * progress
                     local targetY = jumpStartY + (jumpHeight * easedProgress)
+
+                    -- Add extra jump if triggered
+                    if extraJumpTriggered then
+                        local extraElapsed = time - extraJumpStartTime
+                        if extraElapsed < extraJumpDuration then
+                            local extraProgress = extraElapsed / extraJumpDuration
+                            local extraEased = extraProgress * extraProgress
+                            targetY = targetY + (extraJumpHeight * extraEased)
+                        end
+                    end
+
                     bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
                 else
                     jumpPhase = "hold"
                     jumpStartTime = time
-                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight, hrp.Position.Z)
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight + (extraJumpTriggered and extraJumpHeight or 0), hrp.Position.Z)
                 end
 
             elseif jumpPhase == "hold" then
                 if elapsed < apexHold then
-                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight, hrp.Position.Z)
+                    bodyPosition.Position = Vector3.new(hrp.Position.X, jumpStartY + jumpHeight + (extraJumpTriggered and extraJumpHeight or 0), hrp.Position.Z)
                 else
                     jumpPhase = "descend"
                     jumpStartTime = time
@@ -147,6 +173,11 @@ RunService.RenderStepped:Connect(function()
                 if elapsed < descendDuration then
                     local progress = elapsed / descendDuration
                     local targetY = jumpStartY + jumpHeight * (1 - progress)
+                    if extraJumpTriggered then
+                        targetY = targetY + extraJumpHeight * (1 - progress)
+                    end
+                    -- Clamp to baseY to prevent sinking
+                    if targetY < baseY then targetY = baseY end
                     bodyPosition.Position = Vector3.new(hrp.Position.X, targetY, hrp.Position.Z)
                 else
                     jumpPhase = nil
