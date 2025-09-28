@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local active = true -- disables logic after respawn
+local active = true
 
 local function setupCharacter(character)
     if not active then return end
@@ -26,11 +26,11 @@ local function setupCharacter(character)
 
     -- Hover + oscillation parameters
     local hoverOffset = 2.5
-    local oscillationAmplitude = 2
+    local oscillationAmplitude = 2.5 -- stronger symbolic breath
     local oscillationSpeed = 2
 
     -- Idle tilt parameters
-    local idleTiltAmplitude = 2 -- degrees
+    local idleTiltAmplitude = 2
     local idleTiltSpeed = 1.5
 
     -- Jump control
@@ -82,19 +82,8 @@ local function setupCharacter(character)
 
         local time = tick()
         local oscillation = math.sin(time * oscillationSpeed) * oscillationAmplitude
+        local targetY = rootPart.Position.Y + hoverOffset + oscillation
 
-        -- Detect ground beneath
-        local rayOrigin = rootPart.Position
-        local rayDirection = Vector3.new(0, -50, 0)
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterDescendantsInstances = {character}
-        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-        local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-        local groundY = result and result.Position.Y or rayOrigin.Y - 5
-        local targetY = groundY + hoverOffset + oscillation
-
-        -- Idle tilt (forward/backward pitch)
         local velocity = rootPart.Velocity
         local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
         local pitchAngle = math.sin(time * idleTiltSpeed) * (idleTiltAmplitude * math.pi / 180)
@@ -111,8 +100,10 @@ local function setupCharacter(character)
             rootPart.CFrame = baseCFrame
         end
 
-        -- Freeze vertical velocity
-        rootPart.Velocity = Vector3.new(rootPart.Velocity.X, 0, rootPart.Velocity.Z)
+        -- Floaty descent override
+        if velocity.Y < -2 and not isJumping then
+            rootPart.Velocity = Vector3.new(velocity.X, velocity.Y * 0.3, velocity.Z)
+        end
 
         updateTilt()
 
