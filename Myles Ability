@@ -33,11 +33,17 @@ end
 
 --// Cancel descent
 local function cancelDescent()
-    if descending then
-        descending = false
-        if descentForce then descentForce:Destroy() end
-        if descentTrack.IsPlaying then descentTrack:Stop() end
-        if descentConnection then descentConnection:Disconnect() end
+    descending = false
+    if descentForce then
+        descentForce:Destroy()
+        descentForce = nil
+    end
+    if descentTrack.IsPlaying then
+        descentTrack:Stop()
+    end
+    if descentConnection then
+        descentConnection:Disconnect()
+        descentConnection = nil
     end
 end
 
@@ -77,7 +83,9 @@ local function startDescent()
         end
 
         local descentSpeed = spaceHeld and -15 or -2
-        descentForce.Velocity = Vector3.new(0, descentSpeed, 0)
+        if descentForce then
+            descentForce.Velocity = Vector3.new(0, descentSpeed, 0)
+        end
     end)
 end
 
