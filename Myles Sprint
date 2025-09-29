@@ -36,7 +36,7 @@ local function loadAnim(id, looped, speed, priority)
     return track
 end
 
-local speedTrack = loadAnim(SPEED_ANIM, true, 1, Enum.AnimationPriority.Action4)
+local speedTrack = loadAnim(SPEED_ANIM, true, 1.5, Enum.AnimationPriority.Action4)
 
 --// Main loop
 RunService.RenderStepped:Connect(function()
