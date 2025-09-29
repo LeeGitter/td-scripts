@@ -8,7 +8,6 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
-local camera = workspace.CurrentCamera
 
 --// Animations
 local descentAnim = Instance.new("Animation")
@@ -26,7 +25,7 @@ local descentConnection = nil
 --// Clean physics
 local function purgePhysics()
     for _, obj in ipairs(rootPart:GetChildren()) do
-        if obj:IsA("BodyVelocity") or obj:IsA("BodyForce") or obj:IsA("BodyPosition") or obj:IsA("BodyGyro") then
+        if obj:IsA("BodyVelocity") or obj:IsA("BodyForce") or obj:IsA("BodyPosition") then
             obj:Destroy()
         end
     end
@@ -42,55 +41,13 @@ local function cancelDescent()
     end
 end
 
---// Ground dash using camera direction
-local function cameraDash()
-    local dashDuration = 5
-    local dashSpeed = 40
-    local startTime = tick()
+--// Boost WalkSpeed on landing
+local function boostWalkSpeed()
+    local originalSpeed = humanoid.WalkSpeed
+    humanoid.WalkSpeed = 45
 
-    if not descentTrack.IsPlaying then
-        descentTrack:Play()
-        descentTrack:AdjustSpeed(1)
-    end
-
-    local velocity = Instance.new("BodyVelocity")
-    velocity.MaxForce = Vector3.new(1e5, 0, 1e5)
-    velocity.P = 1000
-    velocity.Parent = rootPart
-
-    local gyro = Instance.new("BodyGyro")
-    gyro.MaxTorque = Vector3.new(0, 1e5, 0)
-    gyro.P = 3000
-    gyro.CFrame = rootPart.CFrame
-    gyro.Parent = rootPart
-
-    local dashConnection
-    dashConnection = RunService.RenderStepped:Connect(function()
-        local elapsed = tick() - startTime
-        if elapsed >= dashDuration then
-            dashConnection:Disconnect()
-            velocity:Destroy()
-            gyro:Destroy()
-            descentTrack:Stop()
-            return
-        end
-
-        -- Get camera's horizontal direction
-        local camLook = camera.CFrame.LookVector
-        local flatDir = Vector3.new(camLook.X, 0, camLook.Z).Unit
-
-        -- Steering input
-        local steer = 0
-        if UIS:IsKeyDown(Enum.KeyCode.A) then steer -= 1 end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then steer += 1 end
-
-        -- Apply steering as yaw rotation
-        local turnAngle = steer * math.rad(90) * RunService.RenderStepped:Wait()
-        local rotated = CFrame.Angles(0, turnAngle, 0)
-        local finalDir = (rotated * flatDir).Unit
-
-        gyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + finalDir)
-        velocity.Velocity = finalDir * dashSpeed
+    task.delay(5, function()
+        humanoid.WalkSpeed = originalSpeed
     end)
 end
 
@@ -104,23 +61,23 @@ local function startDescent()
     descentTrack:Play()
     descentTrack:AdjustSpeed(4)
 
-    descendForce = Instance.new("BodyVelocity")
-    descendForce.MaxForce = Vector3.new(0, 1e5, 0)
-    descendForce.P = 10000
-    descendForce.Velocity = Vector3.new(0, -2, 0)
-    descendForce.Parent = rootPart
+    descentForce = Instance.new("BodyVelocity")
+    descentForce.MaxForce = Vector3.new(0, 1e5, 0)
+    descentForce.P = 10000
+    descentForce.Velocity = Vector3.new(0, -2, 0)
+    descentForce.Parent = rootPart
 
-    descendConnection = RunService.RenderStepped:Connect(function()
+    descentConnection = RunService.RenderStepped:Connect(function()
         if not descending then return end
 
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             cancelDescent()
-            cameraDash()
+            boostWalkSpeed()
             return
         end
 
         local descentSpeed = spaceHeld and -15 or -2
-        descendForce.Velocity = Vector3.new(0, descentSpeed, 0)
+        descentForce.Velocity = Vector3.new(0, descentSpeed, 0)
     end)
 end
 
