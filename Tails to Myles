@@ -1,0 +1,100 @@
+local model = workspace:FindFirstChild("GutterJason11")
+if not model then
+    warn("GutterJason11 not found in Workspace")
+    return
+end
+
+-- Delete tail2 inside torso > tails
+local torso = model:FindFirstChild("torso")
+if torso then
+    local tails = torso:FindFirstChild("tails")
+    if tails then
+        local tail2 = tails:FindFirstChild("tail2")
+        if tail2 then
+            tail2:Destroy()
+            print("Deleted tail2")
+        end
+
+        -- Move tail1 right by 2 studs and down by 1 stud (only if not welded)
+        local tail1 = tails:FindFirstChild("tail1")
+        if tail1 and tail1:IsA("BasePart") and not tail1:FindFirstChildWhichIsA("Weld", true) then
+            tail1.CFrame = tail1.CFrame + Vector3.new(2, -1, 0)
+            print("Moved tail1 right 2 and down 1 stud")
+        else
+            print("tail1 is welded — movement skipped")
+        end
+    end
+end
+
+-- Define color targets
+local targets = {
+    {from = Color3.fromRGB(255, 158, 1), to = Color3.fromRGB(118, 79, 67)},
+    {from = Color3.fromRGB(4, 175, 236), to = Color3.fromRGB(105, 64, 40)},
+    {from = Color3.fromRGB(248, 248, 248), to = Color3.fromRGB(199, 172, 120), conditional = true},
+    {from = Color3.fromRGB(255, 0, 0), to = Color3.fromRGB(123, 47, 123)}, -- applies everywhere, including shoes
+    {from = Color3.fromRGB(151, 0, 0), to = Color3.fromRGB(73, 38, 94)}
+}
+
+-- Exception folders for 248,248,248 override only
+local exceptions = {}
+do
+    local function safeFind(path)
+        local current = model
+        for _, name in ipairs(path) do
+            current = current and current:FindFirstChild(name)
+        end
+        return current
+    end
+
+    for _, path in ipairs({
+        {"head", "eyes"},
+        {"leg1", "shoe"},
+        {"leg2", "shoe"},
+        {"arm1", "hand"},
+        {"arm2", "hand"}
+    }) do
+        local folder = safeFind(path)
+        if folder then
+            table.insert(exceptions, folder)
+        end
+    end
+end
+
+-- Check if part is inside exception folders
+local function isException(part)
+    for _, folder in ipairs(exceptions) do
+        if folder and folder:IsAncestorOf(part) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Compare colors with tolerance
+local function isCloseColor(c1, c2, tolerance)
+    tolerance = tolerance or 2
+    return math.abs(c1.R - c2.R) * 255 <= tolerance
+       and math.abs(c1.G - c2.G) * 255 <= tolerance
+       and math.abs(c1.B - c2.B) * 255 <= tolerance
+end
+
+-- Apply color transformations
+local function transformColors(obj)
+    for _, child in ipairs(obj:GetDescendants()) do
+        if child:IsA("BasePart") then
+            local current = child.Color
+            for _, rule in ipairs(targets) do
+                if isCloseColor(current, rule.from, 2) then
+                    if rule.conditional and isException(child) then
+                        break
+                    end
+                    child.Color = rule.to
+                    print("Changed", child:GetFullName(), "from", current:ToHex(), "to", rule.to:ToHex())
+                    break
+                end
+            end
+        end
+    end
+end
+
+transformColors(model)
