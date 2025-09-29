@@ -1,0 +1,24 @@
+-- Blackout effect
+local player = game.Players.LocalPlayer
+local screenGui = Instance.new("ScreenGui")
+screenGui.IgnoreGuiInset = true
+screenGui.ResetOnSpawn = false
+screenGui.Name = "BlackoutGui"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local blackoutFrame = Instance.new("Frame")
+blackoutFrame.Size = UDim2.new(1, 0, 1, 0)
+blackoutFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+blackoutFrame.BackgroundTransparency = 0
+blackoutFrame.Parent = screenGui
+
+-- Wait 2 seconds before removing blackout
+task.delay(2, function()
+    blackoutFrame:Destroy()
+    screenGui:Destroy()
+end)
+
+-- Load scripts
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/Tails%20to%20Myles", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/Myles%20Ability", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/Myles%20Sprint", true))()
