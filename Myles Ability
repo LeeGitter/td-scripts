@@ -15,7 +15,7 @@ local descentAnim = Instance.new("Animation")
 descentAnim.AnimationId = "rbxassetid://77249297287605"
 
 local launchAnim = Instance.new("Animation")
-launchAnim.AnimationId = "rbxassetid://84493272045483"
+launchAnim.AnimationId = "rbxassetid://77249297287605"
 
 local descentTrack = humanoid:LoadAnimation(descentAnim)
 local launchTrack = humanoid:LoadAnimation(launchAnim)
@@ -48,19 +48,43 @@ local function cancelDescent()
     end
 end
 
---// Launch forward
-local function launchForward()
-    local direction = rootPart.CFrame.LookVector.Unit
-    local targetPosition = rootPart.Position + direction * 75
+--// Ground dash after descent
+local function groundDash()
+    local dashDuration = 3
+    local dashSpeed = 40
+    local startTime = tick()
 
-    local launchTween = TweenService:Create(
-        rootPart,
-        TweenInfo.new(0.3, Enum.EasingStyle.Linear),
-        { CFrame = CFrame.new(targetPosition) }
-    )
-    launchTween:Play()
-    launchTrack:Play()
-    launchTrack:AdjustSpeed(4)
+    -- Keep descent animation playing
+    if not descentTrack.IsPlaying then
+        descentTrack:Play()
+        descentTrack:AdjustSpeed(1)
+    end
+
+    local dashConnection
+    dashConnection = RunService.RenderStepped:Connect(function(dt)
+        local elapsed = tick() - startTime
+        if elapsed >= dashDuration then
+            dashConnection:Disconnect()
+            descentTrack:Stop()
+            return
+        end
+
+        -- Car-like steering
+        local moveDirection = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then moveDirection += Vector3.new(0, 0, -1) end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then moveDirection += Vector3.new(0, 0, 1) end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDirection += Vector3.new(-1, 0, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDirection += Vector3.new(1, 0, 0) end
+
+        if moveDirection.Magnitude > 0 then
+            moveDirection = moveDirection.Unit
+            local targetRotation = CFrame.new(Vector3.zero, moveDirection)
+            rootPart.CFrame = rootPart.CFrame:Lerp(rootPart.CFrame.Rotation * targetRotation, 0.1)
+        end
+
+        local forward = rootPart.CFrame.LookVector
+        rootPart.CFrame += forward * dashSpeed * dt
+    end)
 end
 
 --// Start descent
@@ -84,7 +108,7 @@ local function startDescent()
 
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             cancelDescent()
-            launchForward()
+            groundDash()
             return
         end
 
@@ -93,7 +117,7 @@ local function startDescent()
     end)
 end
 
---// Input detection (dash-style, E key)
+--// Input detection
 UIS.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = true
