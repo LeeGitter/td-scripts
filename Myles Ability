@@ -8,19 +8,14 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
+local camera = workspace.CurrentCamera
 
 --// Animations
 local descentAnim = Instance.new("Animation")
 descentAnim.AnimationId = "rbxassetid://77249297287605"
 
-local launchAnim = Instance.new("Animation")
-launchAnim.AnimationId = "rbxassetid://84493272045483"
-
 local descentTrack = humanoid:LoadAnimation(descentAnim)
-local launchTrack = humanoid:LoadAnimation(launchAnim)
-
 descentTrack.Priority = Enum.AnimationPriority.Action4
-launchTrack.Priority = Enum.AnimationPriority.Action4
 
 --// State
 local descending = false
@@ -47,9 +42,9 @@ local function cancelDescent()
     end
 end
 
---// Ground dash after descent
-local function groundDash()
-    local dashDuration = 3
+--// Ground dash using camera direction
+local function cameraDash()
+    local dashDuration = 5
     local dashSpeed = 40
     local startTime = tick()
 
@@ -61,7 +56,6 @@ local function groundDash()
     local velocity = Instance.new("BodyVelocity")
     velocity.MaxForce = Vector3.new(1e5, 0, 1e5)
     velocity.P = 1000
-    velocity.Velocity = rootPart.CFrame.LookVector * dashSpeed
     velocity.Parent = rootPart
 
     local gyro = Instance.new("BodyGyro")
@@ -81,21 +75,22 @@ local function groundDash()
             return
         end
 
-        local moveDirection = Vector3.zero
-        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDirection += Vector3.new(-1, 0, 0) end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDirection += Vector3.new(1, 0, 0) end
+        -- Get camera's horizontal direction
+        local camLook = camera.CFrame.LookVector
+        local flatDir = Vector3.new(camLook.X, 0, camLook.Z).Unit
 
-        local currentLook = rootPart.CFrame.LookVector
-        if moveDirection.Magnitude > 0 then
-            local turnAngle = moveDirection.X * math.rad(90)
-            local rotated = CFrame.Angles(0, turnAngle * RunService.RenderStepped:Wait(), 0)
-            local newLook = (rotated * currentLook).Unit
-            gyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + newLook)
-            velocity.Velocity = newLook * dashSpeed
-        else
-            gyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + currentLook)
-            velocity.Velocity = currentLook * dashSpeed
-        end
+        -- Steering input
+        local steer = 0
+        if UIS:IsKeyDown(Enum.KeyCode.A) then steer -= 1 end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then steer += 1 end
+
+        -- Apply steering as yaw rotation
+        local turnAngle = steer * math.rad(90) * RunService.RenderStepped:Wait()
+        local rotated = CFrame.Angles(0, turnAngle, 0)
+        local finalDir = (rotated * flatDir).Unit
+
+        gyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + finalDir)
+        velocity.Velocity = finalDir * dashSpeed
     end)
 end
 
@@ -109,23 +104,23 @@ local function startDescent()
     descentTrack:Play()
     descentTrack:AdjustSpeed(4)
 
-    descentForce = Instance.new("BodyVelocity")
-    descentForce.MaxForce = Vector3.new(0, 1e5, 0)
-    descentForce.P = 10000
-    descentForce.Velocity = Vector3.new(0, -2, 0)
-    descentForce.Parent = rootPart
+    descendForce = Instance.new("BodyVelocity")
+    descendForce.MaxForce = Vector3.new(0, 1e5, 0)
+    descendForce.P = 10000
+    descendForce.Velocity = Vector3.new(0, -2, 0)
+    descendForce.Parent = rootPart
 
-    descentConnection = RunService.RenderStepped:Connect(function()
+    descendConnection = RunService.RenderStepped:Connect(function()
         if not descending then return end
 
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             cancelDescent()
-            groundDash()
+            cameraDash()
             return
         end
 
         local descentSpeed = spaceHeld and -15 or -2
-        descentForce.Velocity = Vector3.new(0, descentSpeed, 0)
+        descendForce.Velocity = Vector3.new(0, descentSpeed, 0)
     end)
 end
 
