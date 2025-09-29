@@ -1,0 +1,117 @@
+--// Services
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+--// Setup
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+--// Animations
+local descentAnim = Instance.new("Animation")
+descentAnim.AnimationId = "rbxassetid://77249297287605"
+
+local launchAnim = Instance.new("Animation")
+launchAnim.AnimationId = "rbxassetid://84493272045483"
+
+local descentTrack = humanoid:LoadAnimation(descentAnim)
+local launchTrack = humanoid:LoadAnimation(launchAnim)
+
+descentTrack.Priority = Enum.AnimationPriority.Action4
+launchTrack.Priority = Enum.AnimationPriority.Action4
+
+--// State
+local descending = false
+local descentForce = nil
+local spaceHeld = false
+local descentConnection = nil
+
+--// Clean physics
+local function purgePhysics()
+    for _, obj in ipairs(rootPart:GetChildren()) do
+        if obj:IsA("BodyVelocity") or obj:IsA("BodyForce") or obj:IsA("BodyPosition") then
+            obj:Destroy()
+        end
+    end
+end
+
+--// Cancel descent
+local function cancelDescent()
+    if descending then
+        descending = false
+        if descentForce then descentForce:Destroy() end
+        if descentTrack.IsPlaying then descentTrack:Stop() end
+        if descentConnection then descentConnection:Disconnect() end
+    end
+end
+
+--// Launch forward
+local function launchForward()
+    local direction = rootPart.CFrame.LookVector.Unit
+    local targetPosition = rootPart.Position + direction * 75
+
+    local launchTween = TweenService:Create(
+        rootPart,
+        TweenInfo.new(0.3, Enum.EasingStyle.Linear),
+        { CFrame = CFrame.new(targetPosition) }
+    )
+    launchTween:Play()
+    launchTrack:Play()
+    launchTrack:AdjustSpeed(4)
+end
+
+--// Start descent
+local function startDescent()
+    if descending or humanoid.FloorMaterial ~= Enum.Material.Air then return end
+
+    descending = true
+    purgePhysics()
+
+    descentTrack:Play()
+    descentTrack:AdjustSpeed(4)
+
+    descentForce = Instance.new("BodyVelocity")
+    descentForce.MaxForce = Vector3.new(0, 1e5, 0)
+    descentForce.P = 10000
+    descentForce.Velocity = Vector3.new(0, -2, 0)
+    descentForce.Parent = rootPart
+
+    descentConnection = RunService.RenderStepped:Connect(function()
+        if not descending then return end
+
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
+            cancelDescent()
+            launchForward()
+            return
+        end
+
+        local descentSpeed = spaceHeld and -15 or -2
+        descentForce.Velocity = Vector3.new(0, descentSpeed, 0)
+    end)
+end
+
+--// Input detection (dash-style, E key)
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+    end
+
+    if input.KeyCode == Enum.KeyCode.E then
+        if humanoid.FloorMaterial == Enum.Material.Air then
+            if descending then
+                cancelDescent()
+            else
+                startDescent()
+            end
+        end
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+    end
+end)
