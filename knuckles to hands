@@ -37,19 +37,19 @@ for _, part in ipairs(model:GetDescendants()) do
     if part:IsA("BasePart") then
         local color = part.Color
 
-        -- 159,8,18 → 85,40,95 unless inside leg1/leg2 > shoe
+        -- 159,8,18 → 49,40,70 unless inside leg1/leg2 > shoe
         if color == Color3.fromRGB(159, 8, 18) then
             if not (
                 isInPath(part, {"shoe", "leg1", "GutterJason11"}) or
                 isInPath(part, {"shoe", "leg2", "GutterJason11"})
             ) then
-                part.Color = Color3.fromRGB(85, 40, 95)
+                part.Color = Color3.fromRGB(49, 40, 70)
             end
         end
 
-        -- 40,127,71 → 248,248,248 globally
-        if color == Color3.fromRGB(40, 127, 71) then
-            part.Color = Color3.fromRGB(248, 248, 248)
+        -- 39,70,45 → 165,143,143 globally
+        if color == Color3.fromRGB(39, 70, 45) then
+            part.Color = Color3.fromRGB(165, 143, 143)
         end
     end
 end
@@ -127,7 +127,7 @@ end
 local function resizeSocks(part)
     if part and part:IsA("BasePart") then
         local size = part.Size
-        part.Size = Vector3.new(size.X * 1.5, size.Y * 2.5, size.Z * 1.5)
+        part.Size = Vector3.new(size.X * 1.5, 3.5, size.Z * 1.5)
     end
 end
 
