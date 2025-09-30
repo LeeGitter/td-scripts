@@ -1,0 +1,35 @@
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Black screen effect
+local blur = Instance.new("BlurEffect")
+blur.Size = 24
+blur.Parent = game:GetService("Lighting")
+
+local blackScreen = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+blackScreen.IgnoreGuiInset = true
+blackScreen.ResetOnSpawn = false
+
+local frame = Instance.new("Frame", blackScreen)
+frame.Size = UDim2.new(1, 0, 1, 0)
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+
+task.delay(2, function()
+    blur:Destroy()
+    blackScreen:Destroy()
+end)
+
+-- Load scripts
+local function loadAbilities()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/knuckles%20to%20hands", true))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/return%20the%20airdash", true))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/Hands%20Ability", true))()
+end
+
+loadAbilities()
+
+-- Disable on respawn
+player.CharacterAdded:Connect(function()
+    -- Do nothing on respawn
+end)
