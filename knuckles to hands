@@ -106,17 +106,19 @@ if sourceHair and head then
     weld.Parent = hairClone
 end
 
--- Modify iris1 and iris2 inside eyes > regular
-local eyes = model:FindFirstChild("head")
+-- Modify iris1 and iris2 inside eyes > regular and scale all parts
+local eyesFolder = model:FindFirstChild("head")
     and model.head:FindFirstChild("eyes")
     and model.head.eyes:FindFirstChild("regular")
 
-if eyes then
-    for _, irisName in {"iris1", "iris2"} do
-        local iris = eyes:FindFirstChild(irisName)
-        if iris and iris:IsA("BasePart") then
-            iris.Material = Enum.Material.Neon
-            iris.Color = Color3.fromRGB(26, 97, 161)
+if eyesFolder then
+    for _, item in ipairs(eyesFolder:GetChildren()) do
+        if item:IsA("BasePart") then
+            item.Size = item.Size * 1.5
+
+            if item.Name == "iris1" or item.Name == "iris2" then
+                item.Color = Color3.fromRGB(4, 177, 220)
+            end
         end
     end
 end
