@@ -33,28 +33,6 @@ for _, armName in {"arm1", "arm2"} do
     end
 end
 
--- Constant color enforcement
-RunService.RenderStepped:Connect(function()
-    for _, part in ipairs(model:GetDescendants()) do
-        if part:IsA("BasePart") then
-            local color = part.Color
-
-            if color == Color3.fromRGB(159, 8, 18) then
-                if not (
-                    isInPath(part, {"shoe", "leg1", "GutterJason11"}) or
-                    isInPath(part, {"shoe", "leg2", "GutterJason11"})
-                ) then
-                    part.Color = Color3.fromRGB(85, 40, 95)
-                end
-            elseif color == Color3.fromRGB(40, 127, 71) then
-                part.Color = Color3.fromRGB(248, 248, 248)
-            elseif color == Color3.fromRGB(39, 70, 45) then
-                part.Color = Color3.fromRGB(165, 143, 143)
-            end
-        end
-    end
-end)
-
 -- Remove shoe decorations
 local shoe1 = model:FindFirstChild("leg1") and model.leg1:FindFirstChild("shoe")
 local shoe2 = model:FindFirstChild("leg2") and model.leg2:FindFirstChild("shoe")
@@ -124,15 +102,28 @@ if eyesFolder then
     end
 end
 
--- Resize socks and socks2 to fixed dimensions
-local function resizeSocks(part)
-    if part and part:IsA("BasePart") then
-        part.Size = Vector3.new(2, 2, 3)
+-- Persistent color and sock enforcement
+RunService.RenderStepped:Connect(function()
+    for _, part in ipairs(model:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local color = part.Color
+
+            if color == Color3.fromRGB(159, 8, 18) then
+                if not (
+                    isInPath(part, {"shoe", "leg1", "GutterJason11"}) or
+                    isInPath(part, {"shoe", "leg2", "GutterJason11"})
+                ) then
+                    part.Color = Color3.fromRGB(85, 40, 95)
+                end
+            elseif color == Color3.fromRGB(40, 127, 71) then
+                part.Color = Color3.fromRGB(248, 248, 248)
+            elseif color == Color3.fromRGB(39, 70, 45) then
+                part.Color = Color3.fromRGB(165, 143, 143)
+            end
+
+            if part.Name == "socks" or part.Name == "socks2" then
+                part.Size = Vector3.new(2, 2, 3)
+            end
+        end
     end
-end
-
-local socks1 = shoe1 and shoe1:FindFirstChild("socks")
-local socks2 = shoe2 and shoe2:FindFirstChild("socks2")
-
-resizeSocks(socks1)
-resizeSocks(socks2)
+end)
