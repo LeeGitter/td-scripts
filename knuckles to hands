@@ -68,12 +68,13 @@ if shoe2 then
     if deco then deco:Destroy() end
 end
 
--- Resize tail only (no position change)
+-- Resize tail and move it forward 2 studs
 local torso = model:FindFirstChild("torso")
 if torso then
     local tail = torso:FindFirstChild("tail")
     if tail and tail:IsA("BasePart") then
-        tail.Size = tail.Size * 2
+        tail.Size = tail.Size * 6
+        tail.Position = tail.Position + Vector3.new(0, 0, 2)
     end
 
     -- Rotate symbol 180 degrees on X axis
