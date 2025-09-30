@@ -1,0 +1,55 @@
+-- Midair Ascension Script (LocalScript)
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+local ASCENT_DURATION = 0.3
+local ASCENT_HEIGHT = 6
+local MAX_ASCENTS = 3
+local ascentCount = 0
+local isAscending = false
+
+-- Load updated animation
+local ascentAnim = Instance.new("Animation")
+ascentAnim.AnimationId = "rbxassetid://73280067644749"
+local ascentTrack = humanoid:LoadAnimation(ascentAnim)
+
+-- Reset ascent count when grounded
+humanoid.StateChanged:Connect(function(_, newState)
+    if newState == Enum.HumanoidStateType.Landed or newState == Enum.HumanoidStateType.Running then
+        ascentCount = 0
+    end
+end)
+
+-- Handle space press midair
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or input.KeyCode ~= Enum.KeyCode.Space then return end
+    if isAscending then return end
+
+    local state = humanoid:GetState()
+    if state == Enum.HumanoidStateType.Freefall and ascentCount < MAX_ASCENTS then
+        ascentCount += 1
+        isAscending = true
+
+        -- Play animation
+        ascentTrack:Play()
+
+        -- Apply upward motion
+        local startTime = tick()
+        local connection
+        connection = RunService.RenderStepped:Connect(function()
+            local elapsed = tick() - startTime
+            if elapsed >= ASCENT_DURATION then
+                connection:Disconnect()
+                isAscending = false
+                return
+            end
+            rootPart.Velocity = Vector3.new(rootPart.Velocity.X, ASCENT_HEIGHT / ASCENT_DURATION, rootPart.Velocity.Z)
+        end)
+    end
+end)
