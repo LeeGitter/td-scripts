@@ -9,7 +9,7 @@ local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
 
 local ASCENT_DURATION = 0.3
-local ASCENT_HEIGHT = 6
+local ASCENT_HEIGHT = 3
 local MAX_ASCENTS = 3
 local ascentCount = 0
 local isAscending = false
