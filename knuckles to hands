@@ -1,0 +1,122 @@
+local model = workspace:FindFirstChild("GutterJason11")
+if not model then
+    warn("GutterJason11 not found in Workspace.")
+    return
+end
+
+-- Utility: check if instance is inside a specific path
+local function isInPath(instance, pathTable)
+    local current = instance
+    for i = #pathTable, 1, -1 do
+        if not current or current.Name ~= pathTable[i] then
+            return false
+        end
+        current = current.Parent
+    end
+    return true
+end
+
+-- Remove handSpikes and hand2Spikes from both arms
+for _, armName in {"arm1", "arm2"} do
+    local arm = model:FindFirstChild(armName)
+    if arm then
+        local hand = arm:FindFirstChild("hand")
+        if hand then
+            for _, spikeName in {"handSpikes", "hand2Spikes"} do
+                local spike = hand:FindFirstChild(spikeName)
+                if spike then
+                    spike:Destroy()
+                end
+            end
+        end
+    end
+end
+
+-- Color transformation logic
+for _, part in ipairs(model:GetDescendants()) do
+    if part:IsA("BasePart") then
+        local color = part.Color
+
+        -- 159,8,18 → 85,40,95 unless inside leg1/leg2 > shoe
+        if color == Color3.fromRGB(159, 8, 18) then
+            if not (
+                isInPath(part, {"shoe", "leg1", "GutterJason11"}) or
+                isInPath(part, {"shoe", "leg2", "GutterJason11"})
+            ) then
+                part.Color = Color3.fromRGB(85, 40, 95)
+            end
+        end
+
+        -- 40,127,71 → 248,248,248 globally
+        if color == Color3.fromRGB(40, 127, 71) then
+            part.Color = Color3.fromRGB(248, 248, 248)
+        end
+    end
+end
+
+-- Remove shoe decorations
+local shoe1 = model:FindFirstChild("leg1") and model.leg1:FindFirstChild("shoe")
+local shoe2 = model:FindFirstChild("leg2") and model.leg2:FindFirstChild("shoe")
+
+if shoe1 then
+    local deco = shoe1:FindFirstChild("shoeDeco3")
+    if deco then deco:Destroy() end
+end
+
+if shoe2 then
+    local deco = shoe2:FindFirstChild("shoe2Deco3")
+    if deco then deco:Destroy() end
+end
+
+-- Resize tail only (no position change)
+local torso = model:FindFirstChild("torso")
+if torso then
+    local tail = torso:FindFirstChild("tail")
+    if tail and tail:IsA("BasePart") then
+        tail.Size = tail.Size * 2
+    end
+
+    -- Rotate symbol 180 degrees on X axis
+    local symbol = torso:FindFirstChild("symbol")
+    if symbol and symbol:IsA("BasePart") then
+        local currentOrientation = symbol.Orientation
+        symbol.Orientation = Vector3.new(currentOrientation.X + 180, currentOrientation.Y, currentOrientation.Z)
+    end
+end
+
+-- Add hair1 from ReplicatedStorage and weld to head
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local sourceHair = replicatedStorage:FindFirstChild("dummies")
+    and replicatedStorage.dummies:FindFirstChild("selection")
+    and replicatedStorage.dummies.selection:FindFirstChild("amy dummy")
+    and replicatedStorage.dummies.selection["amy dummy"]:FindFirstChild("hair")
+    and replicatedStorage.dummies.selection["amy dummy"].hair:FindFirstChild("hair1")
+
+local head = model:FindFirstChild("head") and model.head:FindFirstChild("head")
+if sourceHair and head then
+    local hairClone = sourceHair:Clone()
+    hairClone.Color = Color3.fromRGB(85, 40, 95)
+    hairClone.Anchored = false
+    hairClone.CanCollide = false
+    hairClone.Parent = head
+
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = head
+    weld.Part1 = hairClone
+    weld.Parent = hairClone
+end
+
+-- Modify iris1 and iris2 inside eyes > regular
+local eyes = model:FindFirstChild("head")
+    and model.head:FindFirstChild("eyes")
+    and model.head.eyes:FindFirstChild("regular")
+
+if eyes then
+    for _, irisName in {"iris1", "iris2"} do
+        local iris = eyes:FindFirstChild(irisName)
+        if iris and iris:IsA("BasePart") then
+            iris.Material = Enum.Material.Neon
+            iris.Color = Color3.fromRGB(26, 97, 161)
+        end
+    end
+end
