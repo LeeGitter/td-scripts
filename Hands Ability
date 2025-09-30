@@ -18,6 +18,7 @@ local isAscending = false
 local ascentAnim = Instance.new("Animation")
 ascentAnim.AnimationId = "rbxassetid://73280067644749"
 local ascentTrack = humanoid:LoadAnimation(ascentAnim)
+ascentTrack.Looped = false -- ensure it's not looping
 
 -- Reset ascent count when grounded
 humanoid.StateChanged:Connect(function(_, newState)
@@ -39,11 +40,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         -- Play animation
         ascentTrack:Play()
 
-        -- Stop animation after ASCENT_DURATION
-        task.delay(ASCENT_DURATION, function()
-            ascentTrack:Stop()
-        end)
-
         -- Apply upward motion
         local startTime = tick()
         local connection
@@ -52,6 +48,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if elapsed >= ASCENT_DURATION then
                 connection:Disconnect()
                 isAscending = false
+                if ascentTrack.IsPlaying then
+                    ascentTrack:Stop(0) -- force stop immediately
+                end
                 return
             end
             rootPart.Velocity = Vector3.new(rootPart.Velocity.X, ASCENT_HEIGHT / ASCENT_DURATION, rootPart.Velocity.Z)
