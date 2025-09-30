@@ -1,0 +1,28 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+local function dash()
+    local direction = rootPart.CFrame.LookVector.Unit
+    local forwardDistance = 15
+    local duration = 0.05
+    local steps = 10
+    local stepForward = forwardDistance / steps
+    local stepTime = duration / steps
+    local fallPerStep = 0.5 -- adjust this for stronger downward pull
+
+    for i = 1, steps do
+        local offset = direction * stepForward + Vector3.new(0, -fallPerStep, 0)
+        rootPart.CFrame = rootPart.CFrame + offset
+        task.wait(stepTime)
+    end
+end
+
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        dash()
+    end
+end)
