@@ -16,6 +16,7 @@ local function playAnim(id, speed)
     local anim = Instance.new("Animation")
     anim.AnimationId = id
     local track = hum:LoadAnimation(anim)
+    track.Priority = Enum.AnimationPriority.Action -- allows emotes and possession visuals to coexist
     track:Play()
     if speed then
         track:AdjustSpeed(speed)
@@ -75,25 +76,25 @@ UIS.InputBegan:Connect(function(input, gp)
     end
 end)
 
--- Slope-aware run animation
+-- Slope-aware run animation (non-interruptive)
 RunService.RenderStepped:Connect(function()
-    if hum.WalkSpeed > 35 and isGrounded() and hum.MoveDirection.Magnitude > 0 then
-        local playing = hum:GetPlayingAnimationTracks()
-        local alreadyPlaying = false
+    local speed = hum.WalkSpeed
+    local moveMag = hum.MoveDirection.Magnitude
+    local playing = hum:GetPlayingAnimationTracks()
 
+    local runPlaying = false
+    for _, track in ipairs(playing) do
+        if track.Animation.AnimationId == runAnimId then
+            runPlaying = true
+        end
+    end
+
+    local shouldRun = speed > 35 and moveMag > 0
+
+    if shouldRun and not runPlaying then
+        playAnim(runAnimId, 2)
+    elseif not shouldRun and runPlaying then
         for _, track in ipairs(playing) do
-            if track.Animation.AnimationId == runAnimId then
-                alreadyPlaying = true
-            elseif track.Animation.AnimationId ~= dashAnimId then
-                track:Stop()
-            end
-        end
-
-        if not alreadyPlaying then
-            playAnim(runAnimId, 2)
-        end
-    else
-        for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
             if track.Animation.AnimationId == runAnimId then
                 track:Stop()
             end
