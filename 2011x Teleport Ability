@@ -7,15 +7,19 @@ local cam = workspace.CurrentCamera
 
 local inputConn -- will hold the input connection
 
+local function stopAllAnimations(hum)
+    for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
+        track:Stop(0)
+    end
+end
+
 local function playDominantFrozenAnim(id)
     local char = lp.Character
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
 
-    for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
-        track:Stop()
-    end
+    stopAllAnimations(hum)
 
     local anim = Instance.new("Animation")
     anim.AnimationId = "rbxassetid://" .. id
@@ -24,9 +28,16 @@ local function playDominantFrozenAnim(id)
     track:Play()
     track:AdjustSpeed(2)
 
+    -- Freeze after 0.35s, then stop after 1.5s
     task.delay(0.35, function()
         if track.IsPlaying then
             track:AdjustSpeed(0)
+        end
+    end)
+
+    task.delay(1.5, function()
+        if track.IsPlaying then
+            track:Stop()
         end
     end)
 end
