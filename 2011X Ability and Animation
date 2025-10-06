@@ -11,12 +11,12 @@ local hum = char:WaitForChild("Humanoid")
 local dashAnimId = "rbxassetid://84493272045483"
 local runAnimId = "rbxassetid://90374991500783"
 
--- Animation loader
+-- Animation loader with elevated priority
 local function playAnim(id, speed)
     local anim = Instance.new("Animation")
     anim.AnimationId = id
     local track = hum:LoadAnimation(anim)
-    track.Priority = Enum.AnimationPriority.Action -- allows emotes and possession visuals to coexist
+    track.Priority = Enum.AnimationPriority.Action -- elevated priority
     track:Play()
     if speed then
         track:AdjustSpeed(speed)
@@ -76,7 +76,7 @@ UIS.InputBegan:Connect(function(input, gp)
     end
 end)
 
--- Slope-aware run animation (non-interruptive)
+-- Slope-aware run animation (elevated priority, non-interruptive)
 RunService.RenderStepped:Connect(function()
     local speed = hum.WalkSpeed
     local moveMag = hum.MoveDirection.Magnitude
