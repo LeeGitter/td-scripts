@@ -7,10 +7,9 @@ local character = player.Character or player.CharacterAdded:Wait()
 local rootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
--- Configurable parameters
-local fallSpeed = 1 -- studs per second
-local maxHoldTime = 1.5 -- seconds of total space hold
-
+-- Parameters
+local fallSpeed = 1 -- studs/sec
+local maxHoldTime = 1.5 -- seconds of total space-hold
 local isSlowFalling = false
 local spaceHeldTime = 0
 local spaceHeld = false
@@ -20,7 +19,16 @@ local slowFallAnim = Instance.new("Animation")
 slowFallAnim.AnimationId = "rbxassetid://89678900428949"
 local slowFallTrack = humanoid:LoadAnimation(slowFallAnim)
 
--- Monitor spacebar hold
+-- VectorForce setup
+local attachment = Instance.new("Attachment", rootPart)
+local vectorForce = Instance.new("VectorForce")
+vectorForce.Attachment0 = attachment
+vectorForce.RelativeTo = Enum.ActuatorRelativeTo.World
+vectorForce.Force = Vector3.zero
+vectorForce.Enabled = false
+vectorForce.Parent = rootPart
+
+-- Spacebar tracking
 UIS.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = true
@@ -33,17 +41,26 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
--- Trigger slow fall if midair
+-- Activate slow fall
 UIS.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.F and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
         if not isSlowFalling then
             isSlowFalling = true
             spaceHeldTime = 0
 
+            -- Cancel vertical velocity
+            rootPart.AssemblyLinearVelocity = Vector3.new(
+                rootPart.AssemblyLinearVelocity.X,
+                0,
+                rootPart.AssemblyLinearVelocity.Z
+            )
+
             -- Play animation
             if not slowFallTrack.IsPlaying then
                 slowFallTrack:Play()
             end
+
+            vectorForce.Enabled = true
 
             local connection
             connection = RunService.RenderStepped:Connect(function(dt)
@@ -52,16 +69,20 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
                     return
                 end
 
+                local mass = rootPart.AssemblyMass
+                local gravity = workspace.Gravity
+
                 if spaceHeld and spaceHeldTime < maxHoldTime then
                     spaceHeldTime += dt
-                    -- No vertical movement while holding space
+                    vectorForce.Force = Vector3.new(0, gravity * mass, 0) -- hover
                 else
-                    rootPart.CFrame += Vector3.new(0, -fallSpeed * dt, 0)
+                    vectorForce.Force = Vector3.new(0, (gravity - fallSpeed) * mass, 0) -- slow descent
                 end
 
-                -- Stop if grounded
                 if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
                     isSlowFalling = false
+                    vectorForce.Enabled = false
+                    vectorForce.Force = Vector3.zero
                     if slowFallTrack.IsPlaying then
                         slowFallTrack:Stop()
                     end
