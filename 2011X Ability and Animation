@@ -7,16 +7,15 @@ local char = lp.Character or lp.CharacterAdded:Wait()
 local hrp = char:WaitForChild("HumanoidRootPart")
 local hum = char:WaitForChild("Humanoid")
 
--- Animation IDs
+-- Animation ID
 local dashAnimId = "rbxassetid://84493272045483"
-local runAnimId = "rbxassetid://90374991500783"
 
--- Animation loader with elevated priority
+-- Animation loader
 local function playAnim(id, speed)
     local anim = Instance.new("Animation")
     anim.AnimationId = id
     local track = hum:LoadAnimation(anim)
-    track.Priority = Enum.AnimationPriority.Action -- elevated priority
+    track.Priority = Enum.AnimationPriority.Action
     track:Play()
     if speed then
         track:AdjustSpeed(speed)
@@ -24,13 +23,16 @@ local function playAnim(id, speed)
     return track
 end
 
--- Ground check
-local function isGrounded()
+-- Refined ground check (slope-safe)
+local function isTrulyAirborne()
     local rayParams = RaycastParams.new()
     rayParams.FilterDescendantsInstances = {char}
     rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-    local result = workspace:Raycast(hrp.Position, Vector3.new(0, -3, 0), rayParams)
-    return result ~= nil
+
+    -- Cast slightly forward and downward to detect slopes
+    local offset = hrp.CFrame.LookVector * 1.5 + Vector3.new(0, -3, 0)
+    local result = workspace:Raycast(hrp.Position, offset, rayParams)
+    return result == nil
 end
 
 -- Dash logic
@@ -38,7 +40,7 @@ local dashCooldown = false
 local dashTrack = nil
 
 local function dash()
-    if isGrounded() or dashCooldown then return end
+    if not isTrulyAirborne() or dashCooldown then return end
     dashCooldown = true
 
     if dashTrack then dashTrack:Stop() end
@@ -60,7 +62,7 @@ local function dash()
     -- Persist animation until grounded
     local groundedCheck
     groundedCheck = RunService.RenderStepped:Connect(function()
-        if isGrounded() then
+        if not isTrulyAirborne() then
             groundedCheck:Disconnect()
             if dashTrack then dashTrack:Stop() end
             dashCooldown = false
@@ -73,31 +75,5 @@ UIS.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.Space then
         dash()
-    end
-end)
-
--- Slope-aware run animation (elevated priority, non-interruptive)
-RunService.RenderStepped:Connect(function()
-    local speed = hum.WalkSpeed
-    local moveMag = hum.MoveDirection.Magnitude
-    local playing = hum:GetPlayingAnimationTracks()
-
-    local runPlaying = false
-    for _, track in ipairs(playing) do
-        if track.Animation.AnimationId == runAnimId then
-            runPlaying = true
-        end
-    end
-
-    local shouldRun = speed > 35 and moveMag > 0
-
-    if shouldRun and not runPlaying then
-        playAnim(runAnimId, 2)
-    elseif not shouldRun and runPlaying then
-        for _, track in ipairs(playing) do
-            if track.Animation.AnimationId == runAnimId then
-                track:Stop()
-            end
-        end
     end
 end)
