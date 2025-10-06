@@ -1,0 +1,71 @@
+local RunService = game:GetService("RunService")
+local model = workspace:FindFirstChild("GutterJason11")
+if not model then
+    warn("GutterJason11 not found in Workspace.")
+    return
+end
+
+-- Utility: check if instance is inside a specific path
+local function isInPath(instance, pathTable)
+    local current = instance
+    for i = #pathTable, 1, -1 do
+        if not current or current.Name ~= pathTable[i] then
+            return false
+        end
+        current = current.Parent
+    end
+    return true
+end
+
+-- Remove blood from torsoSkin, head, and face
+local bloodPaths = {
+    {"torso", "torsoSkin"},
+    {"head", "head"},
+    {"head", "face", "face"}
+}
+
+for _, path in ipairs(bloodPaths) do
+    local current = model
+    for _, segment in ipairs(path) do
+        current = current:FindFirstChild(segment)
+        if not current then break end
+    end
+    if current then
+        for _, child in ipairs(current:GetChildren()) do
+            if child.Name == "blood" then
+                child:Destroy()
+            end
+        end
+    end
+end
+
+-- Direct shoe recolor
+local shoe1 = model:FindFirstChild("leg1")
+    and model.leg1:FindFirstChild("shoe")
+    and model.leg1.shoe:FindFirstChild("shoe")
+
+local shoe2 = model:FindFirstChild("leg2")
+    and model.leg2:FindFirstChild("shoe")
+    and model.leg2.shoe:FindFirstChild("shoe2")
+
+for _, shoe in ipairs({shoe1, shoe2}) do
+    if shoe and shoe:IsA("MeshPart") and shoe.Color == Color3.fromRGB(117, 0, 0) then
+        shoe.Color = Color3.fromRGB(93, 104, 117)
+    end
+end
+
+-- Persistent color enforcement
+RunService.RenderStepped:Connect(function()
+    for _, part in ipairs(model:GetDescendants()) do
+        if part:IsA("BasePart") then
+            local color = part.Color
+
+            -- Global symbolic shifts
+            if color == Color3.fromRGB(0, 11, 112) then
+                part.Color = Color3.fromRGB(16, 42, 220)
+            elseif color == Color3.fromRGB(255, 173, 72) then
+                part.Color = Color3.fromRGB(203, 146, 117)
+            end
+        end
+    end
+end)
