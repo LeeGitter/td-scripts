@@ -1,0 +1,73 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Configurable parameters
+local fallSpeed = 7 -- studs per second
+local maxHoldTime = 1.5 -- seconds of total space hold
+
+local isSlowFalling = false
+local spaceHeldTime = 0
+local spaceHeld = false
+
+-- Animation setup
+local slowFallAnim = Instance.new("Animation")
+slowFallAnim.AnimationId = "rbxassetid://89678900428949"
+local slowFallTrack = humanoid:LoadAnimation(slowFallAnim)
+
+-- Monitor spacebar hold
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+    end
+end)
+
+-- Trigger slow fall if midair
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.F and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+        if not isSlowFalling then
+            isSlowFalling = true
+            spaceHeldTime = 0
+
+            -- Play animation
+            if not slowFallTrack.IsPlaying then
+                slowFallTrack:Play()
+            end
+
+            local connection
+            connection = RunService.RenderStepped:Connect(function(dt)
+                if not isSlowFalling then
+                    connection:Disconnect()
+                    return
+                end
+
+                if spaceHeld and spaceHeldTime < maxHoldTime then
+                    spaceHeldTime += dt
+                    -- No vertical movement while holding space
+                else
+                    rootPart.CFrame += Vector3.new(0, -fallSpeed * dt, 0)
+                end
+
+                -- Stop if grounded
+                if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+                    isSlowFalling = false
+                    if slowFallTrack.IsPlaying then
+                        slowFallTrack:Stop()
+                    end
+                    connection:Disconnect()
+                end
+            end)
+        end
+    end
+end)
