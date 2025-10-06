@@ -79,9 +79,27 @@ local function flashPossession()
 
         task.delay(freezeDuration, function()
             captureConn:Disconnect()
-            local offset = chosenDirection.Unit * 10
-            if offset.Magnitude ~= offset.Magnitude then offset = Vector3.zero end
-            hrp.CFrame = hrp.CFrame + offset
+
+            local direction = chosenDirection.Unit
+            if direction.Magnitude ~= direction.Magnitude or direction.Magnitude == 0 then
+                direction = hrp.CFrame.LookVector
+            end
+
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {char}
+            rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+            local maxDistance = 20
+            local result = workspace:Raycast(hrp.Position, direction * maxDistance, rayParams)
+
+            local finalOffset
+            if result then
+                finalOffset = direction * math.max(result.Distance - 2, 0)
+            else
+                finalOffset = direction * maxDistance
+            end
+
+            hrp.CFrame = hrp.CFrame + finalOffset
             unfreezeAvatar(char)
         end)
 
@@ -99,7 +117,6 @@ local function connectInput()
     end)
 end
 
--- Connect input only once per character
 lp.CharacterAdded:Connect(function()
     if inputConn then inputConn:Disconnect() end
 end)
