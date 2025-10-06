@@ -1,0 +1,49 @@
+-- 🕳️ Mythic Possession Layer: Unified Execution
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- 🕯️ Black screen ritual (2 seconds)
+local function blackScreen(duration)
+    local gui = Instance.new("ScreenGui")
+    gui.IgnoreGuiInset = true
+    gui.ResetOnSpawn = false
+    gui.Name = "MythicBlackout"
+    gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.new(0, 0, 0)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    task.delay(duration, function()
+        gui:Destroy()
+    end)
+end
+
+-- 🧩 Disable all scripts on respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    for _, obj in ipairs(char:GetDescendants()) do
+        if obj:IsA("Script") or obj:IsA("LocalScript") then
+            obj.Disabled = true
+        end
+    end
+end)
+
+-- 🧠 Execute possession sequence
+blackScreen(2)
+
+local urls = {
+    "https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/Sonic.exe%20to%202011X",
+    "https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/2011X%20Ability%20and%20Animation",
+    "https://raw.githubusercontent.com/LeeGitter/td-scripts/refs/heads/main/2011x%20Teleport%20Ability"
+}
+
+for _, url in ipairs(urls) do
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(url, true))()
+    end)
+    if not success then
+        warn("Failed to load:", url)
+    end
+end
