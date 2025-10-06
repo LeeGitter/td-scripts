@@ -1,0 +1,109 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+local lp = Players.LocalPlayer
+local cam = workspace.CurrentCamera
+
+local inputConn -- will hold the input connection
+
+local function playDominantFrozenAnim(id)
+    local char = lp.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
+        track:Stop()
+    end
+
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. id
+    local track = hum:LoadAnimation(anim)
+    track.Priority = Enum.AnimationPriority.Action4
+    track:Play()
+    track:AdjustSpeed(2)
+
+    task.delay(0.35, function()
+        if track.IsPlaying then
+            track:AdjustSpeed(0)
+        end
+    end)
+end
+
+local function freezeAvatar(char)
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Anchored = true
+        elseif part:IsA("Humanoid") then
+            part.PlatformStand = true
+        end
+    end
+end
+
+local function unfreezeAvatar(char)
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Anchored = false
+        elseif part:IsA("Humanoid") then
+            part.PlatformStand = false
+        end
+    end
+end
+
+local function flashPossession()
+    local char = lp.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    local totalFlashes = 30
+    local startTime = tick()
+
+    for i = 1, totalFlashes do
+        local elapsed = tick() - startTime
+        local progress = math.clamp(elapsed / 10, 0, 1)
+        local speedFactor = 1 + progress * 3
+
+        local freezeDuration = math.max(0.7 / speedFactor, 0.1)
+        local postDuration = math.max(0.3 / speedFactor, 0.1)
+
+        freezeAvatar(char)
+        playDominantFrozenAnim("81433890484822")
+
+        local chosenDirection = Vector3.zero
+        local captureConn = RunService.RenderStepped:Connect(function()
+            chosenDirection = hum.MoveDirection
+        end)
+
+        task.delay(freezeDuration, function()
+            captureConn:Disconnect()
+            local offset = chosenDirection.Unit * 10
+            if offset.Magnitude ~= offset.Magnitude then offset = Vector3.zero end
+            hrp.CFrame = hrp.CFrame + offset
+            unfreezeAvatar(char)
+        end)
+
+        task.wait(freezeDuration + postDuration)
+    end
+end
+
+local function connectInput()
+    if inputConn then inputConn:Disconnect() end
+    inputConn = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.X then
+            flashPossession()
+        end
+    end)
+end
+
+-- Connect input only once per character
+lp.CharacterAdded:Connect(function()
+    if inputConn then inputConn:Disconnect() end
+end)
+
+if lp.Character then
+    connectInput()
+end
