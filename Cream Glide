@@ -8,7 +8,7 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
 -- Configurable parameters
-local fallSpeed = 7 -- studs per second
+local fallSpeed = 1 -- studs per second
 local maxHoldTime = 1.5 -- seconds of total space hold
 
 local isSlowFalling = false
