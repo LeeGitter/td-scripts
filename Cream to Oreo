@@ -1,0 +1,63 @@
+local model = workspace:FindFirstChild("GutterJason11")
+if not model then
+    warn("GutterJason11 not found in Workspace.")
+    return
+end
+
+local function isColor(part, r, g, b)
+    return part.Color == Color3.fromRGB(r, g, b)
+end
+
+-- Transform colors inside torso > cheese
+local torso = model:FindFirstChild("torso")
+local cheese = torso and torso:FindFirstChild("cheese")
+
+if cheese and cheese:IsA("Model") then
+    for _, part in ipairs(cheese:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if isColor(part, 128, 187, 219) then
+                part.Color = Color3.fromRGB(255, 152, 220)
+            elseif isColor(part, 255, 255, 0) then
+                part.Color = Color3.fromRGB(255, 201, 201)
+            elseif isColor(part, 196, 40, 28) then
+                part.Color = Color3.fromRGB(44, 37, 196)
+            end
+        end
+    end
+
+    -- Resize bow1 and bow2
+    for _, bowName in {"bow1", "bow2"} do
+        local bow = cheese:FindFirstChild(bowName)
+        if bow and bow:IsA("BasePart") then
+            bow.Size = bow.Size * 1.5
+        end
+    end
+end
+
+-- Global color transformations inside GutterJason11
+for _, part in ipairs(model:GetDescendants()) do
+    if part:IsA("BasePart") then
+        if isColor(part, 253, 216, 143) then
+            part.Color = Color3.fromRGB(229, 241, 243)
+        elseif isColor(part, 218, 127, 47) then
+            part.Color = Color3.fromRGB(27, 42, 53)
+        elseif isColor(part, 236, 120, 18) then
+            part.Color = Color3.fromRGB(83, 92, 185)
+        elseif isColor(part, 239, 184, 56) then
+            part.Color = Color3.fromRGB(167, 191, 239)
+        end
+    end
+end
+
+-- Color transformations inside torso only
+if torso then
+    for _, part in ipairs(torso:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if isColor(part, 255, 85, 0) then
+                part.Color = Color3.fromRGB(13, 9, 255)
+            elseif isColor(part, 13, 105, 172) then
+                part.Color = Color3.fromRGB(255, 255, 0)
+            end
+        end
+    end
+end
