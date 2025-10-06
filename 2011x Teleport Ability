@@ -93,7 +93,7 @@ local function connectInput()
     if inputConn then inputConn:Disconnect() end
     inputConn = UIS.InputBegan:Connect(function(input, gp)
         if gp then return end
-        if input.KeyCode == Enum.KeyCode.X then
+        if input.KeyCode == Enum.KeyCode.V then
             flashPossession()
         end
     end)
