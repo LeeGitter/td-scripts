@@ -28,7 +28,6 @@ local function playDominantFrozenAnim(id)
     track:Play()
     track:AdjustSpeed(2)
 
-    -- Freeze after 0.35s, then stop after 1.5s
     task.delay(0.35, function()
         if track.IsPlaying then
             track:AdjustSpeed(0)
@@ -60,6 +59,15 @@ local function unfreezeAvatar(char)
             part.PlatformStand = false
         end
     end
+end
+
+local function playTeleportSound(hrp)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://75551146123205"
+    sound.Volume = 1
+    sound.PlayOnRemove = true
+    sound.Parent = hrp
+    sound:Destroy() -- triggers PlayOnRemove
 end
 
 local function flashPossession()
@@ -111,6 +119,7 @@ local function flashPossession()
             end
 
             hrp.CFrame = hrp.CFrame + finalOffset
+            playTeleportSound(hrp)
             unfreezeAvatar(char)
         end)
 
