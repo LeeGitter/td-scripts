@@ -1,20 +1,29 @@
 for _, part in ipairs(workspace:GetDescendants()) do
-    if part:IsA("BasePart") and (
-        part.Name == "grass" or
-        part.Name == "concrete" or
-        part.Name == "cobblestone" or
-        part.Name == "rustyMetal" or
-        part.Name == "metalGrill" or
-        part.Name == "leafyGrass" or
-        part.Name == "greenMetal" or
-        part.Name == "metalFloorWedge"
-    ) then
-        part.BrickColor = BrickColor.new("Parsley green")
-        part.CastShadow = false
-        part.Color = Color3.fromRGB(0, 255, 0)
-        part.Material = Enum.Material.Grass
-        part.MaterialVariant = "wetGhzGrass"
-        part.Reflectance = 0
-        -- Transparency untouched
+    if part:IsA("BasePart") then
+        local nameMatch = (
+            part.Name == "grass" or
+            part.Name == "concrete" or
+            part.Name == "cobblestone" or
+            part.Name == "rustyMetal" or
+            part.Name == "metalGrill" or
+            part.Name == "leafyGrass" or
+            part.Name == "greenMetal" or
+            part.Name == "metalFloorWedge" or
+            part.Name == "metalGrid" or
+            part.Name == "metalGridWedge"
+        )
+
+        local wedgeMatch = (part.Name == "wedge" and part.MaterialVariant == "metalGrid")
+        local colorMatch = (part.Color == Color3.fromRGB(248, 248, 248) and part.MaterialVariant == "metalGrid")
+
+        if nameMatch or wedgeMatch or colorMatch then
+            part.BrickColor = BrickColor.new("Parsley green")
+            part.CastShadow = false
+            part.Color = Color3.fromRGB(0, 255, 0)
+            part.Material = Enum.Material.Grass
+            part.MaterialVariant = "wetGhzGrass"
+            part.Reflectance = 0
+            -- Transparency untouched
+        end
     end
 end
