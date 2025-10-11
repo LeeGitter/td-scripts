@@ -1,0 +1,75 @@
+local function applyVisualChanges(root)
+    for _, descendant in ipairs(root:GetDescendants()) do
+        if descendant:IsA("MeshPart") then
+            local name = descendant.Name
+            local color = descendant.Color
+
+            -- Possession triggers
+            if name == "eyes" and color == Color3.fromRGB(248, 248, 248) then
+                descendant.Color = Color3.fromRGB(0, 0, 0)
+                descendant.Material = Enum.Material.Neon
+            elseif name == "iris1" or name == "iris2" then
+                descendant.Color = Color3.fromRGB(91, 93, 105)
+                descendant.Material = Enum.Material.Neon
+            elseif name == "scaredEye1" or name == "scaredEye2" then
+                descendant.Color = Color3.fromRGB(91, 93, 105)
+                descendant.Material = Enum.Material.Neon
+            elseif name == "neonPart1" or name == "neonPart2" then
+                descendant.Transparency = 1
+            end
+
+            -- Reveal blood if child has matching texture ID
+            for _, child in ipairs(descendant:GetChildren()) do
+                if (child:IsA("Texture") or child:IsA("Decal")) and child.Texture:match("128224371159112") then
+                    descendant.Transparency = 0
+                end
+            end
+        end
+
+        -- Reveal blood parts under any folder named "torso"
+        if descendant:IsA("Folder") and descendant.Name == "torso" then
+            for _, item in ipairs(descendant:GetDescendants()) do
+                if item:IsA("BasePart") and item.Name == "blood" then
+                    item.Transparency = 0
+                end
+            end
+        end
+
+        -- Reveal blood parts under any model containing a folder named "torso"
+        if descendant:IsA("Model") then
+            for _, sub in ipairs(descendant:GetDescendants()) do
+                if sub:IsA("Folder") and sub.Name == "torso" then
+                    for _, item in ipairs(sub:GetDescendants()) do
+                        if item:IsA("BasePart") and item.Name == "blood" then
+                            item.Transparency = 0
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Reveal all parts inside any folder named "wounds"
+        if descendant:IsA("Folder") and descendant.Name == "wounds" then
+            for _, item in ipairs(descendant:GetDescendants()) do
+                if item:IsA("BasePart") then
+                    item.Transparency = 0
+                end
+            end
+        end
+
+        -- Reveal all parts inside any model containing a folder named "wounds"
+        if descendant:IsA("Model") then
+            for _, sub in ipairs(descendant:GetDescendants()) do
+                if sub:IsA("Folder") and sub.Name == "wounds" then
+                    for _, item in ipairs(sub:GetDescendants()) do
+                        if item:IsA("BasePart") then
+                            item.Transparency = 0
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+applyVisualChanges(game)
