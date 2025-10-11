@@ -1,5 +1,5 @@
 -- Mythic Pavement Overwrite Script
--- Transforms parts by name or symbolic color/materialVariant, preserving transparency
+-- Transforms parts by name or symbolic color/materialVariant/material, preserving transparency
 
 local pavementNames = {
     ["pavement"] = true,
@@ -31,6 +31,11 @@ local dualTriggers = {
     { color = Color3.fromRGB(248, 248, 248), variant = "metalFloor" }
 }
 
+local groundTrigger = {
+    color = Color3.fromRGB(226, 155, 64),
+    material = Enum.Material.Ground
+}
+
 local pavementSettings = {
     BrickColor = BrickColor.new("Institutional white"),
     Color = Color3.fromRGB(248, 248, 248),
@@ -54,7 +59,9 @@ local function matchesSymbolicTrigger(part)
         end
     end
 
-    return nameMatch or colorMatch or compoundMatch or dualMatch
+    local groundMatch = part.Color == groundTrigger.color and part.Material == groundTrigger.material
+
+    return nameMatch or colorMatch or compoundMatch or dualMatch or groundMatch
 end
 
 local function applyPavement(part)
