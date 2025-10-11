@@ -1,5 +1,5 @@
 -- Mythic Pavement Overwrite Script
--- Transforms parts by name or symbolic color, preserving transparency
+-- Transforms parts by name or symbolic color/materialVariant, preserving transparency
 
 local pavementNames = {
     ["pavement"] = true,
@@ -13,10 +13,19 @@ local pavementNames = {
     ["block"] = true,
     ["steelwedge"] = true,
     ["metalwedge"] = true,
-    ["metal"] = true
+    ["metal"] = true,
+    ["metaltile"] = true,
+    ["steelplate"] = true,
+    ["steelplatewedge"] = true,
+    ["metaltilefloor"] = true
 }
 
 local indexedColor = Color3.fromRGB(123, 25, 153)
+local compoundColor = Color3.fromRGB(147, 184, 131)
+local compoundVariant = "steelPlate"
+
+local dualColorA = Color3.fromRGB(91, 93, 105)
+local dualColorB = Color3.fromRGB(248, 248, 248)
 
 local pavementSettings = {
     BrickColor = BrickColor.new("Institutional white"),
@@ -31,7 +40,12 @@ local pavementSettings = {
 local function matchesSymbolicTrigger(part)
     local nameMatch = pavementNames[string.lower(part.Name)] ~= nil
     local colorMatch = part.Color == indexedColor
-    return nameMatch or colorMatch
+    local compoundMatch = part.Color == compoundColor and part.MaterialVariant == compoundVariant
+    local dualMatch =
+        (part.Color == dualColorA and part.MaterialVariant == "metalGrid") or
+        (part.Color == dualColorB and part.MaterialVariant == "metalGrid")
+
+    return nameMatch or colorMatch or compoundMatch or dualMatch
 end
 
 local function applyPavement(part)
