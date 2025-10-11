@@ -14,8 +14,8 @@ for _, part in ipairs(workspace:GetDescendants()) do
         )
 
         local colorVariantMatch = (
-            part.Color == Color3.fromRGB(91, 93, 105) and
-            part.MaterialVariant == "metalTileFloor"
+            part.Color == Color3.fromRGB(248, 248, 248) and
+            part.MaterialVariant == "metalGrid"
         )
 
         if nameMatch or colorVariantMatch then
