@@ -1,0 +1,22 @@
+-- Mythic invisibility script: hides symbolic terrain and crystal models
+local function makeInvisible(obj)
+    if obj:IsA("BasePart") then
+        obj.Transparency = 1
+        obj.CanCollide = false
+    elseif obj:IsA("Model") then
+        for _, descendant in ipairs(obj:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                descendant.Transparency = 1
+                descendant.CanCollide = false
+            end
+        end
+    end
+end
+
+for _, obj in ipairs(workspace:GetDescendants()) do
+    if obj:IsA("BasePart") and (obj.Name == "stalactite" or obj.Name == "irregularTerrain") then
+        makeInvisible(obj)
+    elseif obj:IsA("Model") and obj.Name == "crystal" then
+        makeInvisible(obj)
+    end
+end
