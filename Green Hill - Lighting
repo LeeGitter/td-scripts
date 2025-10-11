@@ -1,0 +1,45 @@
+-- Mythic Lighting Override with Blur (Clean, persistent, non-stacking)
+
+local Lighting = game:GetService("Lighting")
+
+-- 🎨 Color Correction: Soft parchment veil with minimal desaturation
+local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
+if not cc then
+    cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "MythicColorCorrection"
+    cc.Parent = Lighting
+end
+cc.Brightness = 0.1
+cc.Contrast = 0
+cc.Saturation = -0.1
+cc.TintColor = Color3.fromRGB(235, 226, 216)
+
+-- 🌫️ Atmosphere: Warm haze with lavender bloom
+local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+if not atmosphere then
+    atmosphere = Instance.new("Atmosphere")
+    atmosphere.Name = "MythicAtmosphere"
+    atmosphere.Parent = Lighting
+end
+atmosphere.Density = 0.5
+atmosphere.Haze = Color3.fromRGB(227, 205, 182)
+atmosphere.Glare = Color3.fromRGB(166, 180, 226)
+
+-- ☀️ Lighting Core: Mid-day exposure with muted ambient override
+Lighting.ClockTime = 12
+Lighting.Brightness = 1
+Lighting.ExposureCompensation = 1
+Lighting.ShadowSoftness = 1
+Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+
+-- 🌁 Blur: Soft veil for memory fog or possession layering
+local blur = Lighting:FindFirstChildOfClass("BlurEffect")
+if not blur then
+    blur = Instance.new("BlurEffect")
+    blur.Name = "MythicBlur"
+    blur.Parent = Lighting
+end
+blur.Size = 7
+
+return
