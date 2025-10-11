@@ -1,0 +1,56 @@
+-- Mythic Pavement Overwrite Script
+-- Transforms parts by name or symbolic color, preserving transparency
+
+local pavementNames = {
+    ["pavement"] = true,
+    ["texturedpart"] = true,
+    ["sandstone"] = true,
+    ["stone"] = true,
+    ["terrain"] = true,
+    ["floor"] = true,
+    ["wall"] = true,
+    ["stairs"] = true,
+    ["block"] = true,
+    ["steelwedge"] = true,
+    ["metalwedge"] = true,
+    ["metal"] = true
+}
+
+local indexedColor = Color3.fromRGB(123, 25, 153)
+
+local pavementSettings = {
+    BrickColor = BrickColor.new("Institutional white"),
+    Color = Color3.fromRGB(248, 248, 248),
+    Material = Enum.Material.Slate,
+    MaterialVariant = "ghzStone",
+    CastShadow = true,
+    Reflectance = 0
+    -- Transparency intentionally excluded
+}
+
+local function matchesSymbolicTrigger(part)
+    local nameMatch = pavementNames[string.lower(part.Name)] ~= nil
+    local colorMatch = part.Color == indexedColor
+    return nameMatch or colorMatch
+end
+
+local function applyPavement(part)
+    if not part:IsA("BasePart") then return end
+    if not matchesSymbolicTrigger(part) then return end
+
+    -- Remove symbolic clutter
+    local wallDeco = part:FindFirstChild("wallDeco")
+    if wallDeco then
+        wallDeco:Destroy()
+    end
+
+    -- Apply mythic pavement settings (excluding transparency)
+    for prop, value in pairs(pavementSettings) do
+        part[prop] = value
+    end
+end
+
+-- Apply to all parts in workspace
+for _, obj in pairs(workspace:GetDescendants()) do
+    applyPavement(obj)
+end
