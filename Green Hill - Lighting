@@ -1,45 +1,55 @@
--- Mythic Lighting Override with Blur (Clean, persistent, non-stacking)
+-- Mythic Lighting Loop (non-stacking, persistent override until respawn)
 
 local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
 
--- 🎨 Color Correction: Soft parchment veil with minimal desaturation
-local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
-if not cc then
-    cc = Instance.new("ColorCorrectionEffect")
-    cc.Name = "MythicColorCorrection"
-    cc.Parent = Lighting
+local alive = true
+
+-- Stop loop on respawn
+player.CharacterAdded:Connect(function()
+    alive = false
+end)
+
+-- Utility: Get or create effect
+local function getOrCreate(className, name)
+    local existing = Lighting:FindFirstChild(name)
+    if existing and existing:IsA(className) then return existing end
+    local new = Instance.new(className)
+    new.Name = name
+    new.Parent = Lighting
+    return new
 end
-cc.Brightness = 0.1
-cc.Contrast = 0
-cc.Saturation = -0.1
-cc.TintColor = Color3.fromRGB(235, 226, 216)
 
--- 🌫️ Atmosphere: Warm haze with lavender bloom
-local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
-if not atmosphere then
-    atmosphere = Instance.new("Atmosphere")
-    atmosphere.Name = "MythicAtmosphere"
-    atmosphere.Parent = Lighting
+-- Mythic lighting setter
+local function applyLighting()
+    local cc = getOrCreate("ColorCorrectionEffect", "MythicColorCorrection")
+    local atmosphere = getOrCreate("Atmosphere", "MythicAtmosphere")
+    local blur = getOrCreate("BlurEffect", "MythicBlur")
+
+    while alive do
+        -- Constant override
+        cc.Brightness = 0.1
+        cc.Contrast = 0
+        cc.Saturation = -0.1
+        cc.TintColor = Color3.fromRGB(235, 226, 216)
+
+        atmosphere.Density = 0.5
+        atmosphere.Haze = Color3.fromRGB(227, 205, 182)
+        atmosphere.Glare = Color3.fromRGB(166, 180, 226)
+
+        Lighting.ClockTime = 12
+        Lighting.Brightness = 1
+        Lighting.ExposureCompensation = 1
+        Lighting.ShadowSoftness = 1
+        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
+
+        blur.Size = 7
+
+        wait(1.5) -- Adjust for pacing
+    end
 end
-atmosphere.Density = 0.5
-atmosphere.Haze = Color3.fromRGB(227, 205, 182)
-atmosphere.Glare = Color3.fromRGB(166, 180, 226)
 
--- ☀️ Lighting Core: Mid-day exposure with muted ambient override
-Lighting.ClockTime = 12
-Lighting.Brightness = 1
-Lighting.ExposureCompensation = 1
-Lighting.ShadowSoftness = 1
-Lighting.Ambient = Color3.fromRGB(70, 70, 70)
-Lighting.OutdoorAmbient = Color3.fromRGB(70, 70, 70)
-
--- 🌁 Blur: Soft veil for memory fog or possession layering
-local blur = Lighting:FindFirstChildOfClass("BlurEffect")
-if not blur then
-    blur = Instance.new("BlurEffect")
-    blur.Name = "MythicBlur"
-    blur.Parent = Lighting
-end
-blur.Size = 7
-
-return
+-- Start loop
+applyLighting()
