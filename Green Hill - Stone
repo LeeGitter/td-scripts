@@ -24,8 +24,12 @@ local indexedColor = Color3.fromRGB(123, 25, 153)
 local compoundColor = Color3.fromRGB(147, 184, 131)
 local compoundVariant = "steelPlate"
 
-local dualColorA = Color3.fromRGB(91, 93, 105)
-local dualColorB = Color3.fromRGB(248, 248, 248)
+local dualTriggers = {
+    { color = Color3.fromRGB(91, 93, 105), variant = "metalGrid" },
+    { color = Color3.fromRGB(248, 248, 248), variant = "metalGrid" },
+    { color = Color3.fromRGB(163, 162, 165), variant = "metalGrid" },
+    { color = Color3.fromRGB(248, 248, 248), variant = "metalFloor" }
+}
 
 local pavementSettings = {
     BrickColor = BrickColor.new("Institutional white"),
@@ -41,9 +45,14 @@ local function matchesSymbolicTrigger(part)
     local nameMatch = pavementNames[string.lower(part.Name)] ~= nil
     local colorMatch = part.Color == indexedColor
     local compoundMatch = part.Color == compoundColor and part.MaterialVariant == compoundVariant
-    local dualMatch =
-        (part.Color == dualColorA and part.MaterialVariant == "metalGrid") or
-        (part.Color == dualColorB and part.MaterialVariant == "metalGrid")
+
+    local dualMatch = false
+    for _, trigger in ipairs(dualTriggers) do
+        if part.Color == trigger.color and part.MaterialVariant == trigger.variant then
+            dualMatch = true
+            break
+        end
+    end
 
     return nameMatch or colorMatch or compoundMatch or dualMatch
 end
