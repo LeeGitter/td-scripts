@@ -13,10 +13,12 @@ for _, part in ipairs(workspace:GetDescendants()) do
             part.Name == "metalGridWedge"
         )
 
-        local wedgeMatch = (part.Name == "wedge" and part.MaterialVariant == "metalGrid")
-        local colorMatch = (part.Color == Color3.fromRGB(248, 248, 248) and part.MaterialVariant == "metalGrid")
+        local colorVariantMatch = (
+            part.Color == Color3.fromRGB(91, 93, 105) and
+            part.MaterialVariant == "metalTileFloor"
+        )
 
-        if nameMatch or wedgeMatch or colorMatch then
+        if nameMatch or colorVariantMatch then
             part.BrickColor = BrickColor.new("Parsley green")
             part.CastShadow = false
             part.Color = Color3.fromRGB(0, 255, 0)
