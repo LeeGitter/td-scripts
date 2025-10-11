@@ -1,0 +1,92 @@
+-- 🌿 Load full Green Hill mythic environment
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Grass", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Lighting", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Spindash", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Stone", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Survivors", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Remove%20Objects", true))()
+
+-- 🌀 Mythic jump with capped 15-stud ascent over 0.8s
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+
+local ascentDuration = 0.8
+local maxLift = 15
+local spaceHeld = false
+local ascending = false
+local bodyVelocity = nil
+local startY = nil
+
+-- Load animation
+local anim = Instance.new("Animation")
+anim.AnimationId = "rbxassetid://84493272045483"
+local track = humanoid:LoadAnimation(anim)
+
+-- Input tracking
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+        ascending = false
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+            bodyVelocity = nil
+        end
+    end
+end)
+
+-- Jump detection
+humanoid.StateChanged:Connect(function(_, state)
+    if state == Enum.HumanoidStateType.Jumping then
+        spaceHeld = true
+        ascending = true
+        startY = root.Position.Y
+        track:Play()
+
+        -- Create BodyVelocity
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+        bodyVelocity.Velocity = Vector3.zero
+        bodyVelocity.P = 5000
+        bodyVelocity.Parent = root
+
+        local startTime = tick()
+
+        -- Ascent loop
+        RunService.RenderStepped:Connect(function()
+            if not ascending or not spaceHeld or not bodyVelocity or not root or not root.Parent then return end
+
+            local elapsed = tick() - startTime
+            local currentY = root.Position.Y
+            local deltaY = currentY - startY
+
+            if elapsed >= ascentDuration or deltaY >= maxLift then
+                ascending = false
+                bodyVelocity:Destroy()
+                bodyVelocity = nil
+                return
+            end
+
+            bodyVelocity.Velocity = Vector3.new(0, maxLift / ascentDuration, 0) -- 18.75 studs/sec
+        end)
+    elseif state == Enum.HumanoidStateType.Landed then
+        ascending = false
+        spaceHeld = false
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+            bodyVelocity = nil
+        end
+        track:Stop()
+    end
+end)
