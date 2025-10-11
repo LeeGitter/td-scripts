@@ -1,0 +1,58 @@
+--// Mythic Possession Dash Script v4 — Looping Fix, Facing, No Fling
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Dash parameters
+local DASH_DURATION = 3
+local DASH_SPEED = 80
+local isDashing = false
+
+-- Input listener
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or input.KeyCode ~= Enum.KeyCode.V or isDashing then return end
+    isDashing = true
+
+    -- Create fresh animation track each time
+    local possessionAnim = Instance.new("Animation")
+    possessionAnim.AnimationId = "rbxassetid://136757453797365"
+    local possessionTrack = humanoid:LoadAnimation(possessionAnim)
+    possessionTrack.Priority = Enum.AnimationPriority.Action4
+    possessionTrack.Looped = true
+    possessionTrack:Play()
+
+    -- Stop other animations
+    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+        if track ~= possessionTrack then
+            track:Stop()
+        end
+    end
+
+    -- Dash logic
+    local startTime = tick()
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        local elapsed = tick() - startTime
+        if elapsed > DASH_DURATION then
+            connection:Disconnect()
+            possessionTrack:Stop()
+            isDashing = false
+            return
+        end
+
+        local cam = workspace.CurrentCamera
+        local flatDirection = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z).Unit
+        local currentY = rootPart.Velocity.Y
+
+        -- Apply horizontal dash velocity, preserve Y for gravity
+        rootPart.Velocity = flatDirection * DASH_SPEED + Vector3.new(0, currentY, 0)
+
+        -- Rotate body to face dash direction
+        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatDirection)
+    end)
+end)
