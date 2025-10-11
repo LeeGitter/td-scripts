@@ -1,0 +1,3 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Stone", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Survivors", true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/LeeGitter/td-scripts/main/Green%20Hill%20-%20Remove%20Objects", true))()
