@@ -11,11 +11,11 @@ anim.AnimationId = "rbxassetid://78200983048948"
 
 local flying = false
 local onCooldown = false
-local cooldownTime = 35
+local cooldownTime = 17.5 -- Halved cooldown
 local cooldownRemaining = 0
 
 local totalFlyTime = 7
-local floatSpeed = 3
+local floatSpeed = 6 -- Increased upward speed
 local descendSpeed = -7
 
 local animTrack
@@ -27,217 +27,213 @@ local cooldownLabel
 local conn
 
 local function createStaminaGui(parent)
-	local bg = Instance.new("Frame")
-	bg.Name = "Background"
-	bg.AnchorPoint = Vector2.new(1, 0.5)
-	bg.Position = UDim2.new(1, -10, 0.5, 0)
-	bg.Size = UDim2.new(0, 12, 0, 200)
-	bg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-	bg.BorderSizePixel = 0
-	bg.Parent = parent
+    local bg = Instance.new("Frame")
+    bg.Name = "Background"
+    bg.AnchorPoint = Vector2.new(1, 0.5)
+    bg.Position = UDim2.new(1, -10, 0.5, 0)
+    bg.Size = UDim2.new(0, 12, 0, 200)
+    bg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    bg.BorderSizePixel = 0
+    bg.Parent = parent
 
-	local bar = Instance.new("Frame")
-	bar.Name = "Bar"
-	bar.Position = UDim2.new(0, 0, 1, 0)
-	bar.Size = UDim2.new(1, 0, 1, 0)
-	bar.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-	bar.BorderSizePixel = 0
-	bar.AnchorPoint = Vector2.new(0, 1)
-	bar.Parent = bg
+    local bar = Instance.new("Frame")
+    bar.Name = "Bar"
+    bar.Position = UDim2.new(0, 0, 1, 0)
+    bar.Size = UDim2.new(1, 0, 1, 0)
+    bar.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+    bar.BorderSizePixel = 0
+    bar.AnchorPoint = Vector2.new(0, 1)
+    bar.Parent = bg
 
-	return bg, bar
+    return bg, bar
 end
 
 local function createCooldownGui(parent)
-	local label = Instance.new("TextLabel")
-	label.Name = "CooldownLabel"
-	label.Size = UDim2.new(0, 60, 0, 20)
-	label.Position = UDim2.new(1, -70, 0.5, -110)
-	label.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	label.BorderSizePixel = 0
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Font = Enum.Font.Code
-	label.TextSize = 14
-	label.Text = "Ready"
-	label.TextWrapped = true
-	label.Parent = parent
-	return label
+    local label = Instance.new("TextLabel")
+    label.Name = "CooldownLabel"
+    label.Size = UDim2.new(0, 60, 0, 20)
+    label.Position = UDim2.new(1, -70, 0.5, -110)
+    label.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    label.BorderSizePixel = 0
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.Code
+    label.TextSize = 14
+    label.Text = "Ready"
+    label.TextWrapped = true
+    label.Parent = parent
+    return label
 end
 
 local function setup(char)
-	character = char
-	humanoid = char:WaitForChild("Humanoid")
-	hrp = char:WaitForChild("HumanoidRootPart")
+    character = char
+    humanoid = char:WaitForChild("Humanoid")
+    hrp = char:WaitForChild("HumanoidRootPart")
 
-	-- Clean up GUIs on respawn
-	if staminaGui then
-		staminaGui:Destroy()
-		staminaGui = nil
-		staminaBar = nil
-	end
-	if cooldownGui then
-		cooldownGui:Destroy()
-		cooldownGui = nil
-		cooldownLabel = nil
-	end
+    if staminaGui then
+        staminaGui:Destroy()
+        staminaGui = nil
+        staminaBar = nil
+    end
+    if cooldownGui then
+        cooldownGui:Destroy()
+        cooldownGui = nil
+        cooldownLabel = nil
+    end
 
-	flying = false
-	onCooldown = false
-	cooldownRemaining = 0
+    flying = false
+    onCooldown = false
+    cooldownRemaining = 0
 end
 
 setup(character)
 player.CharacterAdded:Connect(setup)
 
 local function clearStaminaGui()
-	if staminaGui then
-		staminaGui:Destroy()
-		staminaGui = nil
-		staminaBar = nil
-	end
+    if staminaGui then
+        staminaGui:Destroy()
+        staminaGui = nil
+        staminaBar = nil
+    end
 end
 
 local function createCooldownDisplay()
-	if not cooldownGui then
-		cooldownGui = Instance.new("ScreenGui")
-		cooldownGui.Name = "FlightCooldownGui"
-		cooldownGui.ResetOnSpawn = false
-		cooldownGui.Parent = player:WaitForChild("PlayerGui")
+    if not cooldownGui then
+        cooldownGui = Instance.new("ScreenGui")
+        cooldownGui.Name = "FlightCooldownGui"
+        cooldownGui.ResetOnSpawn = false
+        cooldownGui.Parent = player:WaitForChild("PlayerGui")
 
-		cooldownLabel = createCooldownGui(cooldownGui)
-	end
+        cooldownLabel = createCooldownGui(cooldownGui)
+    end
 end
 
 local function updateCooldown(dt)
-	if onCooldown then
-		cooldownRemaining = math.max(cooldownRemaining - dt, 0)
-		local sec = math.floor(cooldownRemaining)
-		local ms = math.floor((cooldownRemaining - sec) * 10)
-		cooldownLabel.Text = string.format("%d(%d)", sec, ms)
-		if cooldownRemaining <= 0 then
-			onCooldown = false
-			cooldownLabel.Text = "Ready"
-		end
-	else
-		if cooldownLabel then
-			cooldownLabel.Text = "Ready"
-		end
-	end
+    if onCooldown then
+        cooldownRemaining = math.max(cooldownRemaining - dt, 0)
+        local sec = math.floor(cooldownRemaining)
+        local ms = math.floor((cooldownRemaining - sec) * 10)
+        cooldownLabel.Text = string.format("%d(%d)", sec, ms)
+        if cooldownRemaining <= 0 then
+            onCooldown = false
+            cooldownLabel.Text = "Ready"
+        end
+    else
+        if cooldownLabel then
+            cooldownLabel.Text = "Ready"
+        end
+    end
 end
 
 local function startCooldown()
-	if onCooldown then return end
-	onCooldown = true
-	cooldownRemaining = cooldownTime
+    if onCooldown then return end
+    onCooldown = true
+    cooldownRemaining = cooldownTime
 end
 
 local function stopFly()
-	if flying then
-		flying = false
-		if animTrack then
-			animTrack:Stop()
-			animTrack:Destroy()
-			animTrack = nil
-		end
-		if bv then
-			bv:Destroy()
-			bv = nil
-		end
-		if conn then
-			conn:Disconnect()
-			conn = nil
-		end
+    if flying then
+        flying = false
+        if animTrack then
+            animTrack:Stop()
+            animTrack:Destroy()
+            animTrack = nil
+        end
+        if bv then
+            bv:Destroy()
+            bv = nil
+        end
+        if conn then
+            conn:Disconnect()
+            conn = nil
+        end
 
-		-- Re-enable normal physics
-		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 
-		clearStaminaGui()
-		startCooldown()
-	end
+        clearStaminaGui()
+        startCooldown()
+    end
 end
 
 local function startFly()
-	if flying then
-		stopFly()
-		return
-	end
-	if onCooldown then return end
-	if humanoid.FloorMaterial ~= Enum.Material.Air then return end
-	flying = true
+    if flying then
+        stopFly()
+        return
+    end
+    if onCooldown then return end
+    if humanoid.FloorMaterial ~= Enum.Material.Air then return end
+    flying = true
 
-	animTrack = humanoid:LoadAnimation(anim)
-	animTrack.Priority = Enum.AnimationPriority.Action4
-	animTrack:Play()
+    animTrack = humanoid:LoadAnimation(anim)
+    animTrack.Priority = Enum.AnimationPriority.Action4
+    animTrack:Play()
 
-	-- Stop all other animations except flight
-	for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-		if track ~= animTrack then
-			track:Stop()
-		end
-	end
+    for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
+        if track ~= animTrack then
+            track:Stop()
+        end
+    end
 
-	-- Allow movement while suppressing fall animations
-	humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 
-	bv = Instance.new("BodyVelocity")
-	bv.Name = "FloatVelocity"
-	bv.MaxForce = Vector3.new(0, 1e5, 0)
-	bv.P = 5000
-	bv.Velocity = Vector3.new(0, 0, 0)
-	bv.Parent = hrp
+    bv = Instance.new("BodyVelocity")
+    bv.Name = "FloatVelocity"
+    bv.MaxForce = Vector3.new(0, 1e5, 0)
+    bv.P = 5000
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.Parent = hrp
 
-	local remainingTime = totalFlyTime
+    local remainingTime = totalFlyTime
 
-	if not staminaGui then
-		staminaGui = Instance.new("ScreenGui")
-		staminaGui.Name = "FlightStaminaGui"
-		staminaGui.ResetOnSpawn = false
-		staminaGui.Parent = player:WaitForChild("PlayerGui")
-		local bg, bar = createStaminaGui(staminaGui)
-		staminaBar = bar
-	end
+    if not staminaGui then
+        staminaGui = Instance.new("ScreenGui")
+        staminaGui.Name = "FlightStaminaGui"
+        staminaGui.ResetOnSpawn = false
+        staminaGui.Parent = player:WaitForChild("PlayerGui")
+        local bg, bar = createStaminaGui(staminaGui)
+        staminaBar = bar
+    end
 
-	conn = RunService.RenderStepped:Connect(function(dt)
-		if not flying then
-			conn:Disconnect()
-			return
-		end
+    conn = RunService.RenderStepped:Connect(function(dt)
+        if not flying then
+            conn:Disconnect()
+            return
+        end
 
-		if humanoid.FloorMaterial ~= Enum.Material.Air then
-			remainingTime = 0
-			staminaBar.Size = UDim2.new(1, 0, 0, 0)
-			stopFly()
-			return
-		end
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
+            remainingTime = 0
+            staminaBar.Size = UDim2.new(1, 0, 0, 0)
+            stopFly()
+            return
+        end
 
-		local drainRate = UIS:IsKeyDown(Enum.KeyCode.Space) and (1.5 * dt) or dt
-		remainingTime -= drainRate
+        local drainRate = UIS:IsKeyDown(Enum.KeyCode.Space) and (1.5 * dt) or dt
+        remainingTime -= drainRate
 
-		staminaBar.Size = UDim2.new(1, 0, math.clamp(remainingTime / totalFlyTime, 0, 1), 0)
+        staminaBar.Size = UDim2.new(1, 0, math.clamp(remainingTime / totalFlyTime, 0, 1), 0)
 
-		if remainingTime <= 0 then
-			remainingTime = 0
-			staminaBar.Size = UDim2.new(1, 0, 0, 0)
-			stopFly()
-			return
-		end
+        if remainingTime <= 0 then
+            remainingTime = 0
+            staminaBar.Size = UDim2.new(1, 0, 0, 0)
+            stopFly()
+            return
+        end
 
-		if UIS:IsKeyDown(Enum.KeyCode.Space) then
-			bv.Velocity = Vector3.new(0, floatSpeed, 0)
-			animTrack:AdjustSpeed(2)
-		else
-			bv.Velocity = Vector3.new(0, descendSpeed, 0)
-			animTrack:AdjustSpeed(1)
-		end
-	end)
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then
+            bv.Velocity = Vector3.new(0, floatSpeed, 0)
+            animTrack:AdjustSpeed(2)
+        else
+            bv.Velocity = Vector3.new(0, descendSpeed, 0)
+            animTrack:AdjustSpeed(1)
+        end
+    end)
 end
 
 createCooldownDisplay()
 RunService.Heartbeat:Connect(updateCooldown)
 
 UIS.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.T then
-		startFly()
-	end
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.T then
+        startFly()
+    end
 end)
