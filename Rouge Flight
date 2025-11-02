@@ -7,7 +7,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 local humanoid, hrp
 
 local anim = Instance.new("Animation")
-anim.AnimationId = "rbxassetid://104113642912910"
+anim.AnimationId = "rbxassetid://78200983048948"
 
 local flying = false
 local onCooldown = false
