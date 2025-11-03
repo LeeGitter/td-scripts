@@ -3,7 +3,6 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local StarterGui = game:GetService("StarterGui")
 
 -- Player & Character
 local player = Players.LocalPlayer
@@ -23,16 +22,16 @@ animBoost.AnimationId = "rbxassetid://83858149912973"
 
 local jumpTrack, glideTrack, boostTrack
 
--- UI Fuel Bar
+-- UI Fuel Bar (Right Side)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "GlideFuelUI"
 screenGui.ResetOnSpawn = false
-screenGui.Parent = StarterGui
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local fuelBar = Instance.new("Frame")
-fuelBar.Size = UDim2.new(0.3, 0, 0.02, 0)
-fuelBar.Position = UDim2.new(0.35, 0, 0.95, 0)
-fuelBar.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+fuelBar.Size = UDim2.new(0.2, 0, 0.02, 0)
+fuelBar.Position = UDim2.new(0.78, 0, 0.95, 0)
+fuelBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 fuelBar.BorderSizePixel = 0
 fuelBar.Parent = screenGui
 
@@ -59,6 +58,12 @@ local spaceHeld = false
 local tHeld = false
 
 -- Functions
+local function stopAllAnimations()
+    if jumpTrack then jumpTrack:Stop() end
+    if glideTrack then glideTrack:Stop() end
+    if boostTrack then boostTrack:Stop() end
+end
+
 local function startGlide()
     if isGliding or humanoid.FloorMaterial ~= Enum.Material.Air then return end
     isGliding = true
@@ -66,8 +71,8 @@ local function startGlide()
     jumpTrack = humanoid:LoadAnimation(animJumpTrigger)
     jumpTrack:Play()
     task.delay(0.5, function()
-        if jumpTrack and jumpTrack.IsPlaying then jumpTrack:Stop() end
         if not isGliding then return end
+        if jumpTrack then jumpTrack:Stop() end
         glideTrack = humanoid:LoadAnimation(animGlide)
         glideTrack:Play()
     end)
@@ -76,8 +81,8 @@ end
 local function stopGlide()
     isGliding = false
     isBoosting = false
-    if glideTrack then glideTrack:Stop() end
-    if boostTrack then boostTrack:Stop() end
+    stopAllAnimations()
+    resetColor()
 end
 
 local function updateFuelBar()
