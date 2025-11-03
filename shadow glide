@@ -45,13 +45,19 @@ fuelFill.Parent = fuelBar
 -- State
 local isGliding = false
 local isBoosting = false
+local isOvergliding = false
+local isRecovering = false
+
 local fuel = 8
 local maxFuel = 8
-local fuelDrainRate = 1 / 4 -- lasts 4 seconds normally
+local fuelDrainRate = 1 / 4
 local boostDrainRate = fuelDrainRate * 3
 local fuelRegenRate = 1 / 10
 local glideFallSpeed = -2
-local boostSpeed = 50 -- boost speed updated
+local boostSpeed = 50
+
+local overglideDrainRate = 1 / 2 -- lasts max 2 seconds
+local recoveryRate = 1 / 4 -- fills purple bar in 4 seconds
 
 -- Input
 local spaceHeld = false
@@ -59,25 +65,21 @@ local tHeld = false
 
 -- Fuel Logic
 local function drainFuel(rate, dt)
-    fuel = math.clamp(fuel - rate * dt, 0, maxFuel)
+    fuel -= rate * dt
 end
 
-local function regenFuel(dt)
-    fuel = math.clamp(fuel + fuelRegenRate * dt, 0, maxFuel)
+local function regenFuel(rate, dt)
+    fuel += rate * dt
 end
 
 local function updateFuelBar()
-    local percent = fuel / maxFuel
+    local percent = math.clamp(fuel / maxFuel, 0, 1)
     fuelFill.Size = UDim2.new(percent, 0, 1, 0)
 end
 
-local function boostColorTween()
-    local tween = TweenService:Create(fuelFill, TweenInfo.new(0.2), {BackgroundColor3 = Color3.new(1, 0.5, 0)})
+local function tweenColor(color, duration)
+    local tween = TweenService:Create(fuelFill, TweenInfo.new(duration), {BackgroundColor3 = color})
     tween:Play()
-end
-
-local function resetColor()
-    fuelFill.BackgroundColor3 = Color3.new(1, 0, 0)
 end
 
 local function stopAllAnimations()
@@ -105,8 +107,9 @@ end
 local function stopGlide()
     isGliding = false
     isBoosting = false
+    isOvergliding = false
     stopAllAnimations()
-    resetColor()
+    tweenColor(Color3.new(1, 0, 0), 0.3)
 end
 
 -- Input Events
@@ -114,53 +117,88 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = true
-        startGlide()
+        if not isGliding then startGlide() end
     elseif input.KeyCode == Enum.KeyCode.T then
         tHeld = true
-        boostColorTween()
+        tweenColor(Color3.new(1, 0.5, 0), 0.2)
     end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = false
-        stopGlide()
+        if isOvergliding then
+            isOvergliding = false
+            isRecovering = true
+            tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
+        else
+            stopGlide()
+        end
     elseif input.KeyCode == Enum.KeyCode.T then
         tHeld = false
-        resetColor()
+        tweenColor(Color3.new(1, 0, 0), 0.2)
     end
 end)
 
 -- Main Loop
 RunService.RenderStepped:Connect(function(dt)
+    if isRecovering then
+        regenFuel(recoveryRate, dt)
+        if fuel >= 0 then
+            isRecovering = false
+            tweenColor(Color3.new(1, 0, 0), 0.3)
+        end
+        updateFuelBar()
+        return
+    end
+
     if isGliding then
-        if fuel <= 0 or humanoid.FloorMaterial ~= Enum.Material.Air then
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
             stopGlide()
             return
         end
 
-        if tHeld then
-            if not isBoosting then
-                isBoosting = true
-                if glideTrack then glideTrack:Stop() end
-                boostTrack = humanoid:LoadAnimation(animBoost)
-                boostTrack:Play()
+        if fuel > 0 then
+            if tHeld then
+                if not isBoosting then
+                    isBoosting = true
+                    if glideTrack then glideTrack:Stop() end
+                    boostTrack = humanoid:LoadAnimation(animBoost)
+                    boostTrack:Play()
+                end
+                local forward = root.CFrame.LookVector * boostSpeed
+                root.AssemblyLinearVelocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
+                drainFuel(boostDrainRate, dt)
+            else
+                if isBoosting then
+                    isBoosting = false
+                    if boostTrack then boostTrack:Stop() end
+                    glideTrack = humanoid:LoadAnimation(animGlide)
+                    glideTrack:Play()
+                end
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
+                drainFuel(fuelDrainRate, dt)
             end
-            local forward = root.CFrame.LookVector * boostSpeed
-            root.AssemblyLinearVelocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
-            drainFuel(boostDrainRate, dt)
+        elseif spaceHeld then
+            if not isOvergliding then
+                isOvergliding = true
+                stopAllAnimations()
+                tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
+            end
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 5, root.AssemblyLinearVelocity.Z)
+            drainFuel(overglideDrainRate, dt)
+            if fuel <= -2 then
+                isOvergliding = false
+                isRecovering = true
+                tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
+            end
         else
-            if isBoosting then
-                isBoosting = false
-                if boostTrack then boostTrack:Stop() end
-                glideTrack = humanoid:LoadAnimation(animGlide)
-                glideTrack:Play()
-            end
-            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
-            drainFuel(fuelDrainRate, dt)
+            stopGlide()
         end
     else
-        regenFuel(dt)
+        if fuel < maxFuel then
+            regenFuel(fuelRegenRate, dt)
+        end
     end
 
     updateFuelBar()
