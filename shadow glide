@@ -23,9 +23,11 @@ animBoost.AnimationId = "rbxassetid://83858149912973"
 
 local animInjuredIdle = Instance.new("Animation")
 animInjuredIdle.AnimationId = "rbxassetid://91713952120902"
+animInjuredIdle.Looped = true
 
 local animInjuredWalk = Instance.new("Animation")
 animInjuredWalk.AnimationId = "rbxassetid://127298485383182"
+animInjuredWalk.Looped = true
 
 --// 🧪 UI Fuel Bar
 local screenGui = Instance.new("ScreenGui")
@@ -129,55 +131,101 @@ local function enterInjuredState()
 end
 
 --// 🦿 Injured Hop Mechanic
-if isInjured then
-    humanoid.WalkSpeed = 5
-    humanoid.JumpPower = 0
+local function hopForward()
+    if not isInjured or not canHop then return end
+    canHop = false
+    local direction = root.CFrame.LookVector
+    local start = root.Position
+    local goal = start + direction * 10 + Vector3.new(0, 4, 0)
+    local t = 0
+    local duration = 0.5
 
-    -- Movement logic
-    if tHeld and blood > 0 then
-        local forward = root.CFrame.LookVector * boostSpeed
-        root.AssemblyLinearVelocity = Vector3.new(forward.X, 0, forward.Z)
-        blood -= dt
+    local connection
+    connection = RunService.RenderStepped:Connect(function(dt)
+        t += dt
+        if t >= duration then
+            connection:Disconnect()
+            return
+        end
+        local alpha = t / duration
+        local pos = start:Lerp(goal, alpha)
+        root.CFrame = CFrame.new(pos, pos + root.CFrame.LookVector)
+    end)
 
-        -- Force walk animation every frame
-        local hasWalk = false
-        for _, track in humanoid:GetPlayingAnimationTracks() do
-            if track.Animation.AnimationId == animInjuredWalk.AnimationId then
-                hasWalk = true
-                break
-            end
-        end
-        if not hasWalk then
-            stopAllAnimations()
-            local walkTrack = humanoid:LoadAnimation(animInjuredWalk)
-            walkTrack.Priority = Enum.AnimationPriority.Action
-            walkTrack.Looped = true
-            walkTrack:AdjustSpeed(2)
-            walkTrack:Play()
-        end
-    else
-        if blood < maxBlood then
-            blood += bloodRegenRate * dt
-        end
+    task.delay(0.6, function()
+        canHop = true
+    end)
+end
 
-        -- Force idle animation every frame
-        local hasIdle = false
-        for _, track in humanoid:GetPlayingAnimationTracks() do
-            if track.Animation.AnimationId == animInjuredIdle.AnimationId then
-                hasIdle = true
-                break
-            end
+--// 🎮 Input Events
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+        if isInjured then
+            hopForward()
+        elseif not isGliding then
+            isGliding = true
+            local jumpTrack = humanoid:LoadAnimation(animJumpTrigger)
+            jumpTrack:Play()
+            task.delay(0.5, function()
+                if isGliding then
+                    local glideTrack = humanoid:LoadAnimation(animGlide)
+                    glideTrack:Play()
+                end
+            end)
         end
-        if not hasIdle then
-            stopAllAnimations()
-            local idleTrack = humanoid:LoadAnimation(animInjuredIdle)
-            idleTrack.Priority = Enum.AnimationPriority.Action
-            idleTrack.Looped = true
-            idleTrack:Play()
+    elseif input.KeyCode == Enum.KeyCode.T then
+        tHeld = true
+    elseif input.KeyCode == Enum.KeyCode.T then
+        tHeld = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+        isGliding = false
+        stopAllAnimations()
+        tweenColor(Color3.new(1, 0, 0), 0.3)
+    elseif input.KeyCode == Enum.KeyCode.T then
+        tHeld = false
+        stopAllAnimations()
+        if not isInjured then
+            tweenColor(Color3.new(1, 0, 0), 0.2)
         end
     end
+end)
 
-    blood = math.clamp(blood, 0, maxBlood)
-    updateFuelBar()
-    return
-end
+--// 🔁 Main Loop
+RunService.RenderStepped:Connect(function(dt)
+    if isInjured then
+        humanoid.WalkSpeed = 5
+        humanoid.JumpPower = 0
+
+        if tHeld and blood > 0 then
+            local forward = root.CFrame.LookVector * boostSpeed
+            root.AssemblyLinearVelocity = Vector3.new(forward.X, 0, forward.Z)
+            blood -= dt
+
+            local hasWalk = false
+            for _, track in humanoid:GetPlayingAnimationTracks() do
+                if track.Animation.AnimationId == animInjuredWalk.AnimationId then
+                    hasWalk = true
+                    break
+                end
+            end
+            if not hasWalk then
+                stopAllAnimations()
+                local walkTrack = humanoid:LoadAnimation(animInjuredWalk)
+                walkTrack.Priority = Enum.AnimationPriority.Action
+                walkTrack:AdjustSpeed(2)
+                walkTrack:Play()
+            end
+        else
+            if blood < maxBlood then
+                blood += bloodRegenRate * dt
+            end
+
+            local hasIdle = false
+            for _, track in humanoid:GetPlayingAnimationTracks
