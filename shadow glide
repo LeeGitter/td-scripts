@@ -50,13 +50,13 @@ local isRecovering = false
 
 local fuel = 4
 local maxFuel = 4
-local fuelDrainRate = 1 -- lasts 4 seconds
+local fuelDrainRate = 1 -- 4 seconds
 local boostDrainRate = fuelDrainRate * 3
-local fuelRegenRate = 1 / 10 -- normal regen (10s)
+local fuelRegenRate = 1 / 10 -- 10 seconds
 local glideFallSpeed = -2
 local boostSpeed = 50
 
-local overglideDrainRate = 1 / 2 -- lasts max 2 seconds
+local overglideDrainRate = 1 / 2 -- lasts 2 seconds
 local recoveryRate = 1 / 4 -- fills purple bar in 4 seconds
 
 -- Input
@@ -73,11 +73,11 @@ local function regenFuel(rate, dt)
 end
 
 local function updateFuelBar()
-    local percent = fuel / maxFuel
-    if fuel >= 0 then
-        fuelFill.Size = UDim2.new(math.clamp(percent, 0, 1), 0, 1, 0)
+    if isOvergliding or isRecovering then
+        fuelFill.Size = UDim2.new(1, 0, 1, 0)
     else
-        fuelFill.Size = UDim2.new(0, 0, 1, 0)
+        local percent = fuel / maxFuel
+        fuelFill.Size = UDim2.new(math.clamp(percent, 0, 1), 0, 1, 0)
     end
 end
 
