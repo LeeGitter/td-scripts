@@ -48,9 +48,9 @@ local isBoosting = false
 local isOvergliding = false
 local isRecovering = false
 
-local fuel = 8
-local maxFuel = 8
-local fuelDrainRate = 1 / 4 -- lasts 4 seconds
+local fuel = 4
+local maxFuel = 4
+local fuelDrainRate = 1 -- lasts 4 seconds
 local boostDrainRate = fuelDrainRate * 3
 local fuelRegenRate = 1 / 10 -- normal regen (10s)
 local glideFallSpeed = -2
@@ -73,8 +73,12 @@ local function regenFuel(rate, dt)
 end
 
 local function updateFuelBar()
-    local percent = math.clamp(fuel / maxFuel, 0, 1)
-    fuelFill.Size = UDim2.new(percent, 0, 1, 0)
+    local percent = fuel / maxFuel
+    if fuel >= 0 then
+        fuelFill.Size = UDim2.new(math.clamp(percent, 0, 1), 0, 1, 0)
+    else
+        fuelFill.Size = UDim2.new(0, 0, 1, 0)
+    end
 end
 
 local function tweenColor(color, duration)
@@ -136,7 +140,9 @@ UserInputService.InputEnded:Connect(function(input)
         end
     elseif input.KeyCode == Enum.KeyCode.T then
         tHeld = false
-        tweenColor(Color3.new(1, 0, 0), 0.2)
+        if not isOvergliding and not isRecovering then
+            tweenColor(Color3.new(1, 0, 0), 0.2)
+        end
     end
 end)
 
