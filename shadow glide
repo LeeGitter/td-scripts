@@ -45,7 +45,7 @@ fuelFill.Parent = fuelBar
 -- State
 local isGliding = false
 local isBoosting = false
-local fuel = 1
+local fuel = 8
 local maxFuel = 8
 local fuelDrainRate = 1 / maxFuel
 local boostDrainRate = fuelDrainRate * 3
@@ -57,19 +57,43 @@ local boostSpeed = 25
 local spaceHeld = false
 local tHeld = false
 
--- Functions
+-- Fuel Logic
+local function drainFuel(rate, dt)
+    fuel = math.clamp(fuel - rate * dt, 0, maxFuel)
+end
+
+local function regenFuel(dt)
+    fuel = math.clamp(fuel + fuelRegenRate * dt, 0, maxFuel)
+end
+
+local function updateFuelBar()
+    local percent = fuel / maxFuel
+    fuelFill.Size = UDim2.new(percent, 0, 1, 0)
+end
+
+local function boostColorTween()
+    local tween = TweenService:Create(fuelFill, TweenInfo.new(0.2), {BackgroundColor3 = Color3.new(1, 0.5, 0)})
+    tween:Play()
+end
+
+local function resetColor()
+    fuelFill.BackgroundColor3 = Color3.new(1, 0, 0)
+end
+
 local function stopAllAnimations()
     if jumpTrack then jumpTrack:Stop() end
     if glideTrack then glideTrack:Stop() end
     if boostTrack then boostTrack:Stop() end
 end
 
+-- Glide Control
 local function startGlide()
     if isGliding or humanoid.FloorMaterial ~= Enum.Material.Air then return end
     isGliding = true
 
     jumpTrack = humanoid:LoadAnimation(animJumpTrigger)
     jumpTrack:Play()
+
     task.delay(0.5, function()
         if not isGliding then return end
         if jumpTrack then jumpTrack:Stop() end
@@ -83,19 +107,6 @@ local function stopGlide()
     isBoosting = false
     stopAllAnimations()
     resetColor()
-end
-
-local function updateFuelBar()
-    fuelFill.Size = UDim2.new(fuel / maxFuel, 0, 1, 0)
-end
-
-local function boostColorTween()
-    local tween = TweenService:Create(fuelFill, TweenInfo.new(0.2), {BackgroundColor3 = Color3.new(1, 0.5, 0)})
-    tween:Play()
-end
-
-local function resetColor()
-    fuelFill.BackgroundColor3 = Color3.new(1, 0, 0)
 end
 
 -- Input Events
@@ -137,7 +148,7 @@ RunService.RenderStepped:Connect(function(dt)
             end
             local forward = root.CFrame.LookVector * boostSpeed
             root.Velocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
-            fuel -= boostDrainRate * dt
+            drainFuel(boostDrainRate, dt)
         else
             if isBoosting then
                 isBoosting = false
@@ -146,14 +157,11 @@ RunService.RenderStepped:Connect(function(dt)
                 glideTrack:Play()
             end
             root.Velocity = Vector3.new(root.Velocity.X, glideFallSpeed, root.Velocity.Z)
-            fuel -= fuelDrainRate * dt
+            drainFuel(fuelDrainRate, dt)
         end
     else
-        if fuel < maxFuel then
-            fuel += fuelRegenRate * dt
-        end
+        regenFuel(dt)
     end
 
-    fuel = math.clamp(fuel, 0, maxFuel)
     updateFuelBar()
 end)
