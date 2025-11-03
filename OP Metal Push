@@ -1,0 +1,84 @@
+-- LocalScript (StarterPlayerScripts or StarterCharacterScripts)
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Configurable parameters
+local dashHeight = 75
+local dashDuration = 2
+local moveSpeed = 100
+local triggerWindow = 4
+
+-- State
+local ePressedTime = nil
+local dashActive = false
+local dashStartTime = nil
+local dashConnection = nil
+
+-- Input handling
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if input.KeyCode == Enum.KeyCode.E then
+        ePressedTime = tick()
+    end
+
+    if input.KeyCode == Enum.KeyCode.Space then
+        if ePressedTime and tick() - ePressedTime <= triggerWindow then
+            startDash()
+        end
+    end
+end)
+
+function startDash()
+    if dashActive then return end
+
+    dashActive = true
+    dashStartTime = tick()
+    local initialY = humanoidRootPart.Position.Y
+    local targetY = initialY + dashHeight
+
+    dashConnection = RunService.RenderStepped:Connect(function(dt)
+        local elapsed = tick() - dashStartTime
+        local sinceE = tick() - ePressedTime
+
+        if elapsed >= dashDuration or sinceE > triggerWindow then
+            endDash()
+            return
+        end
+
+        -- Upward movement
+        local progress = math.clamp(elapsed / dashDuration, 0, 1)
+        local newY = initialY + dashHeight * progress
+        local currentPos = humanoidRootPart.Position
+        humanoidRootPart.Velocity = Vector3.new(0, 0, 0) -- Reset velocity
+        humanoidRootPart.CFrame = CFrame.new(Vector3.new(currentPos.X, newY, currentPos.Z))
+
+        -- Lateral movement
+        local moveVector = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += Vector3.new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector += Vector3.new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector += Vector3.new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector += Vector3.new(1, 0, 0) end
+
+        if moveVector.Magnitude > 0 then
+            moveVector = moveVector.Unit * moveSpeed * dt
+            humanoidRootPart.CFrame = humanoidRootPart.CFrame + moveVector
+        end
+    end)
+end
+
+function endDash()
+    dashActive = false
+    ePressedTime = nil
+    dashStartTime = nil
+    if dashConnection then
+        dashConnection:Disconnect()
+        dashConnection = nil
+    end
+end
