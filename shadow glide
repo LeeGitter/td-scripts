@@ -51,7 +51,7 @@ local fuelDrainRate = 1 / maxFuel
 local boostDrainRate = fuelDrainRate * 3
 local fuelRegenRate = 1 / 10
 local glideFallSpeed = -2
-local boostSpeed = 25
+local boostSpeed = 38
 
 -- Input
 local spaceHeld = false
@@ -147,7 +147,7 @@ RunService.RenderStepped:Connect(function(dt)
                 boostTrack:Play()
             end
             local forward = root.CFrame.LookVector * boostSpeed
-            root.Velocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
+            root.AssemblyLinearVelocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
             drainFuel(boostDrainRate, dt)
         else
             if isBoosting then
@@ -156,7 +156,7 @@ RunService.RenderStepped:Connect(function(dt)
                 glideTrack = humanoid:LoadAnimation(animGlide)
                 glideTrack:Play()
             end
-            root.Velocity = Vector3.new(root.Velocity.X, glideFallSpeed, root.Velocity.Z)
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
             drainFuel(fuelDrainRate, dt)
         end
     else
