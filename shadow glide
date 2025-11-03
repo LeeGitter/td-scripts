@@ -47,11 +47,11 @@ local isGliding = false
 local isBoosting = false
 local fuel = 8
 local maxFuel = 8
-local fuelDrainRate = 1 / maxFuel
+local fuelDrainRate = 1 / 4 -- lasts 4 seconds normally
 local boostDrainRate = fuelDrainRate * 3
 local fuelRegenRate = 1 / 10
 local glideFallSpeed = -2
-local boostSpeed = 38
+local boostSpeed = 50 -- boost speed updated
 
 -- Input
 local spaceHeld = false
