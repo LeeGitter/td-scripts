@@ -50,9 +50,9 @@ local isRecovering = false
 
 local fuel = 8
 local maxFuel = 8
-local fuelDrainRate = 1 / 4
+local fuelDrainRate = 1 / 4 -- lasts 4 seconds
 local boostDrainRate = fuelDrainRate * 3
-local fuelRegenRate = 1 / 10
+local fuelRegenRate = 1 / 10 -- normal regen (10s)
 local glideFallSpeed = -2
 local boostSpeed = 50
 
