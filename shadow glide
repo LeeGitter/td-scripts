@@ -70,16 +70,12 @@ local maxBlood = 5
 
 local isGliding = false
 local isBoosting = false
-local isOvergliding = false
-local isRecovering = false
 local isInjured = false
 local canHop = true
 
 local fuelDrainRate = 1
 local boostDrainRate = fuelDrainRate * 3
 local fuelRegenRate = 1 / 10
-local overglideDrainRate = 1 / 2
-local recoveryRate = 1 / 4
 local bloodRegenRate = 1 / 8
 
 local glideFallSpeed = -2
@@ -96,9 +92,7 @@ local function tweenColor(color, duration)
 end
 
 local function updateFuelBar()
-    if isOvergliding or isRecovering then
-        fuelFill.Size = UDim2.new(1, 0, 1, 0)
-    elseif isInjured then
+    if isInjured then
         fuelFill.Size = UDim2.new(math.clamp(blood / maxBlood, 0, 1), 0, 1, 0)
     else
         local percent = fuel / maxFuel
@@ -116,8 +110,6 @@ local function enterInjuredState()
     isInjured = true
     isGliding = false
     isBoosting = false
-    isOvergliding = false
-    isRecovering = false
 
     humanoid.WalkSpeed = 5
     humanoid.JumpPower = 0
@@ -135,7 +127,6 @@ local function enterInjuredState()
     end)
 end
 
--- Continue with Part 2 below ↓
 local function hopForward()
     if not isInjured or not canHop then return end
     canHop = false
@@ -195,19 +186,13 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Space then
         spaceHeld = false
-        if isOvergliding then
-            isOvergliding = false
-            isRecovering = true
-            tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
-        else
-            isGliding = false
-            stopAllAnimations()
-            tweenColor(Color3.new(1, 0, 0), 0.3)
-        end
+        isGliding = false
+        stopAllAnimations()
+        tweenColor(Color3.new(1, 0, 0), 0.3)
     elseif input.KeyCode == Enum.KeyCode.T then
         tHeld = false
         stopAllAnimations()
-        if not isOvergliding and not isRecovering and not isInjured then
+        if not isInjured then
             tweenColor(Color3.new(1, 0, 0), 0.2)
         end
     end
@@ -232,16 +217,6 @@ RunService.RenderStepped:Connect(function(dt)
         return
     end
 
-    if isRecovering then
-        fuel += recoveryRate * dt
-        if fuel >= 0 then
-            isRecovering = false
-            tweenColor(Color3.new(1, 0, 0), 0.3)
-        end
-        updateFuelBar()
-        return
-    end
-
     if isGliding then
         if humanoid.FloorMaterial ~= Enum.Material.Air then
             isGliding = false
@@ -253,6 +228,7 @@ RunService.RenderStepped:Connect(function(dt)
         if fuel > 0 then
             if tHeld then
                 if not isBoosting then
+                    isBoosting = true
                     isBoosting = true
                     stopAllAnimations()
                     local boostTrack = humanoid:LoadAnimation(animBoost)
@@ -271,21 +247,8 @@ RunService.RenderStepped:Connect(function(dt)
                 root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
                 fuel -= fuelDrainRate * dt
             end
-        elseif spaceHeld then
-            if not isOvergliding then
-                isOvergliding = true
-                stopAllAnimations()
-                tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
-            end
-            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 5, root.AssemblyLinearVelocity.Z)
-            fuel -= overglideDrainRate * dt
-            if fuel <= -2 then
-                enterInjuredState()
-            end
         else
-            isGliding = false
-            stopAllAnimations()
-            tweenColor(Color3.new(1, 0, 0), 0.3)
+            enterInjuredState()
         end
     else
         if fuel < maxFuel then
@@ -293,6 +256,6 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    fuel = math.clamp(fuel, -2, maxFuel)
+    fuel = math.clamp(fuel, 0, maxFuel)
     updateFuelBar()
 end)
