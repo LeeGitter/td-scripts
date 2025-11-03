@@ -107,10 +107,8 @@ local function updateFuelBar()
 end
 
 local function stopAllAnimations()
-    if humanoid then
-        for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-            track:Stop()
-        end
+    for _, track in humanoid:GetPlayingAnimationTracks() do
+        track:Stop()
     end
 end
 
@@ -137,18 +135,23 @@ local function enterInjuredState()
     end)
 end
 
+-- Continue with Part 2 below ↓
 local function hopForward()
     if not isInjured or not canHop then return end
     canHop = false
     local direction = root.CFrame.LookVector
-    local goal = root.Position + direction * 10 + Vector3.new(0, 4, 0)
     local start = root.Position
+    local goal = start + direction * 10 + Vector3.new(0, 4, 0)
     local t = 0
     local duration = 0.5
 
-    RunService.RenderStepped:Connect(function(dt)
-        if t >= duration then return end
+    local connection
+    connection = RunService.RenderStepped:Connect(function(dt)
         t += dt
+        if t >= duration then
+            connection:Disconnect()
+            return
+        end
         local alpha = t / duration
         local pos = start:Lerp(goal, alpha)
         root.CFrame = CFrame.new(pos, pos + root.CFrame.LookVector)
@@ -217,4 +220,79 @@ RunService.RenderStepped:Connect(function(dt)
         humanoid.JumpPower = 0
 
         if tHeld and blood > 0 then
-            local
+            local forward = root.CFrame.LookVector * boostSpeed
+            root.AssemblyLinearVelocity = Vector3.new(forward.X, 0, forward.Z)
+            blood -= dt
+        elseif blood < maxBlood then
+            blood += bloodRegenRate * dt
+        end
+
+        blood = math.clamp(blood, 0, maxBlood)
+        updateFuelBar()
+        return
+    end
+
+    if isRecovering then
+        fuel += recoveryRate * dt
+        if fuel >= 0 then
+            isRecovering = false
+            tweenColor(Color3.new(1, 0, 0), 0.3)
+        end
+        updateFuelBar()
+        return
+    end
+
+    if isGliding then
+        if humanoid.FloorMaterial ~= Enum.Material.Air then
+            isGliding = false
+            stopAllAnimations()
+            tweenColor(Color3.new(1, 0, 0), 0.3)
+            return
+        end
+
+        if fuel > 0 then
+            if tHeld then
+                if not isBoosting then
+                    isBoosting = true
+                    stopAllAnimations()
+                    local boostTrack = humanoid:LoadAnimation(animBoost)
+                    boostTrack:Play()
+                end
+                local forward = root.CFrame.LookVector * boostSpeed
+                root.AssemblyLinearVelocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
+                fuel -= boostDrainRate * dt
+            else
+                if isBoosting then
+                    isBoosting = false
+                    stopAllAnimations()
+                    local glideTrack = humanoid:LoadAnimation(animGlide)
+                    glideTrack:Play()
+                end
+                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
+                fuel -= fuelDrainRate * dt
+            end
+        elseif spaceHeld then
+            if not isOvergliding then
+                isOvergliding = true
+                stopAllAnimations()
+                tweenColor(Color3.fromRGB(128, 0, 128), 0.3)
+            end
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 5, root.AssemblyLinearVelocity.Z)
+            fuel -= overglideDrainRate * dt
+            if fuel <= -2 then
+                enterInjuredState()
+            end
+        else
+            isGliding = false
+            stopAllAnimations()
+            tweenColor(Color3.new(1, 0, 0), 0.3)
+        end
+    else
+        if fuel < maxFuel then
+            fuel += fuelRegenRate * dt
+        end
+    end
+
+    fuel = math.clamp(fuel, -2, maxFuel)
+    updateFuelBar()
+end)
