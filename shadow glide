@@ -116,6 +116,7 @@ local function enterInjuredState()
 
     stopAllAnimations()
     local idleTrack = humanoid:LoadAnimation(animInjuredIdle)
+    idleTrack.Priority = Enum.AnimationPriority.Action
     idleTrack:Play()
 
     tweenColor(Color3.new(0.5, 0, 0), 0.3)
@@ -174,7 +175,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     elseif input.KeyCode == Enum.KeyCode.T then
         tHeld = true
         if isInjured and blood > 0 then
+            stopAllAnimations()
             local walkTrack = humanoid:LoadAnimation(animInjuredWalk)
+            walkTrack.Priority = Enum.AnimationPriority.Action
             walkTrack:AdjustSpeed(2)
             walkTrack:Play()
         else
@@ -213,49 +216,249 @@ RunService.RenderStepped:Connect(function(dt)
         end
 
         blood = math.clamp(blood, 0, maxBlood)
-        updateFuelBar()
-        return
-    end
 
-    if isGliding then
-        if humanoid.FloorMaterial ~= Enum.Material.Air then
-            isGliding = false
-            stopAllAnimations()
-            tweenColor(Color3.new(1, 0, 0), 0.3)
+        -- Ensure idle animation plays if nothing else is active
+        if not tHeld then
+            local hasIdle = false
+            for _, track in humanoid:GetPlayingAnimationTracks() do
+                if track.Animation.AnimationId == animInjuredIdle.AnimationId then
+                    hasIdle = true
+                    break
+                end
+            end
+            if not hasIdle then
+                stopAllAnimations()
+                local idleTrack = humanoid:LoadAnimation(animInjuredIdle)
+                idleTrack.Priority
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+
+-- Player & Character
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- Animations
+local animJumpTrigger = Instance.new("Animation")
+animJumpTrigger.AnimationId = "rbxassetid://96227760954607"
+
+local animGlide = Instance.new("Animation")
+animGlide.AnimationId = "rbxassetid://110554238884342"
+
+local animBoost = Instance.new("Animation")
+animBoost.AnimationId = "rbxassetid://83858149912973"
+
+local animInjuredIdle = Instance.new("Animation")
+animInjuredIdle.AnimationId = "rbxassetid://91713952120902"
+
+local animInjuredWalk = Instance.new("Animation")
+animInjuredWalk.AnimationId = "rbxassetid://127298485383182"
+
+-- UI Fuel Bar
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GlideFuelUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local fuelBar = Instance.new("Frame")
+fuelBar.Size = UDim2.new(0.2, 0, 0.02, 0)
+fuelBar.Position = UDim2.new(0.78, 0, 0.95, 0)
+fuelBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+fuelBar.BorderSizePixel = 0
+fuelBar.Parent = screenGui
+
+local fuelFill = Instance.new("Frame")
+fuelFill.Size = UDim2.new(1, 0, 1, 0)
+fuelFill.Position = UDim2.new(0, 0, 0, 0)
+fuelFill.BackgroundColor3 = Color3.new(1, 0, 0)
+fuelFill.BorderSizePixel = 0
+fuelFill.Parent = fuelBar
+
+-- Injured Overlay
+local blackOverlay = Instance.new("Frame")
+blackOverlay.Size = UDim2.new(1, 0, 1, 0)
+blackOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+blackOverlay.BackgroundTransparency = 1
+blackOverlay.ZIndex = 10
+blackOverlay.Parent = screenGui
+
+-- Injured Sound
+local injuredSound = Instance.new("Sound")
+injuredSound.SoundId = "rbxassetid://165969964"
+injuredSound.Volume = 2
+injuredSound.Looped = false
+injuredSound.Parent = SoundService
+
+-- State
+local fuel = 4
+local maxFuel = 4
+local blood = 5
+local maxBlood = 5
+
+local isGliding = false
+local isBoosting = false
+local isInjured = false
+local canHop = true
+
+local fuelDrainRate = 1
+local boostDrainRate = fuelDrainRate * 3
+local fuelRegenRate = 1 / 10
+local bloodRegenRate = 1 / 8
+
+local glideFallSpeed = -2
+local boostSpeed = 50
+
+-- Input
+local spaceHeld = false
+local tHeld = false
+
+-- Helpers
+local function tweenColor(color, duration)
+    local tween = TweenService:Create(fuelFill, TweenInfo.new(duration), {BackgroundColor3 = color})
+    tween:Play()
+end
+
+local function updateFuelBar()
+    if isInjured then
+        fuelFill.Size = UDim2.new(math.clamp(blood / maxBlood, 0, 1), 0, 1, 0)
+    else
+        local percent = fuel / maxFuel
+        fuelFill.Size = UDim2.new(math.clamp(percent, 0, 1), 0, 1, 0)
+    end
+end
+
+local function stopAllAnimations()
+    for _, track in humanoid:GetPlayingAnimationTracks() do
+        track:Stop()
+    end
+end
+
+local function enterInjuredState()
+    isInjured = true
+    isGliding = false
+    isBoosting = false
+
+    humanoid.WalkSpeed = 5
+    humanoid.JumpPower = 0
+
+    stopAllAnimations()
+    local idleTrack = humanoid:LoadAnimation(animInjuredIdle)
+    idleTrack.Priority = Enum.AnimationPriority.Action
+    idleTrack:Play()
+
+    tweenColor(Color3.new(0.5, 0, 0), 0.3)
+    blackOverlay.BackgroundTransparency = 0
+    injuredSound:Play()
+
+    task.delay(2, function()
+        blackOverlay.BackgroundTransparency = 1
+    end)
+end
+
+local function hopForward()
+    if not isInjured or not canHop then return end
+    canHop = false
+    local direction = root.CFrame.LookVector
+    local start = root.Position
+    local goal = start + direction * 10 + Vector3.new(0, 4, 0)
+    local t = 0
+    local duration = 0.5
+
+    local connection
+    connection = RunService.RenderStepped:Connect(function(dt)
+        t += dt
+        if t >= duration then
+            connection:Disconnect()
             return
         end
+        local alpha = t / duration
+        local pos = start:Lerp(goal, alpha)
+        root.CFrame = CFrame.new(pos, pos + root.CFrame.LookVector)
+    end)
 
-        if fuel > 0 then
-            if tHeld then
-                if not isBoosting then
-                    isBoosting = true
-                    isBoosting = true
-                    stopAllAnimations()
-                    local boostTrack = humanoid:LoadAnimation(animBoost)
-                    boostTrack:Play()
-                end
-                local forward = root.CFrame.LookVector * boostSpeed
-                root.AssemblyLinearVelocity = Vector3.new(forward.X, glideFallSpeed, forward.Z)
-                fuel -= boostDrainRate * dt
-            else
-                if isBoosting then
-                    isBoosting = false
-                    stopAllAnimations()
+    task.delay(0.6, function()
+        canHop = true
+    end)
+end
+
+-- Input Events
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = true
+        if isInjured then
+            hopForward()
+        elseif not isGliding then
+            isGliding = true
+            local jumpTrack = humanoid:LoadAnimation(animJumpTrigger)
+            jumpTrack:Play()
+            task.delay(0.5, function()
+                if isGliding then
                     local glideTrack = humanoid:LoadAnimation(animGlide)
                     glideTrack:Play()
                 end
-                root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, glideFallSpeed, root.AssemblyLinearVelocity.Z)
-                fuel -= fuelDrainRate * dt
-            end
-        else
-            enterInjuredState()
+            end)
         end
-    else
-        if fuel < maxFuel then
-            fuel += fuelRegenRate * dt
+    elseif input.KeyCode == Enum.KeyCode.T then
+        tHeld = true
+        if isInjured and blood > 0 then
+            stopAllAnimations()
+            local walkTrack = humanoid:LoadAnimation(animInjuredWalk)
+            walkTrack.Priority = Enum.AnimationPriority.Action
+            walkTrack:AdjustSpeed(2)
+            walkTrack:Play()
+        else
+            tweenColor(Color3.new(1, 0.5, 0), 0.2)
         end
     end
-
-    fuel = math.clamp(fuel, 0, maxFuel)
-    updateFuelBar()
 end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spaceHeld = false
+        isGliding = false
+        stopAllAnimations()
+        tweenColor(Color3.new(1, 0, 0), 0.3)
+    elseif input.KeyCode == Enum.KeyCode.T then
+        tHeld = false
+        stopAllAnimations()
+        if not isInjured then
+            tweenColor(Color3.new(1, 0, 0), 0.2)
+        end
+    end
+end)
+
+-- Main Loop
+RunService.RenderStepped:Connect(function(dt)
+    if isInjured then
+        humanoid.WalkSpeed = 5
+        humanoid.JumpPower = 0
+
+        if tHeld and blood > 0 then
+            local forward = root.CFrame.LookVector * boostSpeed
+            root.AssemblyLinearVelocity = Vector3.new(forward.X, 0, forward.Z)
+            blood -= dt
+        elseif blood < maxBlood then
+            blood += bloodRegenRate * dt
+        end
+
+        blood = math.clamp(blood, 0, maxBlood)
+
+        -- Ensure idle animation plays if nothing else is active
+        if not tHeld then
+            local hasIdle = false
+            for _, track in humanoid:GetPlayingAnimationTracks() do
+                if track.Animation.AnimationId == animInjuredIdle.AnimationId then
+                    hasIdle = true
+                    break
+                end
+            end
+            if not hasIdle then
+                stopAllAnimations()
+                local idleTrack = humanoid:LoadAnimation(animInjuredIdle)
+                idleTrack.Priority
