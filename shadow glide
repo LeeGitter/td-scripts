@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
 
 -- Player & Character
 local player = Players.LocalPlayer
@@ -20,15 +21,20 @@ animGlide.AnimationId = "rbxassetid://110554238884342"
 local animBoost = Instance.new("Animation")
 animBoost.AnimationId = "rbxassetid://83858149912973"
 
-local glideTrack, boostTrack
+local jumpTrack, glideTrack, boostTrack
 
 -- UI Fuel Bar
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GlideFuelUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = StarterGui
+
 local fuelBar = Instance.new("Frame")
 fuelBar.Size = UDim2.new(0.3, 0, 0.02, 0)
 fuelBar.Position = UDim2.new(0.35, 0, 0.95, 0)
-fuelBar.BackgroundColor3 = Color3.new(1, 0, 0)
+fuelBar.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
 fuelBar.BorderSizePixel = 0
-fuelBar.Parent = player:WaitForChild("PlayerGui")
+fuelBar.Parent = screenGui
 
 local fuelFill = Instance.new("Frame")
 fuelFill.Size = UDim2.new(1, 0, 1, 0)
@@ -57,9 +63,10 @@ local function startGlide()
     if isGliding or humanoid.FloorMaterial ~= Enum.Material.Air then return end
     isGliding = true
 
-    local jumpAnim = humanoid:LoadAnimation(animJumpTrigger)
-    jumpAnim:Play()
+    jumpTrack = humanoid:LoadAnimation(animJumpTrigger)
+    jumpTrack:Play()
     task.delay(0.5, function()
+        if jumpTrack and jumpTrack.IsPlaying then jumpTrack:Stop() end
         if not isGliding then return end
         glideTrack = humanoid:LoadAnimation(animGlide)
         glideTrack:Play()
@@ -111,17 +118,10 @@ end)
 -- Main Loop
 RunService.RenderStepped:Connect(function(dt)
     if isGliding then
-        if fuel <= 0 then
+        if fuel <= 0 or humanoid.FloorMaterial ~= Enum.Material.Air then
             stopGlide()
             return
         end
-
-        if humanoid.FloorMaterial ~= Enum.Material.Air then
-            stopGlide()
-            return
-        end
-
-        root.Velocity = Vector3.new(root.Velocity.X, glideFallSpeed, root.Velocity.Z)
 
         if tHeld then
             if not isBoosting then
@@ -140,6 +140,7 @@ RunService.RenderStepped:Connect(function(dt)
                 glideTrack = humanoid:LoadAnimation(animGlide)
                 glideTrack:Play()
             end
+            root.Velocity = Vector3.new(root.Velocity.X, glideFallSpeed, root.Velocity.Z)
             fuel -= fuelDrainRate * dt
         end
     else
