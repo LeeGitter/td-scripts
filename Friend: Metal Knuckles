@@ -1,0 +1,156 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local mouse = LocalPlayer:GetMouse()
+
+local possessed = false
+local targetPlayer = nil
+local mimicConnection = nil
+local phaseConnection = nil
+local animationTracks = {}
+local currentState = nil
+
+local Animations = {
+    Idle = 127517957943313,
+    Walk = 140414859827161,
+    Fall = 110554238884342
+}
+
+local function stopAnimations()
+    for _, track in pairs(animationTracks) do
+        track:Stop()
+    end
+    animationTracks = {}
+end
+
+local function playAnimation(animId)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    stopAnimations()
+
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. animId
+    local track = hum:LoadAnimation(anim)
+    track:Play()
+    animationTracks[animId] = track
+end
+
+local function mimicMovement(target)
+    if mimicConnection then mimicConnection:Disconnect() end
+    mimicConnection = RunService.Heartbeat:Connect(function()
+        if not possessed then return end
+        local targetChar = target.Character
+        local myChar = LocalPlayer.Character
+        if not targetChar or not myChar then return end
+
+        local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+        local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+        if targetRoot and myRoot then
+            local offset = targetRoot.CFrame.RightVector * -2 + Vector3.new(0, 2, 0)
+            local pos = targetRoot.Position - targetRoot.CFrame.LookVector * 2 + offset
+            local look = targetRoot.CFrame.LookVector
+            task.delay(0.5, function()
+                myRoot.CFrame = CFrame.new(pos, pos + look)
+            end)
+        end
+    end)
+end
+
+local function trackPhase(target)
+    if phaseConnection then phaseConnection:Disconnect() end
+    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    phaseConnection = hum.StateChanged:Connect(function(_, newState)
+        if not possessed then return end
+
+        if newState == Enum.HumanoidStateType.Running then
+            if currentState ~= "Walk" then
+                currentState = "Walk"
+                playAnimation(Animations.Walk)
+            end
+        elseif newState == Enum.HumanoidStateType.Freefall then
+            local root = target.Character:FindFirstChild("HumanoidRootPart")
+            if root and root.Velocity.Y < -1 then
+                if currentState ~= "Fall" then
+                    currentState = "Fall"
+                    playAnimation(Animations.Fall)
+                end
+            end
+        elseif newState == Enum.HumanoidStateType.Idle or newState == Enum.HumanoidStateType.Seated then
+            if currentState ~= "Idle" then
+                currentState = "Idle"
+                playAnimation(Animations.Idle)
+            end
+        else
+            currentState = nil
+            stopAnimations()
+        end
+    end)
+end
+
+local function possess(target)
+    local targetChar = target.Character
+    local myChar = LocalPlayer.Character
+    if not targetChar or not myChar then return end
+
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if targetRoot and myRoot then
+        local offset = targetRoot.CFrame.RightVector * -2 + Vector3.new(0, 2, 0)
+        local pos = targetRoot.Position - targetRoot.CFrame.LookVector * 2 + offset
+        myRoot.CFrame = CFrame.new(pos, pos + targetRoot.CFrame.LookVector)
+    end
+
+    local myHum = myChar:FindFirstChildOfClass("Humanoid")
+    if myHum then
+        myHum:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
+        myHum:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+    end
+
+    possessed = true
+    targetPlayer = target
+    mimicMovement(target)
+    trackPhase(target)
+end
+
+local function stopPossession()
+    possessed = false
+    targetPlayer = nil
+    currentState = nil
+    stopAnimations()
+    if mimicConnection then mimicConnection:Disconnect() end
+    if phaseConnection then phaseConnection:Disconnect() end
+
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
+            hum:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        end
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.P then
+        if possessed then
+            stopPossession()
+        else
+            mouse.Button1Down:Connect(function()
+                local target = mouse.Target
+                if target then
+                    local model = target:FindFirstAncestorOfClass("Model")
+                    if model and Players:GetPlayerFromCharacter(model) then
+                        possess(Players:GetPlayerFromCharacter(model))
+                    end
+                end
+            end)
+        end
+    end
+end)
