@@ -12,7 +12,7 @@ local animateScript = character:FindFirstChild("Animate")
 -- State
 local flying = false
 local descending = false
-local maxSpeed = 75
+local maxSpeed = 100
 local startSpeed = 10
 local acceleration = 40
 local deceleration = 60
@@ -22,10 +22,10 @@ local velocityDirection = Vector3.zero
 
 -- Animation IDs
 local anims = {
-    idle = "rbxassetid://180426354",
-    slow = "rbxassetid://97023167750961",
-    fast = "rbxassetid://92735680749355",
-    land = "rbxassetid://114484421969636"
+    idle = "rbxassetid://129344053462437",
+    slow = "rbxassetid://111941689325655",
+    fast = "rbxassetid://110077137597780",
+    land = "rbxassetid://136333806931237"
 }
 
 -- Animator setup
